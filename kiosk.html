@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>NOJ | شاشة المحاسب</title>
+<style>
+:root{
+  --navy:#12235C;
+  --navy-light:#1D3178;
+  --blue:#2D7BF4;
+  --blue-dim:rgba(45,123,244,.12);
+  --gold:#C99A2E;
+  --gold-dim:rgba(201,154,46,.16);
+  --bg:#F7F8FC;
+  --card:#FFFFFF;
+  --text:#161B33;
+  --muted:#6B7280;
+  --line:#E7E9F3;
+  --success:#1FA971;
+  --danger:#E15B4D;
+  --radius-lg:28px;
+  --radius-md:18px;
+  --radius-sm:12px;
+  --shadow:0 16px 40px rgba(18,35,92,.12);
+  --shadow-sm:0 6px 18px rgba(18,35,92,.08);
+  --dur:240ms;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;user-select:none;}
+html,body{height:100%;}
+body{
+  font-family:"Segoe UI","Tahoma","Geeza Pro","Arial",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  overflow:hidden;
+}
+button,input{font-family:inherit;}
+svg{display:block;}
+
+.kiosk{
+  width:100vw;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  position:relative;
+}
+
+/* ---------------- Header ---------------- */
+.kheader{
+  position:relative;
+  height:110px;
+  flex-shrink:0;
+  background:var(--card);
+  border-bottom:1px solid var(--line);
+  display:flex;
+  align-items:center;
+}
+.brand-noj{
+  position:absolute;
+  top:50%;right:34px;
+  transform:translateY(-50%);
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.brand-noj .word{font-size:22px;font-weight:900;color:var(--navy);letter-spacing:.5px;}
+.merchant-id{
+  position:absolute;
+  top:50%;left:34px;
+  transform:translateY(-50%);
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+.merchant-id .ic{
+  width:52px;height:52px;border-radius:16px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--blue-dim);color:var(--blue);flex-shrink:0;
+}
+.merchant-id .txt .name{font-size:16px;font-weight:800;color:var(--navy);}
+.merchant-id .txt .sub{font-size:12.5px;color:var(--muted);margin-top:2px;}
+.kheader .tagline{
+  width:100%;
+  text-align:center;
+  padding:0 260px;
+  font-size:15px;
+  font-weight:700;
+  color:var(--navy-light);
+  line-height:1.5;
+}
+
+/* ---------------- Template switch (staff control) ---------------- */
+.tpl-bar{
+  flex-shrink:0;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:5px 34px;
+  background:var(--bg);
+}
+.tpl-bar button{
+  display:flex;align-items:center;gap:8px;
+  background:var(--card);
+  border:1.5px solid var(--line);
+  border-radius:30px;
+  padding:6px 14px;
+  font-size:12px;
+  font-weight:700;
+  color:var(--muted);
+  cursor:pointer;
+  box-shadow:var(--shadow-sm);
+  transition:transform var(--dur);
+}
+.tpl-bar button:active{transform:scale(.95);}
+.tpl-bar .hint{font-size:11px;color:var(--muted);opacity:.75;}
+
+/* ---------------- Main screens ---------------- */
+.kmain-wrap{flex:1;position:relative;overflow:hidden;}
+.kscreen{
+  position:absolute;inset:0;
+  display:flex;
+  opacity:0;transform:scale(.98);
+  pointer-events:none;
+  transition:opacity var(--dur) ease, transform var(--dur) ease;
+}
+.kscreen.active{opacity:1;transform:scale(1);pointer-events:auto;}
+
+/* idle screen layout: order panel + tap zone */
+#screen-idle{
+  align-items:stretch;
+  justify-content:center;
+  gap:40px;
+  padding:36px 60px;
+}
+.order-panel{
+  width:360px;
+  flex-shrink:0;
+  background:linear-gradient(160deg,var(--navy),var(--navy-light));
+  border-radius:var(--radius-lg);
+  color:#fff;
+  padding:32px 28px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:22px;
+  box-shadow:var(--shadow);
+  position:relative;
+  overflow:hidden;
+}
+.order-panel::after{
+  content:"";position:absolute;width:220px;height:220px;border-radius:50%;
+  background:radial-gradient(circle,rgba(201,154,46,.28),transparent 70%);
+  top:-70px;left:-70px;
+}
+.order-panel .op-kicker{font-size:13px;font-weight:700;opacity:.8;display:flex;align-items:center;gap:8px;}
+.order-panel .op-title{font-size:24px;font-weight:900;}
+.op-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.op-stat{background:rgba(255,255,255,.1);border-radius:var(--radius-sm);padding:14px 12px;text-align:center;}
+.op-stat .v{font-size:26px;font-weight:900;direction:ltr;unicode-bidi:isolate;}
+.op-stat .l{font-size:11.5px;opacity:.85;margin-top:4px;font-weight:600;}
+.op-stat.wide{grid-column:1/3;}
+.op-note{font-size:12px;opacity:.85;line-height:1.7;display:flex;gap:8px;}
+
+.tap-zone{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:22px;
+  cursor:pointer;
+  border-radius:var(--radius-lg);
+  transition:background var(--dur);
+}
+.tap-zone:active{background:rgba(45,123,244,.05);}
+.nfc-stage{
+  position:relative;
+  width:220px;height:220px;
+  display:flex;align-items:center;justify-content:center;
+}
+.nfc-ring{
+  position:absolute;
+  border-radius:50%;
+  border:2.5px solid var(--blue);
+  opacity:0;
+  animation:nfcPulse 2.4s ease-out infinite;
+}
+.nfc-ring:nth-child(1){width:100px;height:100px;animation-delay:0s;}
+.nfc-ring:nth-child(2){width:100px;height:100px;animation-delay:.8s;}
+.nfc-ring:nth-child(3){width:100px;height:100px;animation-delay:1.6s;}
+@keyframes nfcPulse{
+  0%{width:100px;height:100px;opacity:.7;border-color:var(--blue);}
+  100%{width:220px;height:220px;opacity:0;border-color:var(--gold);}
+}
+.phone-ill{
+  position:relative;z-index:2;
+  width:96px;height:96px;border-radius:50%;
+  background:var(--card);
+  box-shadow:var(--shadow);
+  display:flex;align-items:center;justify-content:center;
+  color:var(--navy);
+}
+.tap-label{font-size:22px;font-weight:900;color:var(--navy);}
+.tap-sub{font-size:13.5px;color:var(--muted);margin-top:-12px;text-align:center;max-width:280px;}
+.tap-zone.detecting .nfc-ring{animation-duration:.9s;border-color:var(--gold);}
+.tap-zone.detecting .tap-label{color:var(--gold);}
+
+.btn-outline{
+  background:var(--card);
+  border:2px solid var(--navy);
+  color:var(--navy);
+  border-radius:40px;
+  padding:16px 36px;
+  font-size:16px;
+  font-weight:800;
+  cursor:pointer;
+  transition:transform var(--dur), background var(--dur);
+}
+.btn-outline:active{transform:scale(.96);background:var(--blue-dim);}
+
+/* success screen */
+#screen-success{
+  align-items:center;justify-content:center;
+  padding:24px;
+  overflow-y:auto;
+}
+.success-card{
+  width:100%;max-width:640px;
+  max-height:100%;
+  overflow-y:auto;
+  background:var(--card);
+  border-radius:var(--radius-lg);
+  box-shadow:var(--shadow);
+  padding:20px 40px;
+  text-align:center;
+  position:relative;
+}
+.success-check{
+  width:48px;height:48px;border-radius:50%;
+  background:rgba(31,169,113,.12);
+  color:var(--success);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 10px;
+}
+.success-check svg{width:26px;height:26px;}
+.success-title{font-size:19px;font-weight:900;color:var(--navy);}
+.success-sub{font-size:12.5px;color:var(--muted);margin-top:5px;}
+.success-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  margin-top:14px;text-align:center;
+}
+.success-stat{background:var(--bg);border-radius:var(--radius-sm);padding:8px 10px;}
+.success-stat.wide{grid-column:1/3;background:var(--gold-dim);}
+.success-stat .v{font-size:18px;font-weight:900;color:var(--navy);direction:ltr;unicode-bidi:isolate;}
+.success-stat .l{font-size:11px;color:var(--muted);margin-top:2px;font-weight:700;}
+.success-invoice{
+  margin-top:10px;font-size:12px;color:var(--navy-light);font-weight:700;
+  background:var(--blue-dim);border-radius:var(--radius-sm);padding:8px;
+}
+.success-privacy{
+  margin-top:8px;font-size:11px;color:var(--muted);display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.countdown-wrap{
+  margin-top:12px;display:flex;flex-direction:column;align-items:center;gap:8px;
+}
+.countdown-ring{position:relative;width:48px;height:48px;}
+.countdown-ring svg{transform:rotate(-90deg);}
+.countdown-ring .num{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:800;color:var(--navy);direction:ltr;
+}
+.btn-return{
+  background:var(--navy);color:#fff;border:none;border-radius:40px;
+  padding:11px 26px;font-size:13.5px;font-weight:800;cursor:pointer;
+}
+.btn-return:active{transform:scale(.96);}
+
+/* ---------------- Footer features ---------------- */
+.kfooter{
+  flex-shrink:0;
+  height:100px;
+  background:var(--card);
+  border-top:1px solid var(--line);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:52px;
+  padding:0 30px;
+}
+.feature{display:flex;align-items:center;gap:10px;}
+.feature .ic{
+  width:40px;height:40px;border-radius:12px;
+  background:var(--gold-dim);color:var(--gold);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.feature .lbl{font-size:12.5px;font-weight:700;color:var(--navy);white-space:nowrap;}
+
+/* ---------------- Keypad modal ---------------- */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(18,20,35,.55);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity var(--dur);z-index:50;
+}
+.modal-overlay.open{opacity:1;pointer-events:auto;}
+.keypad-sheet{
+  width:100%;max-width:480px;background:var(--card);
+  border-radius:var(--radius-lg);padding:32px 34px 36px;
+  transform:translateY(24px) scale(.98);transition:transform var(--dur);
+  box-shadow:var(--shadow);
+  position:relative;
+}
+.modal-overlay.open .keypad-sheet{transform:translateY(0) scale(1);}
+.modal-close{
+  position:absolute;top:20px;left:20px;width:40px;height:40px;border-radius:50%;
+  background:var(--bg);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+.keypad-title{font-size:19px;font-weight:900;color:var(--navy);text-align:center;}
+.keypad-sub{font-size:13px;color:var(--muted);text-align:center;margin-top:6px;}
+.phone-display{
+  margin:22px 0 6px;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  direction:ltr;
+  font-size:24px;font-weight:800;color:var(--navy);
+  background:var(--bg);border:1.5px solid var(--line);border-radius:var(--radius-md);
+  padding:16px;min-height:60px;
+}
+.phone-display.error{border-color:var(--danger);color:var(--danger);}
+.phone-display .cc{color:var(--muted);font-weight:700;font-size:18px;}
+.phone-display .digit{min-width:14px;text-align:center;}
+.phone-display .caret{
+  width:2px;height:24px;background:var(--blue);animation:caretBlink 1s steps(1) infinite;
+}
+@keyframes caretBlink{50%{opacity:0;}}
+.keypad-error{min-height:18px;text-align:center;font-size:12.5px;color:var(--danger);font-weight:700;margin-bottom:6px;}
+.keypad-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px;
+  direction:ltr;
+}
+.key{
+  background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);
+  font-size:24px;font-weight:800;color:var(--navy);
+  padding:18px 0;cursor:pointer;transition:transform var(--dur), background var(--dur);
+}
+.key:active{transform:scale(.94);background:var(--blue-dim);}
+.key.func{font-size:16px;color:var(--muted);}
+.keypad-confirm{
+  width:100%;margin-top:18px;
+  background:linear-gradient(135deg,var(--blue),#1E63D6);
+  color:#fff;border:none;border-radius:var(--radius-md);
+  padding:17px;font-size:16px;font-weight:800;cursor:pointer;
+  box-shadow:0 10px 22px rgba(45,123,244,.30);
+  transition:transform var(--dur), opacity var(--dur);
+}
+.keypad-confirm:disabled{opacity:.4;cursor:not-allowed;}
+.keypad-confirm:active:not(:disabled){transform:scale(.98);}
+
+/* ---------------- Orientation adjustments ---------------- */
+@media (orientation:portrait){
+  .kheader{height:150px;flex-direction:column;justify-content:center;padding:14px 0;}
+  .brand-noj{top:14px;right:20px;transform:none;}
+  .merchant-id{top:14px;left:20px;transform:none;}
+  .merchant-id .txt .name{font-size:13.5px;}
+  .merchant-id .ic{width:42px;height:42px;}
+  .kheader .tagline{padding:44px 24px 0;font-size:13.5px;}
+  .tpl-bar{padding:8px 20px;}
+  #screen-idle{flex-direction:column;padding:20px;gap:20px;}
+  .order-panel{width:100%;padding:22px 22px;}
+  .nfc-stage{width:170px;height:170px;}
+  .kfooter{gap:22px;overflow-x:auto;justify-content:flex-start;padding:0 20px;}
+  .feature .lbl{font-size:11px;}
+}
+@media (max-width:900px) and (orientation:landscape){
+  .kheader .tagline{padding:0 200px;font-size:13px;}
+  .order-panel{width:300px;padding:24px 20px;}
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:0.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:0.001ms !important;
+    scroll-behavior:auto !important;
+  }
+  .nfc-ring{opacity:.35 !important;width:160px !important;height:160px !important;}
+}
+</style>
+</head>
+<body>
+<div class="kiosk" id="kiosk">
+
+  <header class="kheader">
+    <div class="merchant-id">
+      <div class="ic" id="merchant-icon"></div>
+      <div class="txt">
+        <div class="name" id="merchant-name">مركز الرياض الطبي</div>
+        <div class="sub" id="merchant-sub">عيادات متخصصة</div>
+      </div>
+    </div>
+    <div class="tagline">من لحظة الدفع، تحصل على فاتورتك وخدماتك بلا رسائل مزعجة.</div>
+    <div class="brand-noj">
+      <span class="word">NOJ</span>
+      <div id="noj-logo"></div>
+    </div>
+  </header>
+
+  <div class="tpl-bar">
+    <button id="tpl-toggle-btn"><span id="tpl-toggle-icon"></span><span id="tpl-toggle-label">تبديل إلى مقهى</span></button>
+    <span class="hint">وضع تجريبي</span>
+  </div>
+
+  <div class="kmain-wrap">
+    <main class="kscreen active" id="screen-idle">
+      <section class="order-panel" id="order-panel"></section>
+      <section class="tap-zone" id="tap-zone">
+        <div class="nfc-stage">
+          <div class="nfc-ring"></div>
+          <div class="nfc-ring"></div>
+          <div class="nfc-ring"></div>
+          <div class="phone-ill" id="phone-ill"></div>
+        </div>
+        <div class="tap-label" id="tap-label">ضع جوالك هنا</div>
+        <div class="tap-sub">قرّب جوالك من الشاشة لربطه تلقائياً عبر NFC</div>
+        <button class="btn-outline" id="enter-phone-btn">أدخل رقم جوالك</button>
+      </section>
+    </main>
+
+    <main class="kscreen" id="screen-success">
+      <div class="success-card">
+        <div class="success-check" id="success-check"></div>
+        <div class="success-title">تم ربط جوالك بنجاح</div>
+        <div class="success-sub" id="success-sub">ستصلك جميع التفاصيل الآن على جوالك</div>
+        <div class="success-grid" id="success-grid"></div>
+        <div class="success-invoice" id="success-invoice"></div>
+        <div class="success-privacy" id="ic-privacy-wrap"><span id="ic-privacy"></span> بلا رسائل مزعجة، فقط ما يخصك</div>
+        <div class="countdown-wrap">
+          <div class="countdown-ring">
+            <svg width="48" height="48" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="20" fill="none" stroke="#E7E9F3" stroke-width="4.5"/>
+              <circle id="countdown-circle" cx="24" cy="24" r="20" fill="none" stroke="#2D7BF4" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="125.7" stroke-dashoffset="0"/>
+            </svg>
+            <div class="num" id="countdown-num">12</div>
+          </div>
+          <button class="btn-return" id="return-now-btn">إنهاء والعودة الآن</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="kfooter" id="kfooter"></footer>
+
+  <div class="modal-overlay" id="modal-keypad">
+    <div class="keypad-sheet">
+      <button class="modal-close" id="keypad-close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="keypad-title">أدخل رقم جوالك</div>
+      <div class="keypad-sub">رقم يبدأ بـ 5 ويتكون من 9 خانات</div>
+      <div class="phone-display" id="phone-display">
+        <span class="cc">+966</span>
+        <span id="phone-digits"></span>
+        <span class="caret"></span>
+      </div>
+      <div class="keypad-error" id="keypad-error"></div>
+      <div class="keypad-grid">
+        <button class="key" data-k="1">1</button>
+        <button class="key" data-k="2">2</button>
+        <button class="key" data-k="3">3</button>
+        <button class="key" data-k="4">4</button>
+        <button class="key" data-k="5">5</button>
+        <button class="key" data-k="6">6</button>
+        <button class="key" data-k="7">7</button>
+        <button class="key" data-k="8">8</button>
+        <button class="key" data-k="9">9</button>
+        <button class="key func" data-k="clear">مسح</button>
+        <button class="key" data-k="0">0</button>
+        <button class="key func" data-k="back">⌫</button>
+      </div>
+      <button class="keypad-confirm" id="keypad-confirm" disabled>متابعة</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const ICONS = {
+  logoMark: `<svg width="30" height="30" viewBox="0 0 96 96"><circle cx="48" cy="48" r="46" fill="#12235C"/><circle cx="48" cy="48" r="46" fill="none" stroke="#C99A2E" stroke-width="2"/><text x="48" y="63" text-anchor="middle" font-size="38" font-weight="800" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif">N</text></svg>`,
+  medical: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.6-9.5-9C.7 8 2 4.5 5.5 4a5 5 0 016.5 2 5 5 0 016.5-2c3.5.5 4.8 4 3 8-2.5 4.4-9.5 9-9.5 9z"/><path d="M12 8v6M9 11h6"/></svg>`,
+  coffee: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13v6a5 5 0 01-5 5H9a5 5 0 01-5-5V8z"/><path d="M17 9h2a2.5 2.5 0 010 5h-2M6 3c0 1-1 1-1 2M10 3c0 1-1 1-1 2"/></svg>`,
+  phone: `<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2.5" width="10" height="19" rx="2.4"/><path d="M11 18.2h2"/></svg>`,
+  check: `<svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`,
+  clock: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  receipt: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`,
+  star: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9L18.2 21 12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2z"/></svg>`,
+  shield: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg>`,
+  bellOff: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 00-9.3-5"/><path d="M6.3 6.3C5.5 7.4 5 8.7 5 10c0 7-3 9-3 9h14"/><path d="M13.7 21a2 2 0 01-3.4 0"/><path d="M2 2l20 20"/></svg>`,
+  ticket: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 00-2 2H5a2 2 0 00-2-2v-2a2 2 0 000-4z"/><path d="M9 5v14" stroke-dasharray="2 3"/></svg>`,
+  swap: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg>`
+};
+
+const TEMPLATES = {
+  medical: {
+    key:"medical",
+    merchantName:"مركز الرياض الطبي",
+    merchantSub:"عيادات متخصصة",
+    merchantIcon:ICONS.medical,
+    clinicType:"عيادة الأسنان",
+    clinicNumber:"4",
+    queueNumber:58,
+    aheadLabel:"مرضى أمامك",
+    ahead:6,
+    avgMin:3,
+    amount:70.00
+  },
+  cafe: {
+    key:"cafe",
+    merchantName:"مقهى الروضة المختصة",
+    merchantSub:"قهوة مختصة",
+    merchantIcon:ICONS.coffee,
+    queueNumber:24,
+    aheadLabel:"طلبات أمامك",
+    ahead:3,
+    avgMin:3,
+    loyaltyPoints:320,
+    amount:42.00
+  }
+};
+
+const FEATURES = [
+  { ic:ICONS.receipt, label:"فاتورة فورية" },
+  { ic:ICONS.ticket,  label:"دورك بالتفاصيل" },
+  { ic:ICONS.star,    label:"نقاط ولاء تلقائية" },
+  { ic:ICONS.shield,  label:"بياناتك بأمان" },
+  { ic:ICONS.bellOff, label:"بلا رسائل مزعجة" }
+];
+
+const fmt = n => n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+let state = { tpl:"medical", countdownTimer:null, countdownVal:12, linkPhone:"" };
+
+function $(sel){ return document.querySelector(sel); }
+function $all(sel){ return Array.from(document.querySelectorAll(sel)); }
+
+document.getElementById("noj-logo").innerHTML = ICONS.logoMark;
+$("#ic-privacy").innerHTML = ICONS.shield.replace(/width="\d+" height="\d+"/, 'width="14" height="14"');
+
+function renderFooter(){
+  $("#kfooter").innerHTML = FEATURES.map(f=>`
+    <div class="feature"><div class="ic">${f.ic}</div><div class="lbl">${f.label}</div></div>
+  `).join("");
+}
+renderFooter();
+$("#phone-ill").innerHTML = ICONS.phone;
+
+function currentTemplate(){ return TEMPLATES[state.tpl]; }
+
+function renderOrderPanel(){
+  const t = currentTemplate();
+  const eta = t.ahead * t.avgMin;
+  let html = `<div class="op-kicker">${t.merchantIcon}${t.merchantName}</div>`;
+  if(t.key === "medical"){
+    html += `
+      <div class="op-title">${t.clinicType}</div>
+      <div class="op-grid">
+        <div class="op-stat"><div class="v">#${t.clinicNumber}</div><div class="l">رقم العيادة</div></div>
+        <div class="op-stat"><div class="v">#${t.queueNumber}</div><div class="l">رقم دورك</div></div>
+        <div class="op-stat wide"><div class="v">${t.ahead}</div><div class="l">${t.aheadLabel}</div></div>
+      </div>
+      <div class="op-note">${ICONS.clock} الوقت المتوقع للانتظار نحو ${eta} دقيقة</div>`;
+  } else {
+    html += `
+      <div class="op-title">طلبك الحالي</div>
+      <div class="op-grid">
+        <div class="op-stat"><div class="v">#${t.queueNumber}</div><div class="l">رقم الانتظار</div></div>
+        <div class="op-stat"><div class="v">${t.loyaltyPoints}</div><div class="l">رصيد نقاطك</div></div>
+        <div class="op-stat wide"><div class="v">${t.ahead}</div><div class="l">${t.aheadLabel}</div></div>
+      </div>
+      <div class="op-note">${ICONS.clock} الوقت المتوقع للانتظار نحو ${eta} دقيقة</div>`;
+  }
+  $("#order-panel").innerHTML = html;
+}
+
+function renderHeaderIdentity(){
+  const t = currentTemplate();
+  $("#merchant-icon").innerHTML = t.merchantIcon;
+  $("#merchant-name").textContent = t.merchantName;
+  $("#merchant-sub").textContent = t.key === "medical" ? t.merchantSub : t.merchantSub;
+}
+
+function applyTemplate(key){
+  state.tpl = key;
+  renderHeaderIdentity();
+  renderOrderPanel();
+  const next = key === "medical" ? "cafe" : "medical";
+  $("#tpl-toggle-icon").innerHTML = TEMPLATES[next].merchantIcon.replace(/width="\d+" height="\d+"/, 'width="14" height="14"');
+  $("#tpl-toggle-label").textContent = "تبديل إلى " + (next === "medical" ? "مركز طبي" : "مقهى");
+}
+applyTemplate("medical");
+
+$("#tpl-toggle-btn").addEventListener("click", ()=>{
+  applyTemplate(state.tpl === "medical" ? "cafe" : "medical");
+});
+
+/* ---------------- Screen switching ---------------- */
+function goToScreen(name){
+  $all(".kscreen").forEach(s=>s.classList.remove("active"));
+  document.getElementById("screen-"+name).classList.add("active");
+}
+
+/* ---------------- NFC tap simulation ---------------- */
+const tapZone = $("#tap-zone");
+let detecting = false;
+tapZone.addEventListener("click", ()=>{
+  if(detecting) return;
+  detecting = true;
+  tapZone.classList.add("detecting");
+  $("#tap-label").textContent = "جاري القراءة...";
+  setTimeout(()=>{
+    tapZone.classList.remove("detecting");
+    $("#tap-label").textContent = "ضع جوالك هنا";
+    detecting = false;
+    showSuccess("nfc", "");
+  }, 1500);
+});
+
+/* ---------------- Keypad modal ---------------- */
+let digits = "";
+function openKeypad(){
+  digits = "";
+  updatePhoneDisplay();
+  $("#keypad-error").textContent = "";
+  $("#modal-keypad").classList.add("open");
+}
+function closeKeypad(){ $("#modal-keypad").classList.remove("open"); }
+$("#enter-phone-btn").addEventListener("click", openKeypad);
+$("#keypad-close").addEventListener("click", closeKeypad);
+$("#modal-keypad").addEventListener("click", e=>{ if(e.target.id==="modal-keypad") closeKeypad(); });
+
+function updatePhoneDisplay(){
+  $("#phone-digits").textContent = digits.split("").join(" ");
+  const disp = $("#phone-display");
+  const err = $("#keypad-error");
+  const confirmBtn = $("#keypad-confirm");
+  let invalid = digits.length>0 && digits[0] !== "5";
+  disp.classList.toggle("error", invalid);
+  err.textContent = invalid ? "رقم الجوال السعودي يجب أن يبدأ بـ 5" : "";
+  confirmBtn.disabled = !(digits.length===9 && digits[0]==="5");
+}
+
+$all(".key").forEach(btn=>btn.addEventListener("click", ()=>{
+  const k = btn.dataset.k;
+  if(k==="clear"){ digits=""; }
+  else if(k==="back"){ digits = digits.slice(0,-1); }
+  else if(digits.length<9){ digits += k; }
+  updatePhoneDisplay();
+}));
+
+$("#keypad-confirm").addEventListener("click", ()=>{
+  if(digits.length!==9 || digits[0]!=="5") return;
+  const phone = "+966 " + digits.slice(0,2) + " " + digits.slice(2,5) + " " + digits.slice(5);
+  closeKeypad();
+  showSuccess("phone", phone);
+});
+
+/* ---------------- Success screen ---------------- */
+function showSuccess(via, phoneDisplay){
+  const t = currentTemplate();
+  $("#success-check").innerHTML = ICONS.check;
+  $("#success-sub").textContent = via==="phone"
+    ? `تم الربط عبر الرقم ${phoneDisplay}، ستصلك جميع التفاصيل رسالة واحدة عند الحاجة فقط`
+    : "تم الربط عبر NFC، ستصلك جميع التفاصيل الآن على جوالك";
+
+  let grid = "";
+  if(t.key === "medical"){
+    const eta = t.ahead * t.avgMin;
+    grid = `
+      <div class="success-stat"><div class="v">#${t.queueNumber}</div><div class="l">رقم دورك</div></div>
+      <div class="success-stat"><div class="v">${t.clinicType}</div><div class="l">العيادة رقم ${t.clinicNumber}</div></div>
+      <div class="success-stat"><div class="v">${t.ahead}</div><div class="l">${t.aheadLabel}</div></div>
+      <div class="success-stat"><div class="v">${eta} د</div><div class="l">الوقت المتوقع</div></div>`;
+  } else {
+    const eta = t.ahead * t.avgMin;
+    const earned = Math.floor(t.amount/10);
+    grid = `
+      <div class="success-stat"><div class="v">#${t.queueNumber}</div><div class="l">رقم انتظارك</div></div>
+      <div class="success-stat"><div class="v">${t.ahead}</div><div class="l">${t.aheadLabel}</div></div>
+      <div class="success-stat"><div class="v">+${earned}</div><div class="l">نقاط جديدة</div></div>
+      <div class="success-stat wide"><div class="v">${t.loyaltyPoints+earned}</div><div class="l">رصيدك الجديد من النقاط</div></div>`;
+  }
+  $("#success-grid").innerHTML = grid;
+  $("#success-invoice").textContent = `تم إصدار فاتورتك بقيمة ${fmt(t.amount)} ريال وإرسالها إلى جوالك`;
+
+  goToScreen("success");
+  startCountdown();
+}
+
+function startCountdown(){
+  clearInterval(state.countdownTimer);
+  state.countdownVal = 12;
+  const circle = $("#countdown-circle");
+  const CIRC = 125.7;
+  const total = 12;
+  updateCountdownUI(circle, CIRC, total);
+  state.countdownTimer = setInterval(()=>{
+    state.countdownVal--;
+    updateCountdownUI(circle, CIRC, total);
+    if(state.countdownVal<=0){
+      clearInterval(state.countdownTimer);
+      goToScreen("idle");
+    }
+  },1000);
+}
+function updateCountdownUI(circle, CIRC, total){
+  $("#countdown-num").textContent = state.countdownVal;
+  const pct = state.countdownVal/total;
+  circle.setAttribute("stroke-dashoffset", (CIRC*(1-pct)).toFixed(1));
+}
+$("#return-now-btn").addEventListener("click", ()=>{
+  clearInterval(state.countdownTimer);
+  goToScreen("idle");
+});
+
+})();
+</script>
+</body>
+</html>
