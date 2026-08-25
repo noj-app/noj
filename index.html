@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>NOJ | تطبيق العميل</title>
+<style>
+:root{
+  --navy:#12235C;
+  --navy-light:#1D3178;
+  --blue:#2D7BF4;
+  --blue-dim:rgba(45,123,244,.12);
+  --gold:#C99A2E;
+  --gold-dim:rgba(201,154,46,.14);
+  --bg:#F7F8FC;
+  --card:#FFFFFF;
+  --text:#161B33;
+  --muted:#6B7280;
+  --line:#E7E9F3;
+  --success:#1FA971;
+  --danger:#E15B4D;
+  --radius-lg:22px;
+  --radius-md:16px;
+  --radius-sm:10px;
+  --shadow:0 10px 30px rgba(18,35,92,.10);
+  --shadow-sm:0 4px 14px rgba(18,35,92,.08);
+  --dur:220ms;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  font-family:"Segoe UI","Tahoma","Geeza Pro","Arial",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  display:flex;
+  justify-content:center;
+  min-height:100%;
+  line-height:1.5;
+}
+button,input{font-family:inherit;}
+ul{list-style:none;}
+a{color:inherit;text-decoration:none;}
+svg{display:block;}
+
+.device{
+  width:100%;
+  max-width:430px;
+  min-height:100vh;
+  background:var(--bg);
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  box-shadow:var(--shadow);
+}
+@media (min-width:431px){
+  body{padding:24px 12px;}
+  .device{min-height:calc(100vh - 48px);border-radius:36px;}
+}
+
+.statusbar{
+  height:30px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 22px;
+  font-size:13px;
+  font-weight:600;
+  color:var(--navy);
+  flex-shrink:0;
+}
+.statusbar .icons{display:flex;gap:6px;align-items:center;}
+
+.screens{flex:1;position:relative;overflow:hidden;}
+.screen{
+  position:absolute;
+  inset:0;
+  overflow-y:auto;
+  padding-bottom:110px;
+  opacity:0;
+  transform:translateY(10px);
+  pointer-events:none;
+  transition:opacity var(--dur) ease, transform var(--dur) ease;
+}
+.screen.active{
+  opacity:1;
+  transform:translateY(0);
+  pointer-events:auto;
+  z-index:1;
+}
+.screen::-webkit-scrollbar{width:0;}
+
+.appheader{
+  position:relative;
+  padding:18px 20px 10px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.appheader h1{font-size:20px;font-weight:800;color:var(--navy);}
+.appheader .sub{font-size:13px;color:var(--muted);margin-top:2px;}
+.nbtn{
+  position:absolute;
+  top:14px;
+  right:20px;
+  width:42px;height:42px;
+  border-radius:50%;
+  background:var(--navy);
+  color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:800;
+  font-size:16px;
+  border:none;
+  cursor:pointer;
+  box-shadow:0 6px 16px rgba(18,35,92,.25);
+  transition:transform var(--dur);
+}
+.nbtn:active{transform:scale(.92);}
+.backbtn{
+  width:38px;height:38px;
+  border-radius:50%;
+  background:var(--card);
+  border:1px solid var(--line);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+}
+
+/* ---------- Splash ---------- */
+#screen-splash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:0 30px;text-align:center;}
+.splash-logo{animation:pulseIn 900ms ease;}
+@keyframes pulseIn{from{opacity:0;transform:scale(.8);}to{opacity:1;transform:scale(1);}}
+.splash-slogan{color:var(--navy);font-size:15px;font-weight:600;}
+.splash-promise{color:var(--muted);font-size:13px;max-width:280px;}
+.splash-dots{display:flex;gap:6px;margin-top:10px;}
+.splash-dots span{width:7px;height:7px;border-radius:50%;background:var(--line);animation:blink 1.2s infinite ease-in-out;}
+.splash-dots span:nth-child(2){animation-delay:.15s;}
+.splash-dots span:nth-child(3){animation-delay:.3s;}
+@keyframes blink{0%,80%,100%{opacity:.3;}40%{opacity:1;background:var(--gold);}}
+
+/* ---------- Auth ---------- */
+.auth-wrap{padding:36px 26px;display:flex;flex-direction:column;min-height:100%;}
+.auth-logo{display:flex;justify-content:center;margin-bottom:26px;}
+.auth-title{font-size:22px;font-weight:800;color:var(--navy);text-align:center;}
+.auth-desc{font-size:13.5px;color:var(--muted);text-align:center;margin-top:8px;margin-bottom:30px;}
+.field-label{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;display:block;}
+.phone-input-row{
+  display:flex;
+  align-items:center;
+  background:var(--card);
+  border:1.5px solid var(--line);
+  border-radius:var(--radius-md);
+  padding:4px 14px;
+  gap:8px;
+  transition:border-color var(--dur);
+}
+.phone-input-row:focus-within{border-color:var(--blue);}
+.phone-input-row .cc{font-weight:700;color:var(--navy);font-size:15px;direction:ltr;}
+.phone-input-row input{
+  flex:1;
+  border:none;
+  outline:none;
+  padding:14px 0;
+  font-size:16px;
+  direction:ltr;
+  text-align:right;
+  background:transparent;
+  color:var(--text);
+}
+.hint{font-size:12px;color:var(--muted);margin-top:8px;}
+.error-text{font-size:12.5px;color:var(--danger);margin-top:8px;min-height:16px;font-weight:600;}
+.btn-primary{
+  margin-top:22px;
+  background:linear-gradient(135deg,var(--blue),#1E63D6);
+  color:#fff;
+  border:none;
+  border-radius:var(--radius-md);
+  padding:16px;
+  font-size:15.5px;
+  font-weight:800;
+  cursor:pointer;
+  box-shadow:0 10px 22px rgba(45,123,244,.30);
+  transition:transform var(--dur),opacity var(--dur);
+}
+.btn-primary:active{transform:scale(.98);}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+.btn-ghost{
+  margin-top:12px;
+  background:transparent;
+  border:none;
+  color:var(--blue);
+  font-weight:700;
+  font-size:13.5px;
+  padding:10px;
+  cursor:pointer;
+}
+.btn-ghost:disabled{color:var(--muted);cursor:not-allowed;}
+
+.otp-row{display:flex;gap:12px;justify-content:center;direction:ltr;margin:6px 0 4px;}
+.otp-box{
+  width:58px;height:64px;
+  border-radius:var(--radius-md);
+  border:1.5px solid var(--line);
+  background:var(--card);
+  text-align:center;
+  font-size:24px;
+  font-weight:800;
+  color:var(--navy);
+  outline:none;
+  transition:border-color var(--dur),transform var(--dur);
+}
+.otp-box:focus{border-color:var(--blue);}
+.otp-row.shake{animation:shake 420ms;}
+@keyframes shake{10%,90%{transform:translateX(-2px);}20%,80%{transform:translateX(4px);}30%,50%,70%{transform:translateX(-8px);}40%,60%{transform:translateX(8px);}}
+.otp-meta{text-align:center;font-size:13px;color:var(--muted);margin-top:18px;}
+
+/* ---------- Cards / common ---------- */
+.section{padding:14px 20px;}
+.section-title{font-size:15.5px;font-weight:800;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
+.section-title .link{font-size:12.5px;color:var(--blue);font-weight:700;cursor:pointer;}
+
+.total-card{
+  margin:6px 20px 4px;
+  background:linear-gradient(135deg,var(--navy),var(--navy-light));
+  border-radius:var(--radius-lg);
+  padding:22px 22px 20px;
+  color:#fff;
+  position:relative;
+  overflow:hidden;
+  box-shadow:var(--shadow);
+}
+.total-card::after{
+  content:"";
+  position:absolute;
+  width:180px;height:180px;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(201,154,46,.25),transparent 70%);
+  top:-60px;left:-60px;
+}
+.total-card .lbl{font-size:13px;opacity:.8;}
+.total-card .amount{font-size:32px;font-weight:800;margin-top:6px;letter-spacing:.3px;}
+.total-card .amount span{font-size:15px;font-weight:600;margin-right:4px;}
+.total-card .trend{display:flex;align-items:center;gap:6px;margin-top:12px;font-size:12.5px;font-weight:700;color:var(--gold);}
+
+.shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 20px 4px;}
+.shortcut{
+  background:var(--card);
+  border-radius:var(--radius-md);
+  padding:14px 6px;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
+  border:1px solid var(--line);
+  cursor:pointer;
+  transition:transform var(--dur),box-shadow var(--dur);
+}
+.shortcut:active{transform:scale(.94);}
+.shortcut .ic{
+  width:42px;height:42px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--blue-dim);color:var(--blue);
+}
+.shortcut span{font-size:12px;font-weight:700;color:var(--navy);text-align:center;}
+
+.card{
+  background:var(--card);
+  border-radius:var(--radius-md);
+  border:1px solid var(--line);
+  padding:16px;
+  box-shadow:var(--shadow-sm);
+}
+.preview-card{margin-bottom:14px;display:flex;flex-direction:column;gap:10px;}
+.preview-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.preview-row .left{display:flex;align-items:center;gap:12px;}
+.preview-row .ic-round{
+  width:44px;height:44px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--gold-dim);color:var(--gold);flex-shrink:0;
+}
+.preview-row .title{font-size:14px;font-weight:700;color:var(--text);}
+.preview-row .meta{font-size:12px;color:var(--muted);margin-top:2px;}
+.badge{
+  font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:20px;
+  background:var(--blue-dim);color:var(--blue);white-space:nowrap;
+}
+.badge.gold{background:var(--gold-dim);color:var(--gold);}
+.badge.green{background:rgba(31,169,113,.14);color:var(--success);}
+
+/* ---------- Queue ---------- */
+.queue-hero{
+  margin:6px 20px;
+  background:var(--card);
+  border-radius:var(--radius-lg);
+  padding:26px 20px;
+  text-align:center;
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+}
+.queue-hero .merchant{font-size:13.5px;color:var(--muted);font-weight:600;}
+.queue-num{
+  font-size:56px;font-weight:900;color:var(--navy);margin:10px 0 4px;
+  letter-spacing:1px;
+}
+.queue-num small{font-size:16px;font-weight:700;color:var(--muted);display:block;margin-top:-6px;}
+.queue-stats{display:flex;gap:12px;margin-top:18px;}
+.queue-stat{
+  flex:1;background:var(--bg);border-radius:var(--radius-sm);
+  padding:14px 8px;text-align:center;
+}
+.queue-stat .val{font-size:20px;font-weight:800;color:var(--navy);}
+.queue-stat .lbl{font-size:11.5px;color:var(--muted);margin-top:4px;font-weight:600;}
+.queue-progress{height:8px;border-radius:6px;background:var(--line);margin-top:20px;overflow:hidden;}
+.queue-progress i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--blue));transition:width 600ms ease;border-radius:6px;}
+.queue-tip{font-size:12.5px;color:var(--muted);margin-top:16px;display:flex;align-items:center;gap:6px;justify-content:center;}
+.queue-done{color:var(--success);font-weight:800;font-size:16px;margin-top:10px;}
+
+/* ---------- Invoices ---------- */
+.search-box{
+  display:flex;align-items:center;gap:10px;
+  background:var(--card);border:1.5px solid var(--line);
+  border-radius:var(--radius-md);padding:12px 14px;margin:4px 20px 16px;
+}
+.search-box input{flex:1;border:none;outline:none;background:transparent;font-size:14px;color:var(--text);}
+.search-box svg{color:var(--muted);flex-shrink:0;}
+.invoice-list{display:flex;flex-direction:column;gap:10px;padding:0 20px;}
+.invoice-item{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;
+  transition:transform var(--dur);
+}
+.invoice-item:active{transform:scale(.98);}
+.invoice-item .ic-round{background:var(--blue-dim);color:var(--blue);}
+.invoice-item .grow{flex:1;min-width:0;}
+.invoice-item .title{font-size:14px;font-weight:700;}
+.invoice-item .meta{font-size:12px;color:var(--muted);margin-top:3px;}
+.invoice-item .amount{font-size:15px;font-weight:800;color:var(--navy);white-space:nowrap;}
+.empty-state{text-align:center;color:var(--muted);font-size:13.5px;padding:40px 20px;}
+
+/* ---------- Loyalty ---------- */
+.loyalty-hero{
+  margin:6px 20px;padding:24px 22px;border-radius:var(--radius-lg);
+  background:linear-gradient(135deg,var(--gold),#a97c1f);
+  color:#fff;box-shadow:var(--shadow);position:relative;overflow:hidden;
+}
+.loyalty-hero .tier{font-size:13px;font-weight:700;opacity:.9;display:flex;align-items:center;gap:6px;}
+.loyalty-hero .pts{font-size:34px;font-weight:900;margin-top:8px;}
+.loyalty-hero .pts span{font-size:14px;font-weight:600;}
+.loyalty-bar{height:8px;background:rgba(255,255,255,.35);border-radius:6px;margin-top:16px;overflow:hidden;}
+.loyalty-bar i{display:block;height:100%;background:#fff;border-radius:6px;}
+.loyalty-hero .next{font-size:12px;margin-top:8px;opacity:.9;}
+.tiers-row{display:flex;justify-content:space-between;padding:14px 22px 0;font-size:11px;color:var(--muted);font-weight:700;}
+.tiers-row .on{color:var(--gold);}
+.rewards-grid{display:flex;flex-direction:column;gap:10px;padding:0 20px;}
+.reward-item{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:14px;display:flex;align-items:center;gap:12px;
+}
+.reward-item .ic-round{background:var(--gold-dim);color:var(--gold);}
+.reward-item .title{font-size:14px;font-weight:700;}
+.reward-item .cost{font-size:12px;color:var(--muted);margin-top:3px;font-weight:600;}
+.redeem-btn{
+  background:var(--navy);color:#fff;border:none;border-radius:20px;
+  padding:9px 16px;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap;
+  transition:transform var(--dur),opacity var(--dur);
+}
+.redeem-btn:disabled{opacity:.4;cursor:not-allowed;}
+.redeem-btn:active:not(:disabled){transform:scale(.94);}
+
+/* ---------- Reports ---------- */
+.report-card{margin:0 20px 16px;padding:20px;}
+.donut-wrap{display:flex;align-items:center;gap:18px;}
+.donut-legend{flex:1;display:flex;flex-direction:column;gap:8px;}
+.legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.legend-row .name{flex:1;color:var(--text);font-weight:600;}
+.legend-row .pct{font-weight:800;color:var(--navy);}
+.bars-wrap{display:flex;align-items:flex-end;gap:10px;height:140px;padding:10px 4px 0;}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;}
+.bar-col .bar{
+  width:100%;max-width:26px;border-radius:8px 8px 4px 4px;
+  background:linear-gradient(180deg,var(--blue),var(--navy));
+  transition:height 700ms ease;
+}
+.bar-col.current .bar{background:linear-gradient(180deg,var(--gold),#a97c1f);}
+.bar-col .lbl{font-size:11px;color:var(--muted);font-weight:700;}
+.insight{
+  display:flex;gap:12px;background:var(--blue-dim);border-radius:var(--radius-md);
+  padding:14px;margin:0 20px 12px;
+}
+.insight .ic-round{background:#fff;color:var(--blue);width:38px;height:38px;flex-shrink:0;}
+.insight p{font-size:13px;color:var(--navy);font-weight:600;line-height:1.6;}
+
+/* ---------- More / Notifications ---------- */
+.list-menu{padding:0 20px;display:flex;flex-direction:column;gap:10px;}
+.menu-item{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;
+}
+.menu-item .ic-round{width:38px;height:38px;background:var(--blue-dim);color:var(--blue);}
+.menu-item .title{font-size:14px;font-weight:700;flex:1;}
+.menu-item .chev{color:var(--muted);}
+.switch{width:42px;height:24px;border-radius:20px;background:var(--line);position:relative;cursor:pointer;flex-shrink:0;transition:background var(--dur);}
+.switch i{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform var(--dur);box-shadow:0 1px 3px rgba(0,0,0,.3);}
+.switch.on{background:var(--blue);}
+.switch.on i{transform:translateX(-18px);}
+
+.notif-item{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:14px;display:flex;gap:12px;align-items:flex-start;position:relative;
+}
+.notif-item.unread::before{
+  content:"";position:absolute;top:16px;left:14px;width:8px;height:8px;border-radius:50%;background:var(--blue);
+}
+.notif-item .ic-round{background:var(--gold-dim);color:var(--gold);width:38px;height:38px;flex-shrink:0;}
+.notif-item .title{font-size:13.5px;font-weight:700;line-height:1.5;}
+.notif-item .time{font-size:11.5px;color:var(--muted);margin-top:6px;}
+
+/* ---------- Bottom nav ---------- */
+.bottomnav{
+  position:absolute;bottom:0;left:0;right:0;
+  background:rgba(255,255,255,.96);
+  backdrop-filter:blur(10px);
+  border-top:1px solid var(--line);
+  display:flex;
+  padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+  z-index:5;
+}
+.navbtn{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+  background:none;border:none;padding:8px 2px;cursor:pointer;color:var(--muted);
+  transition:color var(--dur);
+}
+.navbtn span{font-size:11px;font-weight:700;}
+.navbtn.active{color:var(--blue);}
+.navbtn .dot{position:absolute;margin-top:-14px;margin-right:14px;width:7px;height:7px;border-radius:50%;background:var(--danger);}
+
+/* ---------- Modal ---------- */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(18,20,35,.5);
+  display:flex;align-items:flex-end;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity var(--dur);z-index:50;
+}
+.modal-overlay.open{opacity:1;pointer-events:auto;}
+.modal-sheet{
+  width:100%;max-width:430px;background:var(--bg);
+  border-radius:26px 26px 0 0;padding:10px 22px 30px;
+  max-height:86vh;overflow-y:auto;
+  transform:translateY(30px);transition:transform var(--dur);
+}
+.modal-overlay.open .modal-sheet{transform:translateY(0);}
+.modal-handle{width:40px;height:5px;background:var(--line);border-radius:4px;margin:8px auto 16px;}
+.modal-title{font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px;}
+.modal-close{
+  position:absolute;top:16px;left:16px;width:34px;height:34px;border-radius:50%;
+  background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+.detail-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px;}
+.detail-row:last-child{border-bottom:none;}
+.detail-row .k{color:var(--muted);}
+.detail-row .v{font-weight:700;}
+.items-table{margin-top:14px;}
+.items-table .row{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;color:var(--text);}
+.items-table .row .qty{color:var(--muted);margin-left:6px;}
+
+.profile-avatar{
+  width:74px;height:74px;border-radius:50%;background:var(--navy);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;
+  margin:6px auto 14px;
+}
+.profile-name{text-align:center;font-size:17px;font-weight:800;color:var(--navy);}
+.profile-phone{text-align:center;font-size:13px;color:var(--muted);margin-top:4px;direction:ltr;}
+.profile-tier{display:flex;justify-content:center;margin-top:10px;}
+
+.toast{
+  position:absolute;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--navy);color:#fff;padding:12px 20px;border-radius:30px;
+  font-size:13px;font-weight:700;box-shadow:var(--shadow);opacity:0;pointer-events:none;
+  transition:opacity var(--dur),transform var(--dur);z-index:100;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration:0.001ms !important;
+    animation-iteration-count:1 !important;
+    transition-duration:0.001ms !important;
+    scroll-behavior:auto !important;
+  }
+}
+</style>
+</head>
+<body>
+<div class="device" id="device">
+
+  <div class="statusbar">
+    <span id="clock">9:41</span>
+    <div class="icons">
+      <svg width="16" height="12" viewBox="0 0 16 12"><rect x="0" y="6" width="3" height="6" rx="1" fill="#12235C"/><rect x="4.5" y="4" width="3" height="8" rx="1" fill="#12235C"/><rect x="9" y="2" width="3" height="10" rx="1" fill="#12235C"/><rect x="13" y="0" width="3" height="12" rx="1" fill="#12235C"/></svg>
+      <svg width="20" height="12" viewBox="0 0 20 12"><rect x="0.5" y="0.5" width="17" height="11" rx="2.5" stroke="#12235C"/><rect x="2" y="2" width="14" height="8" rx="1.5" fill="#12235C"/><rect x="18" y="4" width="1.5" height="4" rx="0.7" fill="#12235C"/></svg>
+    </div>
+  </div>
+
+  <div class="screens" id="screens">
+
+    <section class="screen active" id="screen-splash">
+      <div class="splash-logo" id="splash-logo-holder"></div>
+      <div class="splash-slogan">من الدفع تبدأ علاقتك المالية</div>
+      <div class="splash-promise">من لحظة الدفع، تحصل على فاتورتك وخدماتك وولائك… بلا رسائل مزعجة.</div>
+      <div class="splash-dots"><span></span><span></span><span></span></div>
+    </section>
+
+    <section class="screen" id="screen-login">
+      <div class="auth-wrap">
+        <div class="auth-logo" id="login-logo-holder"></div>
+        <div class="auth-title">تسجيل الدخول</div>
+        <div class="auth-desc">أدخل رقم جوالك السعودي وسنرسل لك رمز تحقق</div>
+        <label class="field-label">رقم الجوال</label>
+        <div class="phone-input-row">
+          <span class="cc">+966</span>
+          <input type="tel" id="phone-input" placeholder="05xxxxxxxx" maxlength="10" inputmode="numeric">
+        </div>
+        <div class="error-text" id="phone-error"></div>
+        <button class="btn-primary" id="phone-submit" disabled>إرسال رمز التحقق</button>
+        <div class="hint" style="text-align:center;margin-top:16px;">بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية</div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-otp">
+      <div class="auth-wrap">
+        <button class="backbtn" id="otp-back" style="margin-bottom:20px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="auth-title">رمز التحقق</div>
+        <div class="auth-desc">أدخل الرمز المرسل إلى <span id="otp-phone-display" style="direction:ltr;display:inline-block;font-weight:800;color:var(--navy);"></span></div>
+        <div class="otp-row" id="otp-row">
+          <input class="otp-box" maxlength="1" inputmode="numeric">
+          <input class="otp-box" maxlength="1" inputmode="numeric">
+          <input class="otp-box" maxlength="1" inputmode="numeric">
+          <input class="otp-box" maxlength="1" inputmode="numeric">
+        </div>
+        <div class="error-text" id="otp-error" style="text-align:center;"></div>
+        <button class="btn-primary" id="otp-submit">تأكيد</button>
+        <button class="btn-ghost" id="otp-resend">إعادة الإرسال (0:60)</button>
+        <div class="otp-meta">تجريبي: الرمز الصحيح هو 1234</div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-home">
+      <div class="appheader">
+        <div>
+          <h1 id="home-greeting">مرحباً، فهد</h1>
+          <div class="sub">أغسطس 2026 · حسابك في NOJ</div>
+        </div>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+
+      <div class="total-card">
+        <div class="lbl">إجمالي مصروفاتك هذا الشهر</div>
+        <div class="amount" id="home-total-amount">0.00<span>ريال</span></div>
+        <div class="trend" id="home-trend"></div>
+      </div>
+
+      <div class="shortcuts">
+        <div class="shortcut" data-goto="reports"><div class="ic" id="ic-shortcut-reports"></div><span>التقارير</span></div>
+        <div class="shortcut" data-goto="invoices"><div class="ic" id="ic-shortcut-invoices"></div><span>الفواتير</span></div>
+        <div class="shortcut" data-goto="queue"><div class="ic" id="ic-shortcut-queue"></div><span>الانتظار</span></div>
+        <div class="shortcut" data-goto="loyalty"><div class="ic" id="ic-shortcut-loyalty"></div><span>الولاء</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">الانتظار الذكي <span class="link" data-goto="queue">التفاصيل</span></div>
+        <div class="card preview-card" id="home-queue-preview"></div>
+
+        <div class="section-title">أحدث الفواتير <span class="link" data-goto="invoices">الكل</span></div>
+        <div id="home-invoices-preview"></div>
+
+        <div class="section-title">الولاء <span class="link" data-goto="loyalty">التفاصيل</span></div>
+        <div class="card preview-card" id="home-loyalty-preview"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-queue">
+      <div class="appheader">
+        <h1>الانتظار الذكي</h1>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+      <div class="queue-hero">
+        <div class="merchant" id="queue-merchant"></div>
+        <div class="queue-num" id="queue-number">--<small>رقم دورك</small></div>
+        <div class="queue-stats">
+          <div class="queue-stat"><div class="val" id="queue-ahead">-</div><div class="lbl">قبلك بالدور</div></div>
+          <div class="queue-stat"><div class="val" id="queue-eta">-</div><div class="lbl">الوقت المتوقع</div></div>
+        </div>
+        <div class="queue-progress"><i id="queue-progress-bar"></i></div>
+        <div class="queue-tip" id="queue-tip"></div>
+        <div class="queue-done" id="queue-done-msg" style="display:none;">حان دورك الآن 🎉</div>
+      </div>
+      <div class="section">
+        <div class="section-title">ملاحظات</div>
+        <div class="card" style="font-size:13px;color:var(--muted);line-height:1.9;">
+          سيصلك تنبيه تلقائي قبل دورك بـ 3 مراجعين، تابع صفحة التنبيهات لعدم تفويت دورك.
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-invoices">
+      <div class="appheader">
+        <h1>فواتيري</h1>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+      <div class="search-box">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" id="invoice-search" placeholder="ابحث باسم المتجر أو الفئة">
+      </div>
+      <div class="invoice-list" id="invoice-list"></div>
+    </section>
+
+    <section class="screen" id="screen-loyalty">
+      <div class="appheader">
+        <h1>الولاء</h1>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+      <div class="loyalty-hero">
+        <div class="tier" id="loyalty-tier-label"></div>
+        <div class="pts" id="loyalty-points">0 <span>نقطة</span></div>
+        <div class="loyalty-bar"><i id="loyalty-bar-fill" style="width:0%"></i></div>
+        <div class="next" id="loyalty-next-label"></div>
+      </div>
+      <div class="tiers-row">
+        <span data-tier="برونزي">برونزي</span>
+        <span data-tier="فضي">فضي</span>
+        <span data-tier="ذهبي">ذهبي</span>
+        <span data-tier="بلاتيني">بلاتيني</span>
+      </div>
+      <div class="section">
+        <div class="section-title">استبدل مكافآتك</div>
+        <div class="rewards-grid" id="rewards-grid"></div>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-reports">
+      <div class="appheader">
+        <h1>تحليل المصروفات</h1>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+      <div class="card report-card">
+        <div class="section-title" style="margin-bottom:14px;">توزيع الإنفاق حسب الفئة</div>
+        <div class="donut-wrap">
+          <svg id="donut-chart" width="140" height="140" viewBox="0 0 140 140"></svg>
+          <div class="donut-legend" id="donut-legend"></div>
+        </div>
+      </div>
+      <div class="card report-card">
+        <div class="section-title" style="margin-bottom:4px;">الاتجاه الشهري</div>
+        <div class="bars-wrap" id="bars-wrap"></div>
+      </div>
+      <div class="insight" id="insight-1"></div>
+      <div class="insight" id="insight-2"></div>
+    </section>
+
+    <section class="screen" id="screen-notifications">
+      <div class="appheader">
+        <h1>التنبيهات</h1>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+      <div class="list-menu" id="notif-list"></div>
+    </section>
+
+    <section class="screen" id="screen-more">
+      <div class="appheader">
+        <h1>المزيد</h1>
+        <button class="nbtn" data-open-profile>N</button>
+      </div>
+      <div class="list-menu">
+        <div class="menu-item" data-open-profile>
+          <div class="ic-round" id="ic-more-profile"></div>
+          <div class="title">الملف الشخصي</div>
+          <div class="chev" id="ic-more-chev1"></div>
+        </div>
+        <div class="menu-item">
+          <div class="ic-round" id="ic-more-cards"></div>
+          <div class="title">طرق الدفع</div>
+          <div class="chev" id="ic-more-chev2"></div>
+        </div>
+        <div class="menu-item">
+          <div class="ic-round" id="ic-more-bell"></div>
+          <div class="title">إشعارات الدفع</div>
+          <div class="switch on" id="switch-push"><i></i></div>
+        </div>
+        <div class="menu-item">
+          <div class="ic-round" id="ic-more-lang"></div>
+          <div class="title">اللغة</div>
+          <div class="badge">العربية</div>
+        </div>
+        <div class="menu-item">
+          <div class="ic-round" id="ic-more-help"></div>
+          <div class="title">مركز المساعدة</div>
+          <div class="chev" id="ic-more-chev3"></div>
+        </div>
+        <div class="menu-item">
+          <div class="ic-round" id="ic-more-info"></div>
+          <div class="title">عن NOJ</div>
+          <div class="chev" id="ic-more-chev4"></div>
+        </div>
+        <div class="menu-item" id="logout-btn" style="border-color:rgba(225,91,77,.4);">
+          <div class="ic-round" style="background:rgba(225,91,77,.14);color:var(--danger);" id="ic-more-logout"></div>
+          <div class="title" style="color:var(--danger);">تسجيل الخروج</div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <nav class="bottomnav" id="bottomnav">
+    <button class="navbtn active" data-nav="home"><span class="ic" id="nav-ic-home"></span><span>الرئيسية</span></button>
+    <button class="navbtn" data-nav="notifications"><span class="ic" id="nav-ic-bell"></span><span>التنبيهات</span></button>
+    <button class="navbtn" data-nav="loyalty"><span class="ic" id="nav-ic-star"></span><span>الولاء</span></button>
+    <button class="navbtn" data-nav="reports"><span class="ic" id="nav-ic-chart"></span><span>التقارير</span></button>
+    <button class="navbtn" data-nav="more"><span class="ic" id="nav-ic-more"></span><span>المزيد</span></button>
+  </nav>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="modal-overlay" id="modal-invoice">
+    <div class="modal-sheet">
+      <button class="modal-close" data-close-modal>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="modal-handle"></div>
+      <div class="modal-title" id="inv-modal-title"></div>
+      <div class="sub" style="font-size:12.5px;color:var(--muted);margin-bottom:14px;" id="inv-modal-date"></div>
+      <div class="card">
+        <div class="detail-row"><span class="k">رقم الفاتورة</span><span class="v" id="inv-modal-id"></span></div>
+        <div class="detail-row"><span class="k">الفئة</span><span class="v" id="inv-modal-cat"></span></div>
+        <div class="detail-row"><span class="k">طريقة الدفع</span><span class="v" id="inv-modal-pay"></span></div>
+        <div class="detail-row"><span class="k">نقاط مكتسبة</span><span class="v" id="inv-modal-pts"></span></div>
+        <div class="detail-row"><span class="k">الإجمالي</span><span class="v" id="inv-modal-total"></span></div>
+      </div>
+      <div class="card" style="margin-top:12px;">
+        <div class="section-title" style="margin-bottom:2px;">تفاصيل الفاتورة</div>
+        <div class="items-table" id="inv-modal-items"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-profile">
+    <div class="modal-sheet">
+      <button class="modal-close" data-close-modal>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="modal-handle"></div>
+      <div class="profile-avatar" id="profile-avatar">ف</div>
+      <div class="profile-name" id="profile-name">فهد العتيبي</div>
+      <div class="profile-phone" id="profile-phone">+966 5X XXX XXXX</div>
+      <div class="profile-tier"><span class="badge gold" id="profile-tier-badge">فضي</span></div>
+      <div class="list-menu" style="margin-top:20px;">
+        <div class="menu-item"><div class="ic-round" id="ic-profile-edit"></div><div class="title">تعديل البيانات</div><div class="chev" id="ic-profile-chev"></div></div>
+        <div class="menu-item" id="profile-logout-btn"><div class="ic-round" style="background:rgba(225,91,77,.14);color:var(--danger);" id="ic-profile-logout"></div><div class="title" style="color:var(--danger);">تسجيل الخروج</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-redeem">
+    <div class="modal-sheet" style="text-align:center;padding-bottom:36px;">
+      <button class="modal-close" data-close-modal>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="modal-handle"></div>
+      <div id="redeem-icon" style="margin:10px auto 16px;width:64px;height:64px;border-radius:50%;background:var(--gold-dim);color:var(--gold);display:flex;align-items:center;justify-content:center;"></div>
+      <div class="modal-title" id="redeem-title" style="text-align:center;"></div>
+      <div style="font-size:13px;color:var(--muted);margin:8px 0 20px;" id="redeem-desc"></div>
+      <button class="btn-primary" id="redeem-confirm" style="width:100%;">تأكيد الاستبدال</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const ICONS = {
+  logo: `<svg width="96" height="96" viewBox="0 0 96 96"><circle cx="48" cy="48" r="46" fill="#12235C"/><circle cx="48" cy="48" r="46" fill="none" stroke="#C99A2E" stroke-width="2"/><text x="48" y="63" text-anchor="middle" font-size="38" font-weight="800" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif">N</text></svg>`,
+  logoSmall: `<svg width="60" height="60" viewBox="0 0 96 96"><circle cx="48" cy="48" r="46" fill="#12235C"/><circle cx="48" cy="48" r="46" fill="none" stroke="#C99A2E" stroke-width="2"/><text x="48" y="63" text-anchor="middle" font-size="38" font-weight="800" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif">N</text></svg>`,
+  home: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>`,
+  bell: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>`,
+  star: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9L18.2 21 12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2z"/></svg>`,
+  chart: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 12A9 9 0 0012 3v9h9z"/></svg>`,
+  more: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`,
+  clock: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
+  receipt: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`,
+  wallet: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h13a1 1 0 011 1v3"/><path d="M3 7v11a2 2 0 002 2h14a1 1 0 001-1v-6a1 1 0 00-1-1h-5a2 2 0 000 4h6"/></svg>`,
+  gift: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18M12 9v12"/><path d="M12 9C9 9 8 7 8 5.5A2.5 2.5 0 0110.5 3C12 3 12 6 12 9zM12 9c3 0 4-2 4-3.5A2.5 2.5 0 0013.5 3C12 3 12 6 12 9z"/></svg>`,
+  cart: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/><path d="M2.5 3h2l2.6 12.4a2 2 0 002 1.6h8.4a2 2 0 002-1.6L21 8H6"/></svg>`,
+  shirt: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L4 7l2 3 2-1v11h8V9l2 1 2-3-4-3-2 2h-4l-2-2z"/></svg>`,
+  fuel: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V6a2 2 0 012-2h5a2 2 0 012 2v15"/><path d="M3 21h13"/><path d="M14 9h2l3 3v6a1.5 1.5 0 01-3 0v-2h-2"/></svg>`,
+  heart: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.6-9.5-9C.7 8 2 4.5 5.5 4a5 5 0 016.5 2 5 5 0 016.5-2c3.5.5 4.8 4 3 8-2.5 4.4-9.5 9-9.5 9z"/></svg>`,
+  film: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18M8 4v16M16 4v16"/></svg>`,
+  search: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`,
+  chev: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>`,
+  cards: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>`,
+  lang: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>`,
+  help: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.7-2.2 2-2.5 3.5"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>`,
+  info: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/></svg>`,
+  logout: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>`,
+  edit: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
+  coffee: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13v6a5 5 0 01-5 5H9a5 5 0 01-5-5V8z"/><path d="M17 9h2a2.5 2.5 0 010 5h-2M6 3c0 1-1 1-1 2M10 3c0 1-1 1-1 2"/></svg>`,
+  percent: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.3"/><circle cx="17" cy="17" r="2.3"/></svg>`,
+  truck: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h11v9H2z"/><path d="M13 11h4l4 4v2h-8z"/><circle cx="6" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg>`,
+  ticket: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 00-2 2H5a2 2 0 00-2-2v-2a2 2 0 000-4z"/><path d="M9 5v14" stroke-dasharray="2 3"/></svg>`,
+  check: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`
+};
+
+const CATEGORY_META = {
+  "مطاعم":  { icon:"heart2", ic:ICONS.coffee, color:"#2D7BF4" },
+  "بقالة":  { icon:"cart",   ic:ICONS.cart,   color:"#C99A2E" },
+  "تسوق":   { icon:"shirt",  ic:ICONS.shirt,  color:"#12235C" },
+  "وقود":   { icon:"fuel",   ic:ICONS.fuel,   color:"#1FA971" },
+  "صحة":    { icon:"heart",  ic:ICONS.heart,  color:"#E15B4D" },
+  "ترفيه":  { icon:"film",   ic:ICONS.film,   color:"#8A5CF6" }
+};
+
+const DB = {
+  user: { name:"فهد العتيبي", phone:"", initial:"ف" },
+  monthLabel: "أغسطس 2026",
+  invoices: [
+    { id:"INV-10231", merchant:"مطعم بيتزا العائلة", category:"مطاعم", date:"24 أغسطس 2026", amount:145.00, pay:"مدى", items:[{n:"بيتزا عائلية",q:1,p:95},{n:"مشروبات",q:3,p:30},{n:"سلطة",q:1,p:20}] },
+    { id:"INV-10222", merchant:"بندة للتموين", category:"بقالة", date:"22 أغسطس 2026", amount:210.00, pay:"Apple Pay", items:[{n:"مواد غذائية متنوعة",q:1,p:180},{n:"منظفات",q:1,p:30}] },
+    { id:"INV-10210", merchant:"مركز الرياض لطب الأسنان", category:"صحة", date:"20 أغسطس 2026", amount:70.00, pay:"مدى", items:[{n:"كشف عام",q:1,p:70}] },
+    { id:"INV-10198", merchant:"متجر الأناقة للملابس", category:"تسوق", date:"18 أغسطس 2026", amount:260.00, pay:"بطاقة ائتمان", items:[{n:"قميص رجالي",q:2,p:90},{n:"حذاء",q:1,p:170}] },
+    { id:"INV-10175", merchant:"محطة أرامكو", category:"وقود", date:"15 أغسطس 2026", amount:180.00, pay:"مدى", items:[{n:"بنزين 95",q:1,p:180}] },
+    { id:"INV-10160", merchant:"القهوة المختصة", category:"مطاعم", date:"12 أغسطس 2026", amount:90.00, pay:"Apple Pay", items:[{n:"قهوة مختصة",q:2,p:50},{n:"حلا",q:1,p:40}] },
+    { id:"INV-10142", merchant:"سينما VOX", category:"ترفيه", date:"10 أغسطس 2026", amount:39.75, pay:"مدى", items:[{n:"تذاكر عرض",q:2,p:39.75}] },
+    { id:"INV-10120", merchant:"بقالة التميز", category:"بقالة", date:"05 أغسطس 2026", amount:115.00, pay:"مدى", items:[{n:"مواد غذائية",q:1,p:115}] },
+    { id:"INV-10101", merchant:"مطعم نجوم الشام", category:"مطاعم", date:"03 أغسطس 2026", amount:175.00, pay:"بطاقة ائتمان", items:[{n:"مشاوي مشكلة",q:1,p:130},{n:"مقبلات",q:2,p:45}] }
+  ],
+  monthlyTrend: [
+    { label:"مارس", value:980 },
+    { label:"أبريل", value:1105 },
+    { label:"مايو", value:890 },
+    { label:"يونيو", value:1210 },
+    { label:"يوليو", value:1150 }
+  ],
+  loyalty: {
+    points: 854,
+    tiers: [ {name:"برونزي", min:0}, {name:"فضي", min:500}, {name:"ذهبي", min:1500}, {name:"بلاتيني", min:4000} ],
+    rewards: [
+      { id:1, title:"قهوة مجانية", cost:80, ic:ICONS.coffee },
+      { id:2, title:"توصيل مجاني على طلبك القادم", cost:100, ic:ICONS.truck },
+      { id:3, title:"خصم 10% على فاتورتك القادمة", cost:150, ic:ICONS.percent },
+      { id:4, title:"قسيمة شرائية بقيمة 20 ريال", cost:200, ic:ICONS.gift },
+      { id:5, title:"قسيمة شرائية بقيمة 50 ريال", cost:450, ic:ICONS.gift }
+    ]
+  },
+  queue: { merchant:"مطعم بيتزا العائلة", number:58, ahead:6, avgMin:3 },
+  notifications: [
+    { title:"تم إصدار فاتورتك من مطعم بيتزا العائلة بقيمة 145.00 ريال", time:"اليوم · 24 أغسطس", ic:ICONS.receipt, unread:true },
+    { title:"دورك يقترب في مطعم بيتزا العائلة، تبقى 3 مراجعين", time:"اليوم · قبل ساعة", ic:ICONS.ticket, unread:true },
+    { title:"حصلت على 26 نقطة ولاء من متجر الأناقة للملابس", time:"أمس", ic:ICONS.star, unread:true },
+    { title:"عرض خاص: خصم 15% في محطات أرامكو نهاية الأسبوع", time:"20 أغسطس", ic:ICONS.gift, unread:false },
+    { title:"تبقى 646 نقطة للوصول إلى مستوى الذهبي", time:"18 أغسطس", ic:ICONS.chart, unread:false }
+  ]
+};
+
+const fmt = n => n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt0 = n => Math.round(n).toLocaleString("en-US");
+
+function computeTotal(){ return DB.invoices.reduce((s,i)=>s+i.amount,0); }
+function computeCategoryTotals(){
+  const map = {};
+  DB.invoices.forEach(inv=>{ map[inv.category]=(map[inv.category]||0)+inv.amount; });
+  return map;
+}
+function currentTier(points){
+  let cur = DB.loyalty.tiers[0], next=null;
+  for(let i=0;i<DB.loyalty.tiers.length;i++){
+    if(points>=DB.loyalty.tiers[i].min) cur = DB.loyalty.tiers[i];
+  }
+  const idx = DB.loyalty.tiers.indexOf(cur);
+  next = DB.loyalty.tiers[idx+1] || null;
+  return { cur, next };
+}
+
+let state = { screen:"splash", phone:"", timer:null, resendTimer:null, queueInterval:null };
+
+function $(sel){ return document.querySelector(sel); }
+function $all(sel){ return Array.from(document.querySelectorAll(sel)); }
+
+function goTo(name){
+  $all(".screen").forEach(s=>s.classList.remove("active"));
+  const el = document.getElementById("screen-"+name);
+  if(el){ el.classList.add("active"); el.scrollTop = 0; }
+  state.screen = name;
+  const authedScreens = ["home","queue","invoices","loyalty","reports","notifications","more"];
+  $("#bottomnav").style.display = authedScreens.includes(name) ? "flex" : "none";
+  $all(".navbtn").forEach(b=>b.classList.toggle("active", b.dataset.nav===name));
+  if(name==="home") renderHome();
+  if(name==="queue") renderQueue();
+  if(name==="invoices") renderInvoices();
+  if(name==="loyalty") renderLoyalty();
+  if(name==="reports") renderReports();
+  if(name==="notifications") renderNotifications();
+}
+
+function showToast(msg){
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove("show"), 2200);
+}
+
+/* ---------------- Splash ---------------- */
+document.getElementById("splash-logo-holder").innerHTML = ICONS.logo;
+document.getElementById("login-logo-holder").innerHTML = ICONS.logoSmall;
+
+setTimeout(()=>{
+  if(localStorage.getItem("noj_session")){
+    goTo("home");
+  } else {
+    goTo("login");
+  }
+}, 1700);
+
+/* ---------------- Login / OTP ---------------- */
+const phoneInput = $("#phone-input");
+const phoneSubmit = $("#phone-submit");
+const phoneError = $("#phone-error");
+
+phoneInput.addEventListener("input", ()=>{
+  phoneInput.value = phoneInput.value.replace(/\D/g,"").slice(0,10);
+  const valid = /^05\d{8}$/.test(phoneInput.value);
+  phoneSubmit.disabled = !valid;
+  phoneError.textContent = "";
+});
+
+phoneSubmit.addEventListener("click", ()=>{
+  const val = phoneInput.value;
+  if(!/^05\d{8}$/.test(val)){
+    phoneError.textContent = "يرجى إدخال رقم جوال سعودي صحيح (يبدأ بـ 05)";
+    return;
+  }
+  state.phone = val;
+  const display = "+966 " + val.slice(1,3) + " " + val.slice(3,6) + " " + val.slice(6);
+  $("#otp-phone-display").textContent = display;
+  $all(".otp-box").forEach(b=>b.value="");
+  $("#otp-error").textContent = "";
+  goTo("otp");
+  startResendTimer();
+  setTimeout(()=>$(".otp-box").focus(), 300);
+});
+
+$("#otp-back").addEventListener("click", ()=>{ clearInterval(state.resendTimer); goTo("login"); });
+
+const otpBoxes = $all(".otp-box");
+otpBoxes.forEach((box,idx)=>{
+  box.addEventListener("input", ()=>{
+    box.value = box.value.replace(/\D/g,"").slice(0,1);
+    if(box.value && idx<otpBoxes.length-1) otpBoxes[idx+1].focus();
+    $("#otp-error").textContent = "";
+  });
+  box.addEventListener("keydown", (e)=>{
+    if(e.key==="Backspace" && !box.value && idx>0){ otpBoxes[idx-1].focus(); }
+  });
+});
+
+$("#otp-submit").addEventListener("click", verifyOtp);
+function verifyOtp(){
+  const code = otpBoxes.map(b=>b.value).join("");
+  if(code.length<4){
+    $("#otp-error").textContent = "أدخل الرمز المكون من 4 أرقام";
+    triggerShake();
+    return;
+  }
+  if(code === "1234"){
+    localStorage.setItem("noj_session","1");
+    DB.user.phone = "+966 " + state.phone.slice(1,3) + " " + state.phone.slice(3,6) + " " + state.phone.slice(6);
+    $("#profile-phone").textContent = DB.user.phone;
+    clearInterval(state.resendTimer);
+    showToast("تم تسجيل الدخول بنجاح");
+    goTo("home");
+  } else {
+    $("#otp-error").textContent = "رمز التحقق غير صحيح، حاول مرة أخرى";
+    triggerShake();
+  }
+}
+function triggerShake(){
+  const row = $("#otp-row");
+  row.classList.remove("shake"); void row.offsetWidth; row.classList.add("shake");
+}
+
+function startResendTimer(){
+  let t = 60;
+  const btn = $("#otp-resend");
+  btn.disabled = true;
+  clearInterval(state.resendTimer);
+  btn.textContent = `إعادة الإرسال (0:${t.toString().padStart(2,"0")})`;
+  state.resendTimer = setInterval(()=>{
+    t--;
+    if(t<=0){
+      clearInterval(state.resendTimer);
+      btn.disabled = false;
+      btn.textContent = "إعادة إرسال الرمز";
+    } else {
+      btn.textContent = `إعادة الإرسال (0:${t.toString().padStart(2,"0")})`;
+    }
+  },1000);
+}
+$("#otp-resend").addEventListener("click", ()=>{
+  if($("#otp-resend").disabled) return;
+  showToast("تم إرسال رمز جديد");
+  startResendTimer();
+});
+
+/* ---------------- Nav & shortcuts ---------------- */
+$all(".navbtn").forEach(btn=>btn.addEventListener("click", ()=>goTo(btn.dataset.nav)));
+$all("[data-goto]").forEach(el=>el.addEventListener("click", ()=>goTo(el.dataset.goto)));
+$all("[data-open-profile]").forEach(el=>el.addEventListener("click", openProfileModal));
+
+document.getElementById("nav-ic-home").innerHTML = ICONS.home;
+document.getElementById("nav-ic-bell").innerHTML = ICONS.bell;
+document.getElementById("nav-ic-star").innerHTML = ICONS.star;
+document.getElementById("nav-ic-chart").innerHTML = ICONS.chart;
+document.getElementById("nav-ic-more").innerHTML = ICONS.more;
+document.getElementById("ic-shortcut-reports").innerHTML = ICONS.chart;
+document.getElementById("ic-shortcut-invoices").innerHTML = ICONS.receipt;
+document.getElementById("ic-shortcut-queue").innerHTML = ICONS.clock;
+document.getElementById("ic-shortcut-loyalty").innerHTML = ICONS.star;
+document.getElementById("ic-more-profile").innerHTML = ICONS.home;
+document.getElementById("ic-more-cards").innerHTML = ICONS.cards;
+document.getElementById("ic-more-bell").innerHTML = ICONS.bell;
+document.getElementById("ic-more-lang").innerHTML = ICONS.lang;
+document.getElementById("ic-more-help").innerHTML = ICONS.help;
+document.getElementById("ic-more-info").innerHTML = ICONS.info;
+document.getElementById("ic-more-logout").innerHTML = ICONS.logout;
+document.getElementById("ic-profile-edit").innerHTML = ICONS.edit;
+document.getElementById("ic-profile-logout").innerHTML = ICONS.logout;
+["ic-more-chev1","ic-more-chev2","ic-more-chev3","ic-more-chev4","ic-profile-chev"].forEach(id=>{
+  const el = document.getElementById(id); if(el) el.innerHTML = ICONS.chev;
+});
+
+/* ---------------- Home ---------------- */
+function renderHome(){
+  const total = computeTotal();
+  $("#home-total-amount").innerHTML = fmt(total) + "<span>ريال</span>";
+  const prev = DB.monthlyTrend[DB.monthlyTrend.length-1].value;
+  const change = ((total-prev)/prev*100);
+  const up = change>=0;
+  $("#home-trend").innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:${up?"none":"scaleY(-1)"}"><path d="M4 16l6-6 4 4 6-8"/><path d="M14 6h6v6"/></svg> ${up?"ارتفاع":"انخفاض"} ${Math.abs(change).toFixed(0)}% عن يوليو`;
+
+  const q = DB.queue;
+  $("#home-queue-preview").innerHTML = `
+    <div class="preview-row">
+      <div class="left">
+        <div class="ic-round">${ICONS.ticket}</div>
+        <div><div class="title">${q.merchant}</div><div class="meta">دورك رقم ${q.number} · ${q.ahead} أمامك بالانتظار</div></div>
+      </div>
+      <span class="badge">${q.ahead*q.avgMin} دقيقة</span>
+    </div>`;
+
+  const recents = DB.invoices.slice(0,3);
+  $("#home-invoices-preview").innerHTML = recents.map(inv=>`
+    <div class="invoice-item" data-invoice="${inv.id}" style="margin-bottom:10px;">
+      <div class="ic-round">${CATEGORY_META[inv.category].ic}</div>
+      <div class="grow"><div class="title">${inv.merchant}</div><div class="meta">${inv.category} · ${inv.date}</div></div>
+      <div class="amount">${fmt(inv.amount)}</div>
+    </div>`).join("");
+  $all("#home-invoices-preview [data-invoice]").forEach(el=>el.addEventListener("click", ()=>openInvoiceModal(el.dataset.invoice)));
+
+  const { cur, next } = currentTier(DB.loyalty.points);
+  $("#home-loyalty-preview").innerHTML = `
+    <div class="preview-row">
+      <div class="left">
+        <div class="ic-round">${ICONS.star}</div>
+        <div><div class="title">${fmt0(DB.loyalty.points)} نقطة</div><div class="meta">مستواك الحالي: ${cur.name}</div></div>
+      </div>
+      <span class="badge gold">${next ? (next.min-DB.loyalty.points)+" نقطة للترقية" : "أعلى مستوى"}</span>
+    </div>`;
+}
+
+/* ---------------- Queue ---------------- */
+function renderQueue(){
+  const q = DB.queue;
+  $("#queue-merchant").textContent = q.merchant;
+  updateQueueUI();
+  clearInterval(state.queueInterval);
+  state.queueInterval = setInterval(()=>{
+    if(q.ahead>0){
+      q.ahead--;
+      updateQueueUI();
+    } else {
+      clearInterval(state.queueInterval);
+    }
+  }, 6000);
+}
+function updateQueueUI(){
+  const q = DB.queue;
+  $("#queue-number").innerHTML = "#"+q.number+"<small>رقم دورك</small>";
+  $("#queue-ahead").textContent = q.ahead;
+  const eta = q.ahead*q.avgMin;
+  $("#queue-eta").textContent = q.ahead>0 ? eta+" د" : "الآن";
+  const startAhead = 6;
+  const pct = 100 - (q.ahead/startAhead*100);
+  $("#queue-progress-bar").style.width = Math.min(100,Math.max(0,pct))+"%";
+  $("#queue-tip").innerHTML = q.ahead>0
+    ? `${ICONS.clock} سنقوم بتنبيهك قبل دورك بثلاثة مراجعين`
+    : "";
+  $("#queue-done-msg").style.display = q.ahead>0 ? "none":"block";
+}
+
+/* ---------------- Invoices ---------------- */
+function renderInvoices(filter){
+  filter = (filter||"").trim().toLowerCase();
+  const list = DB.invoices.filter(inv=>
+    !filter || inv.merchant.toLowerCase().includes(filter) || inv.category.toLowerCase().includes(filter)
+  );
+  const el = $("#invoice-list");
+  if(list.length===0){
+    el.innerHTML = `<div class="empty-state">لا توجد فواتير مطابقة لبحثك</div>`;
+    return;
+  }
+  el.innerHTML = list.map(inv=>`
+    <div class="invoice-item" data-invoice="${inv.id}">
+      <div class="ic-round">${CATEGORY_META[inv.category].ic}</div>
+      <div class="grow"><div class="title">${inv.merchant}</div><div class="meta">${inv.category} · ${inv.date} · ${inv.pay}</div></div>
+      <div class="amount">${fmt(inv.amount)}<div style="font-size:11px;color:var(--muted);font-weight:600;">ريال</div></div>
+    </div>`).join("");
+  $all("#invoice-list [data-invoice]").forEach(item=>item.addEventListener("click", ()=>openInvoiceModal(item.dataset.invoice)));
+}
+$("#invoice-search").addEventListener("input", e=>renderInvoices(e.target.value));
+
+function openInvoiceModal(id){
+  const inv = DB.invoices.find(i=>i.id===id);
+  if(!inv) return;
+  $("#inv-modal-title").textContent = inv.merchant;
+  $("#inv-modal-date").textContent = inv.date;
+  $("#inv-modal-id").textContent = inv.id;
+  $("#inv-modal-cat").textContent = inv.category;
+  $("#inv-modal-pay").textContent = inv.pay;
+  $("#inv-modal-pts").textContent = Math.floor(inv.amount/10) + " نقطة";
+  $("#inv-modal-total").textContent = fmt(inv.amount) + " ريال";
+  $("#inv-modal-items").innerHTML = inv.items.map(it=>`
+    <div class="row"><span>${it.n} <span class="qty">×${it.q}</span></span><span>${fmt(it.p)} ريال</span></div>
+  `).join("");
+  openModal("#modal-invoice");
+}
+
+/* ---------------- Loyalty ---------------- */
+function renderLoyalty(){
+  const pts = DB.loyalty.points;
+  const { cur, next } = currentTier(pts);
+  $("#loyalty-tier-label").innerHTML = `${ICONS.star} مستواك: ${cur.name}`;
+  $("#loyalty-points").innerHTML = fmt0(pts) + ' <span>نقطة</span>';
+  $("#profile-tier-badge").textContent = cur.name;
+  if(next){
+    const span = next.min - cur.min;
+    const progressed = pts - cur.min;
+    const pct = Math.min(100, (progressed/span)*100);
+    $("#loyalty-bar-fill").style.width = pct+"%";
+    $("#loyalty-next-label").textContent = `تبقى ${fmt0(next.min-pts)} نقطة للوصول إلى مستوى ${next.name}`;
+  } else {
+    $("#loyalty-bar-fill").style.width = "100%";
+    $("#loyalty-next-label").textContent = "وصلت لأعلى مستوى ولاء، استمتع بأفضل المزايا";
+  }
+  $all(".tiers-row span").forEach(s=>s.classList.toggle("on", s.dataset.tier===cur.name));
+
+  $("#rewards-grid").innerHTML = DB.loyalty.rewards.map(r=>`
+    <div class="reward-item">
+      <div class="ic-round">${r.ic}</div>
+      <div class="grow" style="flex:1;"><div class="title">${r.title}</div><div class="cost">${r.cost} نقطة</div></div>
+      <button class="redeem-btn" data-reward="${r.id}" ${pts<r.cost?"disabled":""}>استبدال</button>
+    </div>`).join("");
+  $all("#rewards-grid [data-reward]").forEach(btn=>btn.addEventListener("click", ()=>openRedeemModal(btn.dataset.reward)));
+}
+
+let pendingReward = null;
+function openRedeemModal(id){
+  const r = DB.loyalty.rewards.find(x=>String(x.id)===String(id));
+  if(!r) return;
+  pendingReward = r;
+  $("#redeem-icon").innerHTML = r.ic;
+  $("#redeem-title").textContent = r.title;
+  $("#redeem-desc").textContent = `سيتم خصم ${r.cost} نقطة من رصيدك مقابل هذه المكافأة`;
+  openModal("#modal-redeem");
+}
+$("#redeem-confirm").addEventListener("click", ()=>{
+  if(!pendingReward) return;
+  if(DB.loyalty.points < pendingReward.cost){
+    showToast("رصيد النقاط غير كافٍ");
+    return;
+  }
+  DB.loyalty.points -= pendingReward.cost;
+  closeModal("#modal-redeem");
+  showToast("تم استبدال المكافأة بنجاح");
+  renderLoyalty();
+  pendingReward = null;
+});
+
+/* ---------------- Reports ---------------- */
+function renderReports(){
+  const catTotals = computeCategoryTotals();
+  const total = computeTotal();
+  const cats = Object.keys(catTotals).sort((a,b)=>catTotals[b]-catTotals[a]);
+
+  const svg = $("#donut-chart");
+  const r = 54, cx=70, cy=70, circumference = 2*Math.PI*r;
+  let offsetAcc = 0;
+  let svgMarkup = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#F0F1F8" stroke-width="18"/>`;
+  cats.forEach(cat=>{
+    const pct = catTotals[cat]/total;
+    const dash = pct*circumference;
+    svgMarkup += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${CATEGORY_META[cat].color}" stroke-width="18"
+      stroke-dasharray="${dash} ${circumference-dash}" stroke-dashoffset="${-offsetAcc}" transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>`;
+    offsetAcc += dash;
+  });
+  svgMarkup += `<text x="${cx}" y="${cy-4}" text-anchor="middle" font-size="18" font-weight="800" fill="#12235C" font-family="Segoe UI, Arial">${fmt0(total)}</text>
+    <text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Segoe UI, Arial">ريال / الشهر</text>`;
+  svg.innerHTML = svgMarkup;
+
+  $("#donut-legend").innerHTML = cats.map(cat=>{
+    const pct = Math.round(catTotals[cat]/total*100);
+    return `<div class="legend-row"><span class="legend-dot" style="background:${CATEGORY_META[cat].color}"></span><span class="name">${cat}</span><span class="pct">${pct}%</span></div>`;
+  }).join("");
+
+  const months = DB.monthlyTrend.concat([{label:"أغسطس", value: total, current:true}]);
+  const max = Math.max(...months.map(m=>m.value));
+  $("#bars-wrap").innerHTML = months.map(m=>`
+    <div class="bar-col ${m.current?"current":""}">
+      <div class="bar" style="height:${(m.value/max*100).toFixed(0)}%"></div>
+      <div class="lbl">${m.label}</div>
+    </div>`).join("");
+
+  const topCat = cats[0];
+  const topPct = Math.round(catTotals[topCat]/total*100);
+  const prevMonth = DB.monthlyTrend[DB.monthlyTrend.length-1].value;
+  const change = Math.round((total-prevMonth)/prevMonth*100);
+  const avgInvoice = total/DB.invoices.length;
+
+  $("#insight-1").innerHTML = `<div class="ic-round">${ICONS.chart}</div><p>فئة <b>${topCat}</b> هي الأعلى إنفاقاً هذا الشهر بنسبة ${topPct}% من إجمالي مصروفاتك (${fmt(catTotals[topCat])} ريال).</p>`;
+  $("#insight-2").innerHTML = `<div class="ic-round">${ICONS.chart}</div><p>${change>=0?"ارتفع":"انخفض"} إنفاقك بنسبة ${Math.abs(change)}% مقارنة بيوليو، بمتوسط ${fmt(avgInvoice)} ريال لكل فاتورة.</p>`;
+}
+
+/* ---------------- Notifications ---------------- */
+function renderNotifications(){
+  $("#notif-list").innerHTML = DB.notifications.map(n=>`
+    <div class="notif-item ${n.unread?"unread":""}">
+      <div class="ic-round">${n.ic}</div>
+      <div class="grow"><div class="title">${n.title}</div><div class="time">${n.time}</div></div>
+    </div>`).join("");
+}
+
+/* ---------------- Profile / Modals ---------------- */
+function openModal(sel){ $(sel).classList.add("open"); }
+function closeModal(sel){ $(sel).classList.remove("open"); }
+$all("[data-close-modal]").forEach(btn=>btn.addEventListener("click", ()=>{
+  btn.closest(".modal-overlay").classList.remove("open");
+}));
+$all(".modal-overlay").forEach(ov=>ov.addEventListener("click", e=>{
+  if(e.target===ov) ov.classList.remove("open");
+}));
+
+function openProfileModal(){
+  $("#profile-name").textContent = DB.user.name;
+  $("#profile-avatar").textContent = DB.user.initial;
+  $("#profile-phone").textContent = DB.user.phone || "+966 5X XXX XXXX";
+  const { cur } = currentTier(DB.loyalty.points);
+  $("#profile-tier-badge").textContent = cur.name;
+  openModal("#modal-profile");
+}
+
+function doLogout(){
+  localStorage.removeItem("noj_session");
+  closeModal("#modal-profile");
+  clearInterval(state.queueInterval);
+  DB.queue.ahead = 6;
+  showToast("تم تسجيل الخروج");
+  phoneInput.value = "";
+  phoneSubmit.disabled = true;
+  goTo("login");
+}
+$("#logout-btn").addEventListener("click", doLogout);
+$("#profile-logout-btn").addEventListener("click", doLogout);
+
+/* ---------------- Clock ---------------- */
+function tickClock(){
+  const d = new Date();
+  const h = d.getHours()%12 || 12;
+  const m = d.getMinutes().toString().padStart(2,"0");
+  $("#clock").textContent = h+":"+m;
+}
+tickClock();
+setInterval(tickClock, 30000);
+
+})();
+</script>
+</body>
+</html>
