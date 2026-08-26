@@ -152,10 +152,17 @@
   @keyframes fade{from{opacity:0}to{opacity:1}}
   @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 
-  /* template switch (demo only) */
-  .sw{position:fixed;bottom:20px;left:20px;z-index:60;display:flex;flex-wrap:wrap;gap:7px;max-width:calc(100vw - 40px);background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:99px;padding:6px;box-shadow:0 8px 26px rgba(0,0,0,.16)}
-  .sw button{padding:9px 17px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:7px;white-space:nowrap}
-  .sw button.on{background:var(--navy);color:#fff}
+  /* settings — corner gear + panel (demo only) */
+  .setb{position:fixed;bottom:20px;left:20px;z-index:61;width:52px;height:52px;border-radius:50%;background:var(--navy);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 26px rgba(0,0,0,.18);transition:transform .16s}
+  .setb:active{transform:scale(.94)}
+  .setp{position:fixed;bottom:82px;left:20px;z-index:61;background:#fff;border:1px solid var(--line);border-radius:20px;padding:16px;min-width:230px;max-width:calc(100vw - 40px);box-shadow:0 14px 40px rgba(0,0,0,.18);animation:rise .2s ease both}
+  .setp-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .setp-hd b{font-size:14px;font-weight:800}
+  .setp-x{width:26px;height:26px;border-radius:50%;background:var(--panel);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .setp h4{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px}
+  .sw{display:flex;flex-wrap:wrap;gap:7px}
+  .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);white-space:nowrap}
+  .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 
   @media(max-width:1100px){
     .bd{grid-template-columns:1fr 1.3fr;gap:14px}
@@ -171,6 +178,8 @@
     .tagline{order:3;flex-basis:100%}
     .ft{gap:14px}
     .ft-d{display:none}
+    .setb{width:46px;height:46px}
+    .setp{bottom:74px}
     .sw button{padding:8px 13px;font-size:12px}
   }
   @media(max-height:760px){
@@ -188,7 +197,8 @@
 </head>
 <body>
 <div class="device"><div class="screen" id="screen"></div></div>
-<div class="sw" id="sw"></div>
+<button class="setb" id="setBtn" aria-label="إعدادات الشاشة"></button>
+<div class="setp" id="setPanel" style="display:none"></div>
 
 <script>
 var P={
@@ -208,7 +218,8 @@ var P={
  close:'<path d="M6 6l12 12M18 6L6 18"/>',
  moon:'<path d="M20 14.5A8.5 8.5 0 019.6 4 9 9 0 1020 14.5z"/>',
  cup:'<path d="M4 9h13v5.5a4.5 4.5 0 01-4.5 4.5h-4A4.5 4.5 0 014 14.5z"/><path d="M17 10.5h1.6a2.6 2.6 0 010 5.2H17"/><path d="M7.5 3s-1 1.1 0 2.2-1 2.1 0 3.2M11.5 3s-1 1.1 0 2.2-1 2.1 0 3.2"/>',
- cutlery:'<path d="M6 2v5.5M8 2v5.5M10 2v5.5M6 7.5a2 2 0 004 0M8 7.5V21"/><path d="M18 2c-2.4 1.1-3.8 3.9-3.8 7s1.4 5.4 3.8 6.5"/><path d="M18 2v19"/>'
+ cutlery:'<path d="M6 2v5.5M8 2v5.5M10 2v5.5M6 7.5a2 2 0 004 0M8 7.5V21"/><path d="M18 2c-2.4 1.1-3.8 3.9-3.8 7s1.4 5.4 3.8 6.5"/><path d="M18 2v19"/>',
+ gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>'
 };
 function ic(n,s,c,w){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.9)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBox="0 0 24 24" fill="'+c+'" stroke="none">'+(P[n]||'')+'</svg>'}
@@ -217,7 +228,7 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
 var T={
  medical:{
   key:'medical',
-  switchLabel:'مركز طبي',
+  switchLabel:'صحة',
   category:'صحة',
   ticketLabel:'رقم دورك',
   biz:'مركز النور الطبي', slogan:'نعتني بصحتك',
@@ -468,9 +479,16 @@ function bindLayer(){
     if(S.phone.length===9&&S.phone[0]==='5'){sendInvoice();S.view='ok';renderLayer()}};
 }
 
-/* ================= TEMPLATE SWITCH (demo only) =================
-   الأزرار تُبنى تلقائياً من مفاتيح T — إضافة قطاع جديد (تجزئة، صالونات،
-   ورش...) لا تحتاج أي تعديل هنا، فقط إضافة كائن جديد داخل T أعلاه. */
+/* ================= SETTINGS (demo only) =================
+   مفتاح الإعدادات في الزاوية يفتح لوحة تضم كل إعدادات الصفحة التجريبية —
+   حالياً التبديل بين القطاعات فقط. أزرار القطاعات تُبنى تلقائياً من
+   مفاتيح T، فإضافة قطاع جديد (تجزئة، صالونات، ورش...) لا تحتاج أي تعديل
+   هنا، فقط إضافة كائن جديد داخل T أعلاه. */
+var settingsOpen=false;
+function setPanelVisible(v){
+  settingsOpen=v;
+  document.getElementById('setPanel').style.display=v?'block':'none';
+}
 function renderSwitch(){
   var el=document.getElementById('sw');
   el.innerHTML=Object.keys(T).map(function(k){
@@ -480,11 +498,28 @@ function renderSwitch(){
     b.onclick=function(){
       S.t=b.getAttribute('data-t');S.view='main';S.phone='';
       renderSwitch();render();
+      setPanelVisible(false);
     };
   });
 }
+function renderSettings(){
+  document.getElementById('setBtn').innerHTML=ic('gear',24,'#fff',1.8);
+  document.getElementById('setBtn').onclick=function(){setPanelVisible(!settingsOpen)};
+  document.getElementById('setPanel').innerHTML=
+   '<div class="setp-hd"><b>إعدادات العرض</b>'+
+   '<button class="setp-x" id="setClose">'+ic('close',13,'#8A93AD',2.2)+'</button></div>'+
+   '<h4>القطاع</h4><div class="sw" id="sw"></div>';
+  document.getElementById('setClose').onclick=function(){setPanelVisible(false)};
+  renderSwitch();
+}
+document.addEventListener('click',function(e){
+  if(!settingsOpen)return;
+  var btn=document.getElementById('setBtn'),panel=document.getElementById('setPanel');
+  if(btn.contains(e.target)||panel.contains(e.target))return;
+  setPanelVisible(false);
+});
 
-renderSwitch();
+renderSettings();
 render();
 </script>
 </body>
