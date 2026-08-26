@@ -1,4 +1,4 @@
-const CACHE_NAME = "noj-client-v1";
+const CACHE_NAME = "noj-client-v2";
 const APP_SHELL = [
   "./index.html",
   "./manifest.json",
