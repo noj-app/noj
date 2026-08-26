@@ -460,6 +460,30 @@ const P={
 };
 function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.8)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 
+/* ================= SUPABASE ================= */
+// Official CDN ESM import (dynamic form so this classic <script> tag never
+// needs to become type="module"). This is the one explicitly-approved
+// exception to the "no external libraries" rule.
+const SUPABASE_URL='https://jqddjswxsacejbqjeehw.supabase.co';
+const SUPABASE_KEY='sb_publishable_tv2luaaynJu1c5Ce9loWFg_GQmMRTD-';
+let __sbPromise=null;
+function getSb(){
+  if(!__sbPromise){
+    __sbPromise=(async function(){
+      if(window.__NOJ_SUPABASE_CLIENT__) return window.__NOJ_SUPABASE_CLIENT__;
+      try{
+        const mod=await import('https://esm.sh/@supabase/supabase-js@2');
+        return mod.createClient(SUPABASE_URL,SUPABASE_KEY);
+      }catch(e){
+        console.error('NOJ: تعذّر تحميل مكتبة Supabase',e);
+        return null;
+      }
+    })();
+  }
+  return __sbPromise;
+}
+function sleep(ms){return new Promise(function(resolve){setTimeout(resolve,ms)})}
+
 const STORAGE_PREFIX='noj_';
 const K={SESSION:'session',PHONE:'phone',POINTS:'points',NOTIF:'notif_switches'};
 const Store={
@@ -471,24 +495,97 @@ const Store={
 };
 
 const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'مواصلات':{c:'#F59E0B',i:'car'},'أخرى':{c:'#64748B',i:'dots'}};
-const INVOICES=[
- {id:1,m:'مطعم مذاق',d:'20/05/2025',a:120.50,c:'مطاعم',items:[{n:'برياني دجاج',p:45},{n:'عصير مشمش',p:12},{n:'حمص وسلطة',p:18},{n:'خبز تنور',p:5},{n:'رسوم خدمة',p:40.5}]},
- {id:2,m:'بنده - الياسمين',d:'19/05/2025',a:214,c:'بقالة',items:[{n:'خضار وفواكه',p:62},{n:'منتجات ألبان',p:48},{n:'مواد تنظيف',p:39},{n:'مخبوزات',p:25},{n:'متنوع',p:40}]},
- {id:3,m:'ستاربكس - النخيل',d:'18/05/2025',a:38,c:'مقاهي',items:[{n:'قهوة لاتيه كبير',p:24},{n:'كرواسون',p:14}]},
- {id:4,m:'صيدلية النهدي',d:'17/05/2025',a:67,c:'أخرى',items:[{n:'فيتامينات',p:45},{n:'مستلزمات شخصية',p:22}]},
- {id:5,m:'أوبر',d:'16/05/2025',a:29,c:'مواصلات',items:[{n:'رحلة - المكتب للمنزل',p:29}]},
- {id:6,m:'مقهى بارز',d:'15/05/2025',a:22,c:'مقاهي',items:[{n:'كابتشينو',p:16},{n:'ماء',p:6}]}
-];
-const CATS=[{n:'مطاعم',v:35,a:998},{n:'بقالة',v:25,a:712},{n:'مقاهي',v:15,a:428},{n:'مواصلات',v:12,a:342},{n:'أخرى',v:13,a:370}];
+// Invoices, category totals, and rewards all come from Supabase now (see
+// loadUserData below) — these start empty and are populated right after
+// login, instead of holding mock fixtures.
+let INVOICES=[];
+let CATS=[];
 const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510},{m:'يونيو',t:1980},{m:'يوليو',t:2540},{m:'أغسطس',t:2850}];
 const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 35%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
-const REWARDS=[{id:1,t:'قهوة مجانية',m:'ستاربكس',c:200},{id:2,t:'خصم 15% على الطلب القادم',m:'مطعم مذاق',c:350},{id:3,t:'توصيل مجاني على أي رحلة',m:'أوبر',c:150},{id:4,t:'حلوى مجانية مع أي طلب',m:'بنده',c:100}];
+let REWARDS=[];
 const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'alerts',l:'التنبيهات',i:'bell'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
 
+let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
+let QUEUE={ticket:null,label:''};
 let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,pts:1250,query:'',sw:{notif:true,spend:true,offers:false}};
 const INITIAL_POINTS=S.pts;
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
+
+function formatDate(iso){
+  var d=new Date(iso);
+  var dd=String(d.getDate()).padStart(2,'0');
+  var mm=String(d.getMonth()+1).padStart(2,'0');
+  return dd+'/'+mm+'/'+d.getFullYear();
+}
+
+function computeCats(){
+  var totals={};
+  INVOICES.forEach(function(inv){totals[inv.c]=(totals[inv.c]||0)+inv.a});
+  var total=0;
+  Object.keys(totals).forEach(function(k){total+=totals[k]});
+  CATS=Object.keys(CAT).filter(function(k){return totals[k]>0}).map(function(k){
+    return {n:k,v:total>0?Math.round(totals[k]/total*100):0,a:Math.round(totals[k])};
+  });
+}
+
+async function loadUserData(profileId){
+  var sb=await getSb();
+  var results=await Promise.all([
+    sb.from('invoices').select('id, amount, category, items, created_at, merchants(name, branch)').eq('user_id',profileId).order('created_at',{ascending:false}),
+    sb.from('queue_tickets').select('ticket_number, unit_name, position, est_minutes, merchants(name)').eq('user_id',profileId).eq('status','waiting').order('created_at',{ascending:false}).limit(1),
+    sb.from('rewards').select('id, title, cost_points, merchants(name)').eq('active',true)
+  ]);
+  var invRes=results[0],ticketRes=results[1],rewardRes=results[2];
+  if(invRes.error||ticketRes.error||rewardRes.error) throw (invRes.error||ticketRes.error||rewardRes.error);
+
+  INVOICES=(invRes.data||[]).map(function(row){
+    var mName=row.merchants?row.merchants.name+(row.merchants.branch?' - '+row.merchants.branch:''):'متجر';
+    return {id:row.id,m:mName,d:formatDate(row.created_at),a:Number(row.amount),c:row.category,
+      items:(row.items||[]).map(function(it){return {n:it.n,p:it.p}})};
+  });
+  computeCats();
+
+  REWARDS=(rewardRes.data||[]).map(function(row){
+    return {id:row.id,t:row.title,m:row.merchants?row.merchants.name:'',c:row.cost_points};
+  });
+
+  if(ticketRes.data&&ticketRes.data[0]){
+    var t=ticketRes.data[0];
+    QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:'')};
+    S.q={ahead:t.position,min:t.est_minutes,now:t.position<=0};
+  }
+}
+
+async function loginAndLoad(phone){
+  try{
+    var sb=await getSb();
+    if(!sb) throw new Error('supabase-client-unavailable');
+
+    var sessionRes=await sb.auth.getSession();
+    var session=sessionRes.data&&sessionRes.data.session;
+    if(!session){
+      var signInRes=await sb.auth.signInAnonymously();
+      if(signInRes.error) throw signInRes.error;
+      session=signInRes.data.session;
+    }
+    if(!session) throw new Error('anonymous-signin-unavailable');
+
+    var claimRes=await sb.rpc('claim_or_create_profile',{p_phone:phone});
+    if(claimRes.error) throw claimRes.error;
+    var prof=claimRes.data;
+
+    PROFILE={id:prof.id,name:prof.name,phone:prof.phone,tier:prof.tier};
+    S.pts=prof.loyalty_points;
+    Store.set(K.POINTS,S.pts);
+
+    await loadUserData(prof.id);
+    return true;
+  }catch(e){
+    console.error('NOJ Supabase error:',e);
+    return false;
+  }
+}
 
 function donut(size,mid,big){
   let acc=0;
@@ -498,9 +595,10 @@ function donut(size,mid,big){
 
 function home(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
-  var last=INVOICES[0];
+  var last=INVOICES[0]||{m:'—',a:0,d:'—'};
+  var firstName=(PROFILE.name||'').split(' ')[0]||'بك';
   return ''+
-  '<div class="greet"><h1>مرحباً أحمد 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
+  '<div class="greet"><h1>مرحباً '+firstName+' 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
   '<div class="hero">'+
     '<svg class="spark" viewBox="0 0 200 70" height="70" preserveAspectRatio="none">'+
       '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24 S 186 12, 198 10" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round"/>'+
@@ -531,7 +629,7 @@ function home(){
       '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+c.n+'</b><s>'+c.v+'%</s></div>'}).join('')+'</div></div></div>'+
     '<div class="box"><div class="box-head"><h3>الفواتير الذكية</h3><button data-go="invoices">عرض الكل</button></div>'+
       '<div class="inv-mini"><div class="inv-ico">'+ic('receipt',26,'#3B82F6')+'</div>'+
-      '<div class="inv-info"><b>18 فاتورة هذا الشهر</b><small>آخر فاتورة</small>'+
+      '<div class="inv-info"><b>'+INVOICES.length+' فاتورة هذا الشهر</b><small>آخر فاتورة</small>'+
       '<small style="color:var(--text);font-weight:700">'+last.m+'</small>'+
       '<small class="amt">'+last.a.toFixed(2)+' ريال</small><small>'+last.d+'</small></div></div></div>'+
   '</div>'+
@@ -543,7 +641,7 @@ function loyCard(){
     '<div class="loy-ico">'+ic('gift',30,'#22A87A')+'</div>'+
     '<div class="loy-mid"><small>نقاطك</small><b>'+S.pts.toLocaleString('en-US')+'</b>'+
     '<p>أنت على بعد '+Math.max(0,1500-S.pts)+' نقطة من مكافأة جديدة</p></div>'+
-    '<div class="loy-right"><div class="loy-tier"><b>المستوى الذهبي</b><div class="loy-badge">'+ic('star',18,'#fff',2)+'</div></div>'+
+    '<div class="loy-right"><div class="loy-tier"><b>المستوى ال'+(PROFILE.tier||'برونزي')+'</b><div class="loy-badge">'+ic('star',18,'#fff',2)+'</div></div>'+
     '<div class="loy-track"><div class="loy-fill" style="width:'+Math.min(100,S.pts/1500*100)+'%"></div></div>'+
     '<div class="loy-num">'+S.pts.toLocaleString('en-US')+' / 1,500 نقطة</div></div>'+
   '</div></div>';
@@ -553,8 +651,8 @@ function queue(){
   var q=S.q;
   return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="home">الرئيسية</button></div>'+
   '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
-    '<small>'+ic('pin',12,'#fff')+' مطعم مذاق - فرع العليا</small>'+
-    '<div class="qnum">#47</div>'+
+    '<small>'+ic('pin',12,'#fff')+' '+(QUEUE.label||'—')+'</small>'+
+    '<div class="qnum">#'+(QUEUE.ticket!=null?QUEUE.ticket:'—')+'</div>'+
     '<div class="qstate">'+(q.now?'حان دورك الآن — توجه للاستلام':'رقم تذكرتك')+'</div></div>'+
   '<div class="qbody">'+
     (q.now
@@ -623,8 +721,8 @@ function reports(){
   return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2><button data-go="home">الرئيسية</button></div>'+
   '<div class="box"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
   '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
-  '<div class="mrow"><span>عدد الفواتير</span><span>18</span></div>'+
-  '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/18)+' ريال</span></div>'+
+  '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
+  '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/(INVOICES.length||1))+' ريال</span></div>'+
   '<div class="mrow"><span>أعلى فئة</span><span>مطاعم (35%)</span></div>'+
   '<div class="mrow"><span>نقاط الولاء</span><span>'+S.pts.toLocaleString('en-US')+'</span></div>'+
   '<div class="dash"></div><div class="mrow"><span>وقت الانتظار الموفَّر</span><span>~2.5 ساعة</span></div></div>'+
@@ -661,12 +759,12 @@ function profile(){
              {i:'pin',c:'#22A87A',t:'العناوين',s:'المنزل، العمل'},
              {i:'grid',c:'#64748B',t:'اللغة والمنطقة',s:'العربية · السعودية'}];
   return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2><button data-go="home">الرئيسية</button></div>'+
-  '<div class="prof-hero"><div class="prof-av">أ</div><div class="prof-id"><b>أحمد الذبياني</b>'+
+  '<div class="prof-hero"><div class="prof-av">'+((PROFILE.name||'ض').charAt(0))+'</div><div class="prof-id"><b>'+(PROFILE.name||'عميل NOJ')+'</b>'+
   '<small>ahmed@noj.app</small><small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
-  '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى الذهبي</span></div></div>'+
+  '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى ال'+(PROFILE.tier||'برونزي')+'</span></div></div>'+
   '<div class="stats3">'+
     '<div class="st"><b>'+S.pts.toLocaleString('en-US')+'</b><small>نقاط الولاء</small></div>'+
-    '<div class="st"><b>18</b><small>فواتير الشهر</small></div>'+
+    '<div class="st"><b>'+INVOICES.length+'</b><small>فواتير الشهر</small></div>'+
     '<div class="st"><b>'+total.toLocaleString('en-US')+'</b><small>إنفاق الشهر</small></div>'+
   '</div>'+
   '<div class="sec"><div class="sec-head"><h2>الإشعارات</h2></div><div class="list">'+
@@ -861,7 +959,7 @@ function bindAuth(){
   };
 }
 
-function doVerify(){
+async function doVerify(){
   if(A.code!==DEMO_CODE){
     A.err='رمز التحقق غير صحيح. حاول مرة أخرى.';
     A.code='';
@@ -871,6 +969,12 @@ function doVerify(){
   clearInterval(A.timer);
   Store.set(K.SESSION,true);
   Store.set(K.PHONE,A.phone);
+
+  var v=document.getElementById('verify');
+  if(v){v.disabled=true;v.textContent='جارٍ تحميل بياناتك...'}
+
+  var ok=await loginAndLoad(A.phone);
+
   var el=document.getElementById('auth');
   el.style.transition='opacity .35s ease, transform .35s ease';
   el.style.opacity='0';
@@ -880,7 +984,7 @@ function doVerify(){
     document.getElementById('app').style.display='';
     document.querySelector('.nav').style.display='';
     render();
-    toast('أهلاً بك في NOJ 👋');
+    toast(ok?'أهلاً بك في NOJ 👋':'تعذّر الاتصال بالخادم، تُعرض بيانات محدودة');
   },340);
 }
 
@@ -889,6 +993,9 @@ function logoutFlow(){
   Store.remove(K.SESSION);
   Store.remove(K.PHONE);
   A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
+  PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
+  QUEUE={ticket:null,label:''};
+  INVOICES=[];CATS=[];REWARDS=[];
   var el=document.getElementById('auth');
   el.style.display='';el.style.opacity='';el.style.transform='';
   document.getElementById('app').style.display='none';
@@ -936,7 +1043,11 @@ function bind(){
     ovC.onclick=function(){S.showClear=false;render()};
     document.getElementById('sheetClear').onclick=function(e){e.stopPropagation()};
     document.getElementById('clsClear').onclick=function(){S.showClear=false;render()};
-    document.getElementById('confirmClear').onclick=function(){
+    document.getElementById('confirmClear').onclick=async function(){
+      try{
+        var sb=await getSb();
+        if(sb) await sb.auth.signOut();
+      }catch(e){console.error('NOJ signOut error:',e)}
       Store.clearAll();
       S.pts=INITIAL_POINTS;
       S.sw={notif:INITIAL_SW.notif,spend:INITIAL_SW.spend,offers:INITIAL_SW.offers};
@@ -957,16 +1068,32 @@ function bind(){
   if(qi)qi.oninput=function(e){var p=e.target.selectionStart;S.query=e.target.value;render();
     var n=document.getElementById('q');if(n){n.focus();n.setSelectionRange(p,p)}};
 
-  [].forEach.call(document.querySelectorAll('[data-inv]'),function(c){c.onclick=function(){S.sel=parseInt(c.getAttribute('data-inv'),10);render()}});
+  [].forEach.call(document.querySelectorAll('[data-inv]'),function(c){c.onclick=function(){S.sel=c.getAttribute('data-inv');render()}});
   var ov=document.getElementById('ov');
   if(ov){ov.onclick=function(){S.sel=null;render()};
     document.getElementById('sheet').onclick=function(e){e.stopPropagation()};
     document.getElementById('cls').onclick=function(){S.sel=null;render()}}
 
-  [].forEach.call(document.querySelectorAll('[data-rw]'),function(b){b.onclick=function(){
-    var r=REWARDS.filter(function(x){return x.id===parseInt(b.getAttribute('data-rw'),10)})[0];
+  [].forEach.call(document.querySelectorAll('[data-rw]'),function(b){b.onclick=async function(){
+    var r=REWARDS.filter(function(x){return String(x.id)===b.getAttribute('data-rw')})[0];
+    if(!r)return;
     if(S.pts<r.c){toast('نقاطك غير كافية لاستبدال هذه المكافأة');return}
-    S.pts-=r.c;Store.set(K.POINTS,S.pts);render();toast('تم استبدال: '+r.t+' 🎉')}});
+    b.disabled=true;
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.rpc('redeem_reward',{p_reward_id:r.id});
+      if(res.error) throw res.error;
+      S.pts=res.data.loyalty_points;
+      Store.set(K.POINTS,S.pts);
+      render();
+      toast('تم استبدال: '+r.t+' 🎉');
+    }catch(e){
+      console.error('NOJ redeem error:',e);
+      b.disabled=false;
+      toast('تعذّر إتمام الاستبدال، حاول مرة أخرى');
+    }
+  }});
 }
 
 document.getElementById('app').style.display='none';
@@ -987,12 +1114,14 @@ setTimeout(function(){
       if(stage)stage.style.opacity='0';
     },760);
 
-    setTimeout(function(){
+    Promise.all([sleep(1050),loginAndLoad(A.phone)]).then(function(results){
+      var ok=results[1];
       sp.style.display='none';
       document.getElementById('app').style.display='';
       document.querySelector('.nav').style.display='';
       render();
-    },1050);
+      if(!ok)toast('تعذّر تحديث بياناتك، تُعرض آخر بيانات محفوظة');
+    });
     return;
   }
 
