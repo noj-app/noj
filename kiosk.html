@@ -127,6 +127,7 @@
   .k.go:disabled{opacity:.34}
   .k.cl{background:var(--panel);color:var(--muted);font-size:18px}
   .close{position:absolute;top:20px;left:26px;display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:11px 20px;border-radius:99px}
+  .close.inline{position:static;flex-shrink:0}
 
   /* ===== SUCCESS ===== */
   .ok{position:absolute;inset:0;background:#fff;z-index:25;display:flex;align-items:center;justify-content:center;padding:26px;animation:fade .3s ease both}
@@ -152,16 +153,43 @@
   @keyframes fade{from{opacity:0}to{opacity:1}}
   @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 
-  /* settings — corner gear + panel (demo only) */
-  .setb{position:fixed;bottom:20px;left:20px;z-index:61;width:52px;height:52px;border-radius:50%;background:var(--navy);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 26px rgba(0,0,0,.18);transition:transform .16s}
-  .setb:active{transform:scale(.94)}
-  .setp{position:fixed;bottom:82px;left:20px;z-index:61;background:#fff;border:1px solid var(--line);border-radius:20px;padding:16px;min-width:230px;max-width:calc(100vw - 40px);box-shadow:0 14px 40px rgba(0,0,0,.18);animation:rise .2s ease both}
-  .setp-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-  .setp-hd b{font-size:14px;font-weight:800}
-  .setp-x{width:26px;height:26px;border-radius:50%;background:var(--panel);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .setp h4{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px}
+  /* ===== ADMIN PIN (demo only) ===== */
+  .pinbox{width:100%;max-width:380px;text-align:center}
+  .pinbox h2{font-size:27px;font-weight:800;margin-bottom:8px}
+  .pinbox p{font-size:15px;color:var(--muted);margin-bottom:22px}
+  .pindots{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:8px}
+  .pindot{width:16px;height:16px;border-radius:50%;border:2.5px solid var(--line);transition:background .15s,border-color .15s}
+  .pindot.filled{background:var(--navy);border-color:var(--navy)}
+
+  /* ===== ADMIN SETTINGS SCREEN (demo only) ===== */
+  .admin{background:#fff;z-index:40;padding:0;align-items:stretch;justify-content:stretch}
+  .adm{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
+  .adm-hd{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:20px 30px;border-bottom:1px solid var(--line);flex-shrink:0}
+  .adm-hd-t{display:flex;align-items:center;gap:10px}
+  .adm-hd h2{font-size:22px;font-weight:800}
+  .adm-body{flex:1;overflow-y:auto;padding:22px 30px;display:flex;flex-direction:column;gap:16px}
+  .adm-body::-webkit-scrollbar{width:0}
+  .adm-sec{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px 20px}
+  .adm-sec h3{font-size:13.5px;font-weight:800;color:var(--muted);margin-bottom:12px}
+  .adm-f{display:block;font-size:13px;font-weight:700;color:var(--muted);margin-bottom:14px}
+  .adm-f:last-child{margin-bottom:0}
+  .adm-f input{display:block;width:100%;margin-top:6px;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl}
+  .adm-f input:focus{outline:none;border-color:var(--blue)}
+  .adm-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:6px}
+  .adm-testbtn{background:var(--navy);color:#fff;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:800;transition:transform .12s}
+  .adm-testbtn:active{transform:scale(.96)}
+  .adm-testbtn:disabled{opacity:.55}
+  .conn-badge{font-size:13.5px;font-weight:800;padding:7px 14px;border-radius:99px;background:#fff;border:1.5px solid var(--line);color:var(--muted)}
+  .conn-badge.connected{color:#22A87A;border-color:#22A87A}
+  .adm-note{font-size:12.5px;color:var(--muted-2);margin-top:10px;line-height:1.6}
+  .adm-ft{display:flex;gap:12px;padding:16px 30px;border-top:1px solid var(--line);flex-shrink:0}
+  .adm-ft button{flex:1;border-radius:16px;padding:15px;font-size:15.5px;font-weight:800;transition:transform .14s}
+  .adm-ft button:active{transform:scale(.97)}
+  .adm-ft .save{background:var(--navy);color:#fff}
+  .adm-ft .cancel{background:#fff;color:var(--muted);border:1.5px solid var(--line)}
+
   .sw{display:flex;flex-wrap:wrap;gap:7px}
-  .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);white-space:nowrap}
+  .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);white-space:nowrap}
   .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
 
   @media(max-width:1100px){
@@ -178,8 +206,9 @@
     .tagline{order:3;flex-basis:100%}
     .ft{gap:14px}
     .ft-d{display:none}
-    .setb{width:46px;height:46px}
-    .setp{bottom:74px}
+    .adm-hd{padding:16px 20px}
+    .adm-body{padding:16px 20px}
+    .adm-ft{padding:14px 20px}
     .sw button{padding:8px 13px;font-size:12px}
   }
   @media(max-height:760px){
@@ -197,8 +226,6 @@
 </head>
 <body>
 <div class="device"><div class="screen" id="screen"></div></div>
-<button class="setb" id="setBtn" aria-label="إعدادات الشاشة"></button>
-<div class="setp" id="setPanel" style="display:none"></div>
 
 <script>
 var P={
@@ -304,16 +331,56 @@ var T={
  }
 };
 
-var S={t:'medical',view:'main',phone:''};
+/* ================= DEVICE SETTINGS (persisted) =================
+   إعدادات الجهاز المحمية (القطاع، بيانات المنشأة، ربط نظام الكاشير،
+   الوضع) — تُحفظ في localStorage فتبقى بعد إعادة تشغيل الجهاز. رمز
+   الدخول (ADMIN_PIN) قيمة تجريبية ثابتة فقط، ولا يوجد أي مفتاح API أو
+   بيانات اعتماد حقيقية في هذا الملف. */
+var ADMIN_PIN='1234';
+var SETTINGS_KEY='noj_kiosk_settings';
+var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',pairingCode:'',posConnected:false,mode:'demo'};
+function loadSettings(){
+  try{
+    var raw=localStorage.getItem(SETTINGS_KEY);
+    if(!raw)return null;
+    var parsed=JSON.parse(raw);
+    return parsed&&typeof parsed==='object'?parsed:null;
+  }catch(e){return null}
+}
+function saveSettingsToStorage(s){
+  try{localStorage.setItem(SETTINGS_KEY,JSON.stringify(s));return true}
+  catch(e){console.error('NOJ kiosk: تعذّر حفظ الإعدادات',e);return false}
+}
+var SETTINGS=(function(){
+  var saved=loadSettings()||{};
+  var merged={};
+  Object.keys(DEFAULT_SETTINGS).forEach(function(k){
+    merged[k]=(k in saved)?saved[k]:DEFAULT_SETTINGS[k];
+  });
+  if(!T[merged.sector])merged.sector=DEFAULT_SETTINGS.sector;
+  return merged;
+})();
+function escAttr(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function currentBiz(){
+  var t=T[SETTINGS.sector];
+  var name=SETTINGS.bizName?SETTINGS.bizName:t.biz;
+  if(SETTINGS.bizBranch)name+=' - '+SETTINGS.bizBranch;
+  var slogan=SETTINGS.bizSlogan?SETTINGS.bizSlogan:t.slogan;
+  return {name:name,slogan:slogan};
+}
+
+var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:''};
 function C(){return T[S.t]}
 
 /* ================= BLOCKS ================= */
 function header(){
-  var c=C();
+  var c=C(),biz=currentBiz();
   return '<div class="hd">'+
-   '<div class="noj"><div class="noj-m">N</div><div class="noj-t"><b>NOJ</b><small>No Ordinary Journey</small></div></div>'+
+   '<div class="noj" id="nojLogo"><div class="noj-m">N</div><div class="noj-t"><b>NOJ</b><small>No Ordinary Journey</small></div></div>'+
    '<div class="tagline"><p>من لحظة الدفع، تحصل على<br><span class="hl">فاتورتك وخدماتك</span> بلا رسائل مزعجة.</p><div class="tag-dot"></div></div>'+
-   '<div class="biz"><div class="biz-t"><b>'+c.biz+'</b><small>'+c.slogan+'</small></div>'+c.logo+'</div>'+
+   '<div class="biz"><div class="biz-t"><b>'+biz.name+'</b><small>'+biz.slogan+'</small></div>'+c.logo+'</div>'+
   '</div>';
 }
 
@@ -432,9 +499,10 @@ function renderMain(){
 function renderLayer(){
   var el=document.getElementById('layer');
   if(!el)return;
-  el.innerHTML=S.view==='pad'?keypad():S.view==='ok'?success():'';
+  el.innerHTML=S.view==='pad'?keypad():S.view==='ok'?success():S.view==='pin'?adminPin():S.view==='settings'?settingsScreen():'';
   bindLayer();
   if(S.view==='ok')startTimer(12);else clearInterval(tmr);
+  resetAdminIdle();
 }
 function render(){renderMain();renderLayer()}
 function startTimer(s){
@@ -452,8 +520,8 @@ function startTimer(s){
    لاحقاً في تطبيق العميل (index.html). لا يوجد اتصال شبكة فعلي هنا؛ هذا
    تمثيل للحمولة (payload) التي سترسلها نقطة البيع الحقيقية مستقبلاً. */
 function sendInvoice(){
-  var c=C();
-  var payload={category:c.category,merchant:c.biz,ticket:c.ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
+  var c=C(),biz=currentBiz();
+  var payload={category:c.category,merchant:biz.name,ticket:c.ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
   console.log('NOJ kiosk → إرسال الفاتورة (محاكاة):',payload);
   return payload;
 }
@@ -463,6 +531,8 @@ function bindMain(){
   if(op)op.onclick=function(){S.view='pad';S.phone='';renderLayer()};
   var nfc=document.querySelector('.nfc');
   if(nfc)nfc.onclick=function(){S.phone='';sendInvoice();S.view='ok';renderLayer()};
+  var logo=document.getElementById('nojLogo');
+  if(logo)bindLogoLongPress(logo);
 }
 function bindLayer(){
   var cl=document.getElementById('closePad');
@@ -477,49 +547,197 @@ function bindLayer(){
   var cf=document.getElementById('confirm');
   if(cf)cf.onclick=function(){
     if(S.phone.length===9&&S.phone[0]==='5'){sendInvoice();S.view='ok';renderLayer()}};
+  bindPin();
+  bindAdmin();
 }
 
-/* ================= SETTINGS (demo only) =================
-   مفتاح الإعدادات في الزاوية يفتح لوحة تضم كل إعدادات الصفحة التجريبية —
-   حالياً التبديل بين القطاعات فقط. أزرار القطاعات تُبنى تلقائياً من
-   مفاتيح T، فإضافة قطاع جديد (تجزئة، صالونات، ورش...) لا تحتاج أي تعديل
-   هنا، فقط إضافة كائن جديد داخل T أعلاه. */
-var settingsOpen=false;
-function setPanelVisible(v){
-  settingsOpen=v;
-  document.getElementById('setPanel').style.display=v?'block':'none';
+/* ================= ADMIN ACCESS (demo only) =================
+   شاشة أعدادات الجهاز محمية عن العملاء: لا يوجد أي زر ظاهر لها. الدخول
+   فقط عبر ضغط مطوّل 5 ثوانٍ على شعار NOJ، ثم رمز PIN من 4 أرقام
+   (ADMIN_PIN أعلاه — قيمة تجريبية ثابتة، وليست سرّاً حقيقياً). خروج
+   تلقائي للشاشة الرئيسية بعد 60 ثانية بلا أي تفاعل. */
+var longPressTimer=null;
+function bindLogoLongPress(el){
+  var start=function(){
+    clearTimeout(longPressTimer);
+    longPressTimer=setTimeout(openPinScreen,5000);
+  };
+  var cancel=function(){clearTimeout(longPressTimer)};
+  el.addEventListener('mousedown',start);
+  el.addEventListener('touchstart',start,{passive:true});
+  el.addEventListener('mouseup',cancel);
+  el.addEventListener('mouseleave',cancel);
+  el.addEventListener('touchend',cancel);
+  el.addEventListener('touchcancel',cancel);
 }
-function renderSwitch(){
-  var el=document.getElementById('sw');
-  el.innerHTML=Object.keys(T).map(function(k){
-    return '<button data-t="'+k+'" class="'+(S.t===k?'on':'')+'">'+T[k].switchLabel+'</button>';
-  }).join('');
-  [].forEach.call(el.querySelectorAll('button'),function(b){
+function openPinScreen(){
+  if(S.view!=='main')return;
+  S.pin='';S.pinErr='';S.view='pin';
+  renderLayer();
+}
+
+/* ================= ADMIN PIN SCREEN ================= */
+function adminPin(){
+  var filled=S.pin.length,dots='';
+  for(var i=0;i<4;i++)dots+='<div class="pindot'+(i<filled?' filled':'')+'"></div>';
+  var keys=['1','2','3','4','5','6','7','8','9'];
+  return '<div class="ov" id="pinBox">'+
+   '<button class="close" id="pinCancel">'+ic('close',16,'#8A93AD')+' إلغاء</button>'+
+   '<div class="pinbox"><h2>إعدادات الجهاز</h2>'+
+   '<p>أدخل رمز الدخول (4 أرقام)</p>'+
+   '<div class="pindots">'+dots+'</div>'+
+   '<div class="warn">'+(S.pinErr||'')+'</div>'+
+   '<div class="keys">'+keys.map(function(k){return '<button class="k" data-pk="'+k+'">'+k+'</button>'}).join('')+
+   '<button class="k cl" data-pk="del">حذف</button>'+
+   '<button class="k" data-pk="0">0</button>'+
+   '</div></div></div>';
+}
+function bindPin(){
+  var cancel=document.getElementById('pinCancel');
+  if(cancel)cancel.onclick=function(){S.view='main';S.pin='';S.pinErr='';renderLayer()};
+  [].forEach.call(document.querySelectorAll('[data-pk]'),function(b){
     b.onclick=function(){
-      S.t=b.getAttribute('data-t');S.view='main';S.phone='';
-      renderSwitch();render();
-      setPanelVisible(false);
+      var k=b.getAttribute('data-pk');
+      if(k==='del'){S.pin=S.pin.slice(0,-1);S.pinErr='';renderLayer();return}
+      if(S.pin.length<4)S.pin+=k;
+      if(S.pin.length===4){
+        if(S.pin===ADMIN_PIN){openAdminSettings()}
+        else{S.pinErr='رمز غير صحيح، حاول مرة أخرى';S.pin='';renderLayer()}
+        return;
+      }
+      renderLayer();
     };
   });
 }
-function renderSettings(){
-  document.getElementById('setBtn').innerHTML=ic('gear',24,'#fff',1.8);
-  document.getElementById('setBtn').onclick=function(){setPanelVisible(!settingsOpen)};
-  document.getElementById('setPanel').innerHTML=
-   '<div class="setp-hd"><b>إعدادات العرض</b>'+
-   '<button class="setp-x" id="setClose">'+ic('close',13,'#8A93AD',2.2)+'</button></div>'+
-   '<h4>القطاع</h4><div class="sw" id="sw"></div>';
-  document.getElementById('setClose').onclick=function(){setPanelVisible(false)};
-  renderSwitch();
-}
-document.addEventListener('click',function(e){
-  if(!settingsOpen)return;
-  var btn=document.getElementById('setBtn'),panel=document.getElementById('setPanel');
-  if(btn.contains(e.target)||panel.contains(e.target))return;
-  setPanelVisible(false);
-});
 
-renderSettings();
+/* ================= ADMIN SETTINGS SCREEN =================
+   تعمل على نسخة مسودة (DRAFT) مستقلة عن SETTINGS المحفوظة فعلياً؛ لا
+   يُطبَّق أو يُحفَظ أي تغيير إلا بالضغط على "حفظ". الخروج أو انتهاء وقت
+   الخمول يتجاهل أي تعديل غير محفوظ. */
+var DRAFT=null;
+function openAdminSettings(){
+  DRAFT=JSON.parse(JSON.stringify(SETTINGS));
+  S.pin='';S.pinErr='';S.view='settings';
+  renderLayer();
+}
+function closeAdmin(){
+  DRAFT=null;S.view='main';
+  renderLayer();
+}
+function settingsScreen(){
+  var d=DRAFT;
+  return '<div class="ov admin" id="adminBox">'+
+   '<div class="adm">'+
+    '<div class="adm-hd"><div class="adm-hd-t">'+ic('gear',20,'#12235C',1.8)+'<h2>إعدادات الجهاز</h2></div>'+
+     '<button class="close inline" id="adminExit">'+ic('close',16,'#8A93AD')+' خروج</button></div>'+
+    '<div class="adm-body">'+
+     '<div class="adm-sec"><h3>القطاع</h3><div class="sw" id="adminSw">'+
+      Object.keys(T).map(function(k){
+        return '<button data-t="'+k+'" class="'+(d.sector===k?'on':'')+'">'+T[k].switchLabel+'</button>';
+      }).join('')+
+     '</div></div>'+
+     '<div class="adm-sec"><h3>بيانات المنشأة</h3>'+
+      '<label class="adm-f">الاسم<input type="text" id="fBizName" value="'+escAttr(d.bizName)+'" placeholder="'+escAttr(T[d.sector].biz)+'"></label>'+
+      '<label class="adm-f">الفرع<input type="text" id="fBizBranch" value="'+escAttr(d.bizBranch)+'" placeholder="مثال: فرع العليا"></label>'+
+      '<label class="adm-f">الشعار الفرعي<input type="text" id="fBizSlogan" value="'+escAttr(d.bizSlogan)+'" placeholder="'+escAttr(T[d.sector].slogan)+'"></label>'+
+     '</div>'+
+     '<div class="adm-sec"><h3>الربط بنظام الكاشير</h3>'+
+      '<label class="adm-f">رمز الإقران (6 أرقام)<input type="text" inputmode="numeric" id="fPairing" value="'+escAttr(d.pairingCode)+'" placeholder="000000"></label>'+
+      '<div class="adm-row"><button class="adm-testbtn" id="testConn">اختبار الاتصال</button>'+
+      '<span class="conn-badge'+(d.posConnected?' connected':'')+'" id="connBadge">'+(d.posConnected?'● متصل':'○ غير متصل')+'</span></div>'+
+      '<div class="warn" id="pairingWarn"></div>'+
+      '<p class="adm-note">يُولَّد رمز الإقران من لوحة تحكم التاجر (Merchant Dashboard) عند ربط جهاز جديد بنظام الكاشير.</p>'+
+     '</div>'+
+     '<div class="adm-sec"><h3>الوضع</h3><div class="sw" id="adminMode">'+
+      '<button data-m="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
+      '<button data-m="live" class="'+(d.mode==='live'?'on':'')+'">مباشر</button>'+
+     '</div></div>'+
+    '</div>'+
+    '<div class="adm-ft"><button class="cancel" id="adminExit2">خروج من الإعدادات</button>'+
+    '<button class="save" id="adminSave">حفظ</button></div>'+
+   '</div></div>';
+}
+function updateConnBadge(){
+  var el=document.getElementById('connBadge');
+  if(el){
+    el.className='conn-badge'+(DRAFT.posConnected?' connected':'');
+    el.textContent=DRAFT.posConnected?'● متصل':'○ غير متصل';
+  }
+}
+function bindAdmin(){
+  var exit1=document.getElementById('adminExit');
+  if(exit1)exit1.onclick=closeAdmin;
+  var exit2=document.getElementById('adminExit2');
+  if(exit2)exit2.onclick=closeAdmin;
+
+  [].forEach.call(document.querySelectorAll('#adminSw button'),function(b){
+    b.onclick=function(){DRAFT.sector=b.getAttribute('data-t');renderLayer()};
+  });
+  [].forEach.call(document.querySelectorAll('#adminMode button'),function(b){
+    b.onclick=function(){DRAFT.mode=b.getAttribute('data-m');renderLayer()};
+  });
+
+  var fName=document.getElementById('fBizName');
+  if(fName)fName.oninput=function(){DRAFT.bizName=fName.value};
+  var fBranch=document.getElementById('fBizBranch');
+  if(fBranch)fBranch.oninput=function(){DRAFT.bizBranch=fBranch.value};
+  var fSlogan=document.getElementById('fBizSlogan');
+  if(fSlogan)fSlogan.oninput=function(){DRAFT.bizSlogan=fSlogan.value};
+
+  var fPairing=document.getElementById('fPairing');
+  if(fPairing)fPairing.oninput=function(){
+    var v=fPairing.value.replace(/\D/g,'').slice(0,6);
+    if(v!==fPairing.value)fPairing.value=v;
+    DRAFT.pairingCode=v;
+    DRAFT.posConnected=false;
+    updateConnBadge();
+    var w=document.getElementById('pairingWarn');
+    if(w)w.textContent='';
+  };
+
+  var testBtn=document.getElementById('testConn');
+  if(testBtn)testBtn.onclick=function(){
+    var w=document.getElementById('pairingWarn');
+    if(!/^\d{6}$/.test(DRAFT.pairingCode||'')){
+      DRAFT.posConnected=false;
+      updateConnBadge();
+      if(w)w.textContent='أدخل رمز إقران صحيحاً من 6 أرقام أولاً';
+      return;
+    }
+    if(w)w.textContent='';
+    testBtn.disabled=true;testBtn.textContent='جارٍ الاختبار...';
+    setTimeout(function(){
+      DRAFT.posConnected=true;
+      testBtn.disabled=false;testBtn.textContent='اختبار الاتصال';
+      updateConnBadge();
+    },700);
+  };
+
+  var saveBtn=document.getElementById('adminSave');
+  if(saveBtn)saveBtn.onclick=function(){
+    SETTINGS=JSON.parse(JSON.stringify(DRAFT));
+    var ok=saveSettingsToStorage(SETTINGS);
+    S.t=SETTINGS.sector;
+    closeAdmin();
+    render();
+    if(!ok)console.error('NOJ kiosk: فشل حفظ الإعدادات في localStorage');
+  };
+}
+
+/* ================= IDLE TIMEOUT (pin/settings only) ================= */
+var adminIdleTimer=null;
+function resetAdminIdle(){
+  clearTimeout(adminIdleTimer);
+  if(S.view==='pin'||S.view==='settings'){
+    adminIdleTimer=setTimeout(function(){
+      DRAFT=null;S.pin='';S.pinErr='';S.view='main';
+      renderLayer();
+    },60000);
+  }
+}
+document.addEventListener('click',resetAdminIdle);
+document.addEventListener('input',resetAdminIdle);
+
 render();
 </script>
 </body>
