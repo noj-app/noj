@@ -153,8 +153,8 @@
   @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 
   /* template switch (demo only) */
-  .sw{position:fixed;bottom:20px;left:20px;z-index:60;display:flex;gap:7px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:99px;padding:6px;box-shadow:0 8px 26px rgba(0,0,0,.16)}
-  .sw button{padding:9px 17px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:7px}
+  .sw{position:fixed;bottom:20px;left:20px;z-index:60;display:flex;flex-wrap:wrap;gap:7px;max-width:calc(100vw - 40px);background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:99px;padding:6px;box-shadow:0 8px 26px rgba(0,0,0,.16)}
+  .sw button{padding:9px 17px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:7px;white-space:nowrap}
   .sw button.on{background:var(--navy);color:#fff}
 
   @media(max-width:1100px){
@@ -171,6 +171,7 @@
     .tagline{order:3;flex-basis:100%}
     .ft{gap:14px}
     .ft-d{display:none}
+    .sw button{padding:8px 13px;font-size:12px}
   }
   @media(max-height:760px){
     .noj-m{width:40px;height:40px;font-size:21px}.noj-t b{font-size:26px}
@@ -187,10 +188,7 @@
 </head>
 <body>
 <div class="device"><div class="screen" id="screen"></div></div>
-<div class="sw">
-  <button id="bMed" class="on">مركز طبي</button>
-  <button id="bCafe">مقهى</button>
-</div>
+<div class="sw" id="sw"></div>
 
 <script>
 var P={
@@ -209,7 +207,8 @@ var P={
  check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
  close:'<path d="M6 6l12 12M18 6L6 18"/>',
  moon:'<path d="M20 14.5A8.5 8.5 0 019.6 4 9 9 0 1020 14.5z"/>',
- cup:'<path d="M4 9h13v5.5a4.5 4.5 0 01-4.5 4.5h-4A4.5 4.5 0 014 14.5z"/><path d="M17 10.5h1.6a2.6 2.6 0 010 5.2H17"/><path d="M7.5 3s-1 1.1 0 2.2-1 2.1 0 3.2M11.5 3s-1 1.1 0 2.2-1 2.1 0 3.2"/>'
+ cup:'<path d="M4 9h13v5.5a4.5 4.5 0 01-4.5 4.5h-4A4.5 4.5 0 014 14.5z"/><path d="M17 10.5h1.6a2.6 2.6 0 010 5.2H17"/><path d="M7.5 3s-1 1.1 0 2.2-1 2.1 0 3.2M11.5 3s-1 1.1 0 2.2-1 2.1 0 3.2"/>',
+ cutlery:'<path d="M6 2v5.5M8 2v5.5M10 2v5.5M6 7.5a2 2 0 004 0M8 7.5V21"/><path d="M18 2c-2.4 1.1-3.8 3.9-3.8 7s1.4 5.4 3.8 6.5"/><path d="M18 2v19"/>'
 };
 function ic(n,s,c,w){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.9)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBox="0 0 24 24" fill="'+c+'" stroke="none">'+(P[n]||'')+'</svg>'}
@@ -218,6 +217,9 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
 var T={
  medical:{
   key:'medical',
+  switchLabel:'مركز طبي',
+  category:'صحة',
+  ticketLabel:'رقم دورك',
   biz:'مركز النور الطبي', slogan:'نعتني بصحتك',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+icF('moon',54,'#0F6E6E')+'</div>',
   ticket:23, ahead:3, aheadWord:'مرضى',
@@ -241,6 +243,9 @@ var T={
  },
  cafe:{
   key:'cafe',
+  switchLabel:'مقهى',
+  category:'مقاهي',
+  ticketLabel:'رقم طلبك',
   biz:'مقهى نَجَل', slogan:'قهوة لحظاتك، نَجَل، يومك',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cup',50,'#C99A2E',2.1)+'</div>',
   ticket:12, ahead:4, aheadWord:'طلبات',
@@ -259,6 +264,31 @@ var T={
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق NOJ'},
     {i:'gift',c:'#C99A2E',b:'+18 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
+  ]
+ },
+ restaurant:{
+  key:'restaurant',
+  switchLabel:'مطعم',
+  category:'مطاعم',
+  ticketLabel:'رقم انتظارك',
+  biz:'مطعم مذاق', slogan:'نكهة تستحق الانتظار',
+  logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cutlery',46,'#7C5CE6',2)+'</div>',
+  ticket:47, ahead:5, aheadWord:'طاولات',
+  queueLabel:'رقمك في الانتظار',
+  topCard:{kind:'points',label:'نقاط ولاء',value:'340',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  small1:{icon:'bell',title:'تابع دورك لحظة<br>بلحظة',note:'واستلم إشعارك<br>مباشرة',badge:47},
+  small2:{icon:'cal',title:'حجز طاولتك القادمة<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز طاولتك أو طلبك<br>المسبق بسهولة'},
+  footer:[
+    {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
+    {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
+    {i:'clock',b:'سجل مشترياتك',s:'اطّلع على كل مشترياتك'},
+    {i:'gift',b:'نقاط ولاء ومكافآت',s:'اجمع النقاط واستبدلها'},
+    {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
+  ],
+  okItems:[
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق NOJ'},
+    {i:'gift',c:'#C99A2E',b:'+22 نقطة',s:'أُضيفت إلى رصيد ولائك'},
+    {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
   ]
  }
 };
@@ -377,7 +407,7 @@ function success(){
      return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
      '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
    }).join('')+'</div>'+
-   '<div class="tno"><small>'+(S.t==='cafe'?'رقم طلبك':'رقم دورك')+'</small><b>'+c.ticket+'</b></div>'+
+   '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+c.ticket+'</b></div>'+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
 }
@@ -407,11 +437,21 @@ function startTimer(s){
     if(secs<=0){clearInterval(tmr);S.view='main';S.phone='';renderLayer()}
   },1000);
 }
+/* يحاكي إرسال الفاتورة إلى الخادم — يحمل حقل category ليصنَّف الإنفاق
+   لاحقاً في تطبيق العميل (index.html). لا يوجد اتصال شبكة فعلي هنا؛ هذا
+   تمثيل للحمولة (payload) التي سترسلها نقطة البيع الحقيقية مستقبلاً. */
+function sendInvoice(){
+  var c=C();
+  var payload={category:c.category,merchant:c.biz,ticket:c.ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
+  console.log('NOJ kiosk → إرسال الفاتورة (محاكاة):',payload);
+  return payload;
+}
+
 function bindMain(){
   var op=document.getElementById('openPad');
   if(op)op.onclick=function(){S.view='pad';S.phone='';renderLayer()};
   var nfc=document.querySelector('.nfc');
-  if(nfc)nfc.onclick=function(){S.phone='';S.view='ok';renderLayer()};
+  if(nfc)nfc.onclick=function(){S.phone='';sendInvoice();S.view='ok';renderLayer()};
 }
 function bindLayer(){
   var cl=document.getElementById('closePad');
@@ -425,16 +465,26 @@ function bindLayer(){
     }});
   var cf=document.getElementById('confirm');
   if(cf)cf.onclick=function(){
-    if(S.phone.length===9&&S.phone[0]==='5'){S.view='ok';renderLayer()}};
+    if(S.phone.length===9&&S.phone[0]==='5'){sendInvoice();S.view='ok';renderLayer()}};
 }
 
-document.getElementById('bMed').onclick=function(){
-  S.t='medical';S.view='main';S.phone='';
-  this.classList.add('on');document.getElementById('bCafe').classList.remove('on');render()};
-document.getElementById('bCafe').onclick=function(){
-  S.t='cafe';S.view='main';S.phone='';
-  this.classList.add('on');document.getElementById('bMed').classList.remove('on');render()};
+/* ================= TEMPLATE SWITCH (demo only) =================
+   الأزرار تُبنى تلقائياً من مفاتيح T — إضافة قطاع جديد (تجزئة، صالونات،
+   ورش...) لا تحتاج أي تعديل هنا، فقط إضافة كائن جديد داخل T أعلاه. */
+function renderSwitch(){
+  var el=document.getElementById('sw');
+  el.innerHTML=Object.keys(T).map(function(k){
+    return '<button data-t="'+k+'" class="'+(S.t===k?'on':'')+'">'+T[k].switchLabel+'</button>';
+  }).join('');
+  [].forEach.call(el.querySelectorAll('button'),function(b){
+    b.onclick=function(){
+      S.t=b.getAttribute('data-t');S.view='main';S.phone='';
+      renderSwitch();render();
+    };
+  });
+}
 
+renderSwitch();
 render();
 </script>
 </body>
