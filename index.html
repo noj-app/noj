@@ -1,1294 +1,1028 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>NOJ | تطبيق العميل</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>NOJ — No Ordinary Journey</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#12235C">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NOJ">
 <style>
-:root{
-  --navy:#12235C;
-  --navy-light:#1D3178;
-  --blue:#2D7BF4;
-  --blue-dim:rgba(45,123,244,.12);
-  --gold:#C99A2E;
-  --gold-dim:rgba(201,154,46,.14);
-  --bg:#F7F8FC;
-  --card:#FFFFFF;
-  --text:#161B33;
-  --muted:#6B7280;
-  --line:#E7E9F3;
-  --success:#1FA971;
-  --danger:#E15B4D;
-  --radius-lg:22px;
-  --radius-md:16px;
-  --radius-sm:10px;
-  --shadow:0 10px 30px rgba(18,35,92,.10);
-  --shadow-sm:0 4px 14px rgba(18,35,92,.08);
-  --dur:220ms;
-}
-*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-html,body{height:100%;}
-body{
-  font-family:"Segoe UI","Tahoma","Geeza Pro","Arial",sans-serif;
-  background:var(--bg);
-  color:var(--text);
-  display:flex;
-  justify-content:center;
-  min-height:100%;
-  line-height:1.5;
-}
-button,input{font-family:inherit;}
-ul{list-style:none;}
-a{color:inherit;text-decoration:none;}
-svg{display:block;}
-
-.device{
-  width:100%;
-  max-width:430px;
-  min-height:100vh;
-  background:var(--bg);
-  position:relative;
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-  box-shadow:var(--shadow);
-}
-@media (min-width:431px){
-  body{padding:24px 12px;}
-  .device{min-height:calc(100vh - 48px);border-radius:36px;}
-}
-
-.statusbar{
-  height:30px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  padding:0 22px;
-  font-size:13px;
-  font-weight:600;
-  color:var(--navy);
-  flex-shrink:0;
-}
-.statusbar .icons{display:flex;gap:6px;align-items:center;}
-
-.screens{flex:1;position:relative;overflow:hidden;}
-.screen{
-  position:absolute;
-  inset:0;
-  overflow-y:auto;
-  padding-bottom:110px;
-  opacity:0;
-  transform:translateY(10px);
-  pointer-events:none;
-  transition:opacity var(--dur) ease, transform var(--dur) ease;
-}
-.screen.active{
-  opacity:1;
-  transform:translateY(0);
-  pointer-events:auto;
-  z-index:1;
-}
-.screen::-webkit-scrollbar{width:0;}
-
-.appheader{
-  position:relative;
-  padding:18px 20px 10px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-}
-.appheader h1{font-size:20px;font-weight:800;color:var(--navy);}
-.appheader .sub{font-size:13px;color:var(--muted);margin-top:2px;}
-.nbtn{
-  position:absolute;
-  top:14px;
-  right:20px;
-  width:42px;height:42px;
-  border-radius:50%;
-  background:var(--navy);
-  color:#fff;
-  display:flex;align-items:center;justify-content:center;
-  font-weight:800;
-  font-size:16px;
-  border:none;
-  cursor:pointer;
-  box-shadow:0 6px 16px rgba(18,35,92,.25);
-  transition:transform var(--dur);
-}
-.nbtn:active{transform:scale(.92);}
-.backbtn{
-  width:38px;height:38px;
-  border-radius:50%;
-  background:var(--card);
-  border:1px solid var(--line);
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;
-}
-
-/* ---------- Splash ---------- */
-#screen-splash{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:0 30px;text-align:center;}
-.splash-logo{animation:pulseIn 900ms ease;}
-@keyframes pulseIn{from{opacity:0;transform:scale(.8);}to{opacity:1;transform:scale(1);}}
-.splash-slogan{color:var(--navy);font-size:15px;font-weight:600;}
-.splash-promise{color:var(--muted);font-size:13px;max-width:280px;}
-.splash-dots{display:flex;gap:6px;margin-top:10px;}
-.splash-dots span{width:7px;height:7px;border-radius:50%;background:var(--line);animation:blink 1.2s infinite ease-in-out;}
-.splash-dots span:nth-child(2){animation-delay:.15s;}
-.splash-dots span:nth-child(3){animation-delay:.3s;}
-@keyframes blink{0%,80%,100%{opacity:.3;}40%{opacity:1;background:var(--gold);}}
-
-/* ---------- Auth ---------- */
-.auth-wrap{padding:36px 26px;display:flex;flex-direction:column;min-height:100%;}
-.auth-logo{display:flex;justify-content:center;margin-bottom:26px;}
-.auth-title{font-size:22px;font-weight:800;color:var(--navy);text-align:center;}
-.auth-desc{font-size:13.5px;color:var(--muted);text-align:center;margin-top:8px;margin-bottom:30px;}
-.field-label{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;display:block;}
-.phone-input-row{
-  display:flex;
-  align-items:center;
-  background:var(--card);
-  border:1.5px solid var(--line);
-  border-radius:var(--radius-md);
-  padding:4px 14px;
-  gap:8px;
-  transition:border-color var(--dur);
-}
-.phone-input-row:focus-within{border-color:var(--blue);}
-.phone-input-row .cc{font-weight:700;color:var(--navy);font-size:15px;direction:ltr;}
-.phone-input-row input{
-  flex:1;
-  border:none;
-  outline:none;
-  padding:14px 0;
-  font-size:16px;
-  direction:ltr;
-  text-align:right;
-  background:transparent;
-  color:var(--text);
-}
-.hint{font-size:12px;color:var(--muted);margin-top:8px;}
-.error-text{font-size:12.5px;color:var(--danger);margin-top:8px;min-height:16px;font-weight:600;}
-.btn-primary{
-  margin-top:22px;
-  background:linear-gradient(135deg,var(--blue),#1E63D6);
-  color:#fff;
-  border:none;
-  border-radius:var(--radius-md);
-  padding:16px;
-  font-size:15.5px;
-  font-weight:800;
-  cursor:pointer;
-  box-shadow:0 10px 22px rgba(45,123,244,.30);
-  transition:transform var(--dur),opacity var(--dur);
-}
-.btn-primary:active{transform:scale(.98);}
-.btn-primary:disabled{opacity:.5;cursor:not-allowed;}
-.btn-ghost{
-  margin-top:12px;
-  background:transparent;
-  border:none;
-  color:var(--blue);
-  font-weight:700;
-  font-size:13.5px;
-  padding:10px;
-  cursor:pointer;
-}
-.btn-ghost:disabled{color:var(--muted);cursor:not-allowed;}
-
-.otp-row{display:flex;gap:12px;justify-content:center;direction:ltr;margin:6px 0 4px;}
-.otp-box{
-  width:58px;height:64px;
-  border-radius:var(--radius-md);
-  border:1.5px solid var(--line);
-  background:var(--card);
-  text-align:center;
-  font-size:24px;
-  font-weight:800;
-  color:var(--navy);
-  outline:none;
-  transition:border-color var(--dur),transform var(--dur);
-}
-.otp-box:focus{border-color:var(--blue);}
-.otp-row.shake{animation:shake 420ms;}
-@keyframes shake{10%,90%{transform:translateX(-2px);}20%,80%{transform:translateX(4px);}30%,50%,70%{transform:translateX(-8px);}40%,60%{transform:translateX(8px);}}
-.otp-meta{text-align:center;font-size:13px;color:var(--muted);margin-top:18px;}
-
-/* ---------- Cards / common ---------- */
-.section{padding:14px 20px;}
-.section-title{font-size:15.5px;font-weight:800;color:var(--navy);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;}
-.section-title .link{font-size:12.5px;color:var(--blue);font-weight:700;cursor:pointer;}
-
-.total-card{
-  margin:6px 20px 4px;
-  background:linear-gradient(135deg,var(--navy),var(--navy-light));
-  border-radius:var(--radius-lg);
-  padding:22px 22px 20px;
-  color:#fff;
-  position:relative;
-  overflow:hidden;
-  box-shadow:var(--shadow);
-}
-.total-card::after{
-  content:"";
-  position:absolute;
-  width:180px;height:180px;
-  border-radius:50%;
-  background:radial-gradient(circle,rgba(201,154,46,.25),transparent 70%);
-  top:-60px;left:-60px;
-}
-.total-card .lbl{font-size:13px;opacity:.8;}
-.total-card .amount{font-size:32px;font-weight:800;margin-top:6px;letter-spacing:.3px;}
-.total-card .amount span{font-size:15px;font-weight:600;margin-right:4px;}
-.total-card .trend{display:flex;align-items:center;gap:6px;margin-top:12px;font-size:12.5px;font-weight:700;color:var(--gold);}
-
-.shortcuts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:18px 20px 4px;}
-.shortcut{
-  background:var(--card);
-  border-radius:var(--radius-md);
-  padding:14px 6px;
-  display:flex;flex-direction:column;align-items:center;gap:8px;
-  border:1px solid var(--line);
-  cursor:pointer;
-  transition:transform var(--dur),box-shadow var(--dur);
-}
-.shortcut:active{transform:scale(.94);}
-.shortcut .ic{
-  width:42px;height:42px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  background:var(--blue-dim);color:var(--blue);
-}
-.shortcut span{font-size:12px;font-weight:700;color:var(--navy);text-align:center;}
-
-.card{
-  background:var(--card);
-  border-radius:var(--radius-md);
-  border:1px solid var(--line);
-  padding:16px;
-  box-shadow:var(--shadow-sm);
-}
-.preview-card{margin-bottom:14px;display:flex;flex-direction:column;gap:10px;}
-.preview-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
-.preview-row .left{display:flex;align-items:center;gap:12px;}
-.preview-row .ic-round{
-  width:44px;height:44px;border-radius:14px;
-  display:flex;align-items:center;justify-content:center;
-  background:var(--gold-dim);color:var(--gold);flex-shrink:0;
-}
-.preview-row .title{font-size:14px;font-weight:700;color:var(--text);}
-.preview-row .meta{font-size:12px;color:var(--muted);margin-top:2px;}
-.badge{
-  font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:20px;
-  background:var(--blue-dim);color:var(--blue);white-space:nowrap;
-}
-.badge.gold{background:var(--gold-dim);color:var(--gold);}
-.badge.green{background:rgba(31,169,113,.14);color:var(--success);}
-
-/* ---------- Queue ---------- */
-.queue-hero{
-  margin:6px 20px;
-  background:var(--card);
-  border-radius:var(--radius-lg);
-  padding:26px 20px;
-  text-align:center;
-  border:1px solid var(--line);
-  box-shadow:var(--shadow);
-}
-.queue-hero .merchant{font-size:13.5px;color:var(--muted);font-weight:600;}
-.queue-num{
-  font-size:56px;font-weight:900;color:var(--navy);margin:10px 0 4px;
-  letter-spacing:1px;
-}
-.queue-num small{font-size:16px;font-weight:700;color:var(--muted);display:block;margin-top:-6px;}
-.queue-stats{display:flex;gap:12px;margin-top:18px;}
-.queue-stat{
-  flex:1;background:var(--bg);border-radius:var(--radius-sm);
-  padding:14px 8px;text-align:center;
-}
-.queue-stat .val{font-size:20px;font-weight:800;color:var(--navy);}
-.queue-stat .lbl{font-size:11.5px;color:var(--muted);margin-top:4px;font-weight:600;}
-.queue-progress{height:8px;border-radius:6px;background:var(--line);margin-top:20px;overflow:hidden;}
-.queue-progress i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--blue));transition:width 600ms ease;border-radius:6px;}
-.queue-tip{font-size:12.5px;color:var(--muted);margin-top:16px;display:flex;align-items:center;gap:6px;justify-content:center;}
-.queue-done{color:var(--success);font-weight:800;font-size:16px;margin-top:10px;}
-
-/* ---------- Invoices ---------- */
-.search-box{
-  display:flex;align-items:center;gap:10px;
-  background:var(--card);border:1.5px solid var(--line);
-  border-radius:var(--radius-md);padding:12px 14px;margin:4px 20px 16px;
-}
-.search-box input{flex:1;border:none;outline:none;background:transparent;font-size:14px;color:var(--text);}
-.search-box svg{color:var(--muted);flex-shrink:0;}
-.invoice-list{display:flex;flex-direction:column;gap:10px;padding:0 20px;}
-.invoice-item{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
-  padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;
-  transition:transform var(--dur);
-}
-.invoice-item:active{transform:scale(.98);}
-.invoice-item .ic-round{background:var(--blue-dim);color:var(--blue);}
-.invoice-item .grow{flex:1;min-width:0;}
-.invoice-item .title{font-size:14px;font-weight:700;}
-.invoice-item .meta{font-size:12px;color:var(--muted);margin-top:3px;}
-.invoice-item .amount{font-size:15px;font-weight:800;color:var(--navy);white-space:nowrap;}
-.empty-state{text-align:center;color:var(--muted);font-size:13.5px;padding:40px 20px;}
-
-/* ---------- Loyalty ---------- */
-.loyalty-hero{
-  margin:6px 20px;padding:24px 22px;border-radius:var(--radius-lg);
-  background:linear-gradient(135deg,var(--gold),#a97c1f);
-  color:#fff;box-shadow:var(--shadow);position:relative;overflow:hidden;
-}
-.loyalty-hero .tier{font-size:13px;font-weight:700;opacity:.9;display:flex;align-items:center;gap:6px;}
-.loyalty-hero .pts{font-size:34px;font-weight:900;margin-top:8px;}
-.loyalty-hero .pts span{font-size:14px;font-weight:600;}
-.loyalty-bar{height:8px;background:rgba(255,255,255,.35);border-radius:6px;margin-top:16px;overflow:hidden;}
-.loyalty-bar i{display:block;height:100%;background:#fff;border-radius:6px;}
-.loyalty-hero .next{font-size:12px;margin-top:8px;opacity:.9;}
-.tiers-row{display:flex;justify-content:space-between;padding:14px 22px 0;font-size:11px;color:var(--muted);font-weight:700;}
-.tiers-row .on{color:var(--gold);}
-.rewards-grid{display:flex;flex-direction:column;gap:10px;padding:0 20px;}
-.reward-item{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
-  padding:14px;display:flex;align-items:center;gap:12px;
-}
-.reward-item .ic-round{background:var(--gold-dim);color:var(--gold);}
-.reward-item .title{font-size:14px;font-weight:700;}
-.reward-item .cost{font-size:12px;color:var(--muted);margin-top:3px;font-weight:600;}
-.redeem-btn{
-  background:var(--navy);color:#fff;border:none;border-radius:20px;
-  padding:9px 16px;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap;
-  transition:transform var(--dur),opacity var(--dur);
-}
-.redeem-btn:disabled{opacity:.4;cursor:not-allowed;}
-.redeem-btn:active:not(:disabled){transform:scale(.94);}
-
-/* ---------- Reports ---------- */
-.report-card{margin:0 20px 16px;padding:20px;}
-.donut-wrap{display:flex;align-items:center;gap:18px;}
-.donut-legend{flex:1;display:flex;flex-direction:column;gap:8px;}
-.legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
-.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
-.legend-row .name{flex:1;color:var(--text);font-weight:600;}
-.legend-row .pct{font-weight:800;color:var(--navy);}
-.bars-wrap{display:flex;align-items:flex-end;gap:10px;height:140px;padding:10px 4px 0;}
-.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;}
-.bar-col .bar{
-  width:100%;max-width:26px;border-radius:8px 8px 4px 4px;
-  background:linear-gradient(180deg,var(--blue),var(--navy));
-  transition:height 700ms ease;
-}
-.bar-col.current .bar{background:linear-gradient(180deg,var(--gold),#a97c1f);}
-.bar-col .lbl{font-size:11px;color:var(--muted);font-weight:700;}
-.insight{
-  display:flex;gap:12px;background:var(--blue-dim);border-radius:var(--radius-md);
-  padding:14px;margin:0 20px 12px;
-}
-.insight .ic-round{background:#fff;color:var(--blue);width:38px;height:38px;flex-shrink:0;}
-.insight p{font-size:13px;color:var(--navy);font-weight:600;line-height:1.6;}
-
-/* ---------- More / Notifications ---------- */
-.list-menu{padding:0 20px;display:flex;flex-direction:column;gap:10px;}
-.menu-item{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
-  padding:14px;display:flex;align-items:center;gap:12px;cursor:pointer;
-}
-.menu-item .ic-round{width:38px;height:38px;background:var(--blue-dim);color:var(--blue);}
-.menu-item .title{font-size:14px;font-weight:700;flex:1;}
-.menu-item .chev{color:var(--muted);}
-.switch{width:42px;height:24px;border-radius:20px;background:var(--line);position:relative;cursor:pointer;flex-shrink:0;transition:background var(--dur);}
-.switch i{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform var(--dur);box-shadow:0 1px 3px rgba(0,0,0,.3);}
-.switch.on{background:var(--blue);}
-.switch.on i{transform:translateX(-18px);}
-
-.notif-item{
-  background:var(--card);border:1px solid var(--line);border-radius:var(--radius-md);
-  padding:14px;display:flex;gap:12px;align-items:flex-start;position:relative;
-}
-.notif-item.unread::before{
-  content:"";position:absolute;top:16px;left:14px;width:8px;height:8px;border-radius:50%;background:var(--blue);
-}
-.notif-item .ic-round{background:var(--gold-dim);color:var(--gold);width:38px;height:38px;flex-shrink:0;}
-.notif-item .title{font-size:13.5px;font-weight:700;line-height:1.5;}
-.notif-item .time{font-size:11.5px;color:var(--muted);margin-top:6px;}
-
-/* ---------- Bottom nav ---------- */
-.bottomnav{
-  position:absolute;bottom:0;left:0;right:0;
-  background:rgba(255,255,255,.96);
-  backdrop-filter:blur(10px);
-  border-top:1px solid var(--line);
-  display:flex;
-  padding:8px 6px calc(8px + env(safe-area-inset-bottom));
-  z-index:5;
-}
-.navbtn{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
-  background:none;border:none;padding:8px 2px;cursor:pointer;color:var(--muted);
-  transition:color var(--dur);
-}
-.navbtn span{font-size:11px;font-weight:700;}
-.navbtn.active{color:var(--blue);}
-.navbtn .dot{position:absolute;margin-top:-14px;margin-right:14px;width:7px;height:7px;border-radius:50%;background:var(--danger);}
-
-/* ---------- Modal ---------- */
-.modal-overlay{
-  position:fixed;inset:0;background:rgba(18,20,35,.5);
-  display:flex;align-items:flex-end;justify-content:center;
-  opacity:0;pointer-events:none;transition:opacity var(--dur);z-index:50;
-}
-.modal-overlay.open{opacity:1;pointer-events:auto;}
-.modal-sheet{
-  width:100%;max-width:430px;background:var(--bg);
-  border-radius:26px 26px 0 0;padding:10px 22px 30px;
-  max-height:86vh;overflow-y:auto;
-  transform:translateY(30px);transition:transform var(--dur);
-}
-.modal-overlay.open .modal-sheet{transform:translateY(0);}
-.modal-handle{width:40px;height:5px;background:var(--line);border-radius:4px;margin:8px auto 16px;}
-.modal-title{font-size:17px;font-weight:800;color:var(--navy);margin-bottom:4px;}
-.modal-close{
-  position:absolute;top:16px;left:16px;width:34px;height:34px;border-radius:50%;
-  background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;
-}
-.detail-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);font-size:13.5px;}
-.detail-row:last-child{border-bottom:none;}
-.detail-row .k{color:var(--muted);}
-.detail-row .v{font-weight:700;}
-.items-table{margin-top:14px;}
-.items-table .row{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;color:var(--text);}
-.items-table .row .qty{color:var(--muted);margin-left:6px;}
-
-.profile-avatar{
-  width:74px;height:74px;border-radius:50%;background:var(--navy);color:#fff;
-  display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;
-  margin:6px auto 14px;
-}
-.profile-name{text-align:center;font-size:17px;font-weight:800;color:var(--navy);}
-.profile-phone{text-align:center;font-size:13px;color:var(--muted);margin-top:4px;direction:ltr;}
-.profile-tier{display:flex;justify-content:center;margin-top:10px;}
-
-.toast{
-  position:absolute;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);
-  background:var(--navy);color:#fff;padding:12px 20px;border-radius:30px;
-  font-size:13px;font-weight:700;box-shadow:var(--shadow);opacity:0;pointer-events:none;
-  transition:opacity var(--dur),transform var(--dur);z-index:100;white-space:nowrap;
-}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
-
-@media (prefers-reduced-motion: reduce){
-  *,*::before,*::after{
-    animation-duration:0.001ms !important;
-    animation-iteration-count:1 !important;
-    transition-duration:0.001ms !important;
-    scroll-behavior:auto !important;
+  :root{
+    --navy:#12235C; --navy-2:#1B3A7A;
+    --bg:#F7F8FC; --card:#FFFFFF; --line:#EDF0F7;
+    --text:#12235C; --muted:#8A93AD;
+    --purple:#7C5CE6; --blue:#3B82F6; --green:#22A87A; --orange:#F59E0B; --gray:#64748B;
   }
-}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow-x:hidden}
+  body{font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  input{font:inherit}
+  h1,h2,h3,p{margin:0}
+
+  .app{max-width:480px;margin:0 auto;background:var(--bg);min-height:100vh;padding:0 20px 100px;position:relative}
+
+  .head{display:flex;align-items:center;justify-content:space-between;padding:22px 0 6px}
+  .wordmark{direction:ltr;line-height:1;text-align:center;flex:1}
+  .mark{width:44px;height:44px;border-radius:12px;border:3px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;direction:ltr;flex-shrink:0;color:var(--navy);padding:0;transition:transform .16s cubic-bezier(.22,.9,.3,1),background .2s}
+  .mark:active{transform:scale(.9)}
+  .mark.on{background:var(--navy);color:#fff}
+  .wordmark b{font-size:30px;font-weight:800;letter-spacing:-.5px}
+  .tagline{display:block;font-size:9px;letter-spacing:2.4px;color:var(--navy);margin-top:2px;direction:ltr}
+  .bell{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0}
+  .bell i{position:absolute;top:8px;left:9px;width:7px;height:7px;border-radius:50%;background:#EF4444;border:2px solid var(--bg)}
+
+  .greet{margin-top:14px}
+  .greet h1{font-size:26px;font-weight:800}
+  .greet p{font-size:14px;color:var(--muted);margin-top:4px}
+
+  .hero{margin-top:16px;border-radius:20px;padding:20px;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;position:relative;overflow:hidden}
+  .hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:relative;z-index:1}
+  .hero-label{font-size:13px;opacity:.75}
+  .hero-amount{font-size:30px;font-weight:800;margin-top:6px;direction:ltr;text-align:right}
+  .hero-amount s{text-decoration:none;font-size:14px;opacity:.7;font-weight:600;margin-right:4px}
+  .hero-sub{font-size:13px;opacity:.75;margin-top:6px}
+  .hero-delta{font-size:12px;margin-top:6px;color:#6EE7B7}
+  .hero-btn{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);white-space:nowrap}
+  .spark{position:absolute;left:0;bottom:6px;width:62%;pointer-events:none}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+  .tile span{font-size:10.5px;font-weight:600;line-height:1.35}
+
+  .sec{margin-top:24px}
+  .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .sec-head h2{font-size:16px;font-weight:800}
+  .sec-head button{font-size:12px;color:var(--blue);font-weight:600}
+
+  .list{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:14px;padding:16px;width:100%;text-align:right}
+  .row + .row{border-top:1px solid var(--line)}
+  .row-ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .row-txt{flex:1;min-width:0}
+  .row-txt b{display:block;font-size:14px;font-weight:700}
+  .row-txt small{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+
+  .duo{display:grid;grid-template-columns:1fr;gap:12px;margin-top:24px}
+  @media (min-width:430px){.duo{grid-template-columns:1fr 1fr}}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px}
+  .box-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+  .box-head h3{font-size:14px;font-weight:800;display:flex;align-items:center;gap:6px}
+  .box-head button{font-size:11px;color:var(--blue);font-weight:600;flex-shrink:0;white-space:nowrap}
+
+  .donut-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}
+  .donut{border-radius:50%;position:relative;flex-shrink:0}
+  .donut::after{content:"";position:absolute;inset:17px;border-radius:50%;background:var(--card)}
+  .donut.lg::after{inset:22px}
+  .donut-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1}
+  .donut-mid b{font-size:15px;font-weight:800;line-height:1}
+  .donut-mid small{font-size:10px;color:var(--muted)}
+  .legend{flex:1;min-width:130px}
+  .lg{display:flex;align-items:center;gap:7px;font-size:12px;margin-bottom:7px}
+  .lg:last-child{margin-bottom:0}
+  .lg i{width:8px;height:8px;border-radius:3px;flex-shrink:0}
+  .lg b{flex:1;font-weight:600}
+  .lg s{text-decoration:none;color:var(--muted);font-weight:600}
+
+  .inv-mini{display:flex;align-items:center;gap:14px}
+  .inv-ico{width:56px;height:56px;border-radius:16px;background:#EEF3FF;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .inv-info{flex:1;min-width:0}
+  .inv-info b{display:block;font-size:14px;font-weight:700;margin-bottom:6px}
+  .inv-info small{display:block;font-size:11px;color:var(--muted);line-height:1.6}
+  .inv-info .amt{color:var(--text);font-weight:700;font-size:12px;direction:ltr;text-align:right}
+
+  .loy{display:flex;align-items:center;gap:14px}
+  .loy-ico{width:64px;height:64px;border-radius:18px;background:#E7F7EF;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .loy-mid{flex:1;min-width:0}
+  .loy-mid small{font-size:11px;color:var(--muted)}
+  .loy-mid b{display:block;font-size:24px;font-weight:800;line-height:1.2}
+  .loy-mid p{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5}
+  .loy-right{text-align:left;flex-shrink:0}
+  .loy-tier{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+  .loy-tier b{font-size:13px;font-weight:800;color:var(--orange)}
+  .loy-badge{width:34px;height:34px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center}
+  .loy-track{width:130px;height:8px;border-radius:99px;background:var(--line);margin-top:8px;overflow:hidden}
+  .loy-fill{height:100%;border-radius:99px;background:var(--orange)}
+  .loy-num{font-size:10px;color:var(--muted);margin-top:5px;direction:ltr;text-align:left}
+
+  .pill-search{position:relative;margin-bottom:14px}
+  .pill-search svg{position:absolute;top:50%;right:14px;transform:translateY(-50%)}
+  .pill-search input{width:100%;padding:12px 42px 12px 16px;border-radius:14px;border:1px solid var(--line);background:var(--card);font-size:14px;outline:none;color:var(--text)}
+  .empty{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px;text-align:center;font-size:14px;color:var(--muted)}
+
+  .inv-amt{font-size:15px;font-weight:800;direction:ltr;flex-shrink:0}
+  .badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:99px;margin-top:5px;display:inline-block}
+
+  .qcard{background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+  .qtop{padding:22px;text-align:center;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff}
+  .qtop small{font-size:12px;opacity:.8;display:flex;align-items:center;justify-content:center;gap:5px;margin-bottom:6px}
+  .qnum{font-size:52px;font-weight:900;letter-spacing:2px;direction:ltr}
+  .qstate{font-size:13px;font-weight:700;color:#FBBF24;margin-top:2px}
+  .qbody{padding:18px;display:flex;flex-direction:column;gap:14px}
+  .qrow{display:flex;justify-content:space-between;font-size:14px}
+  .qrow span:first-child{color:var(--muted)}
+  .qrow span:last-child{font-weight:700}
+  .track{height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+  .fill{height:100%;border-radius:99px;background:var(--green);transition:width .4s}
+  .btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:14px;font-size:14px;font-weight:700;background:var(--navy);color:#fff}
+  .note{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:14px;font-size:13px;line-height:1.8;color:var(--muted)}
+  .note b{color:var(--text)}
+
+  .rw{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px}
+  .rw + .rw{border-top:1px solid var(--line)}
+  .rw b{display:block;font-size:14px;font-weight:700;margin-bottom:4px}
+  .rw small{font-size:12px;color:var(--muted)}
+  .rw button{padding:9px 16px;border-radius:12px;font-size:12px;font-weight:700;flex-shrink:0}
+
+  .bars{display:flex;align-items:flex-end;gap:10px;height:140px;margin-top:6px}
+  .bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .bfill{width:100%;max-width:26px;background:var(--navy);border-radius:7px 7px 0 0}
+  .bcol small{font-size:10px;color:var(--muted)}
+  .ins{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--muted);line-height:1.7;padding:12px 0}
+  .ins + .ins{border-top:1px solid var(--line)}
+  .ins svg{flex-shrink:0;margin-top:2px}
+
+  .ov{position:fixed;inset:0;z-index:60;background:rgba(10,20,50,.45);display:flex;align-items:flex-end;justify-content:center}
+  .sheet{width:100%;max-width:480px;background:var(--card);border-radius:22px 22px 0 0;padding:22px}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .sheet-head h3{font-size:17px;font-weight:800}
+  .mrow{display:flex;justify-content:space-between;font-size:14px;padding:7px 0}
+  .mrow span:first-child{color:var(--muted)}
+  .mrow span:last-child{font-weight:600}
+  .dash{border-top:1px dashed var(--line);margin:12px 0}
+  .mtotal{display:flex;justify-content:space-between;align-items:center}
+  .mtotal b{font-size:14px}
+  .mtotal s{text-decoration:none;font-size:22px;font-weight:900;direction:ltr}
+
+  .nav{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;background:var(--card);border-top:1px solid var(--line);display:flex;padding:10px 6px calc(10px + env(safe-area-inset-bottom));z-index:50}
+  .nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .nav span{font-size:10px;font-weight:600}
+
+  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;transition:.3s;z-index:70;pointer-events:none}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  /* profile */
+  .prof-hero{background:linear-gradient(135deg,var(--navy),var(--navy-2));border-radius:20px;padding:24px;color:#fff;display:flex;align-items:center;gap:16px;margin-top:6px}
+  .prof-av{width:68px;height:68px;border-radius:22px;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;flex-shrink:0}
+  .prof-id{flex:1;min-width:0}
+  .prof-id b{display:block;font-size:19px;font-weight:800}
+  .prof-id small{display:block;font-size:12px;opacity:.75;margin-top:3px;direction:ltr;text-align:right}
+  .prof-tier{display:inline-flex;align-items:center;gap:5px;background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.45);color:#FBBF24;font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;margin-top:8px}
+  .stats3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+  .st{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 8px;text-align:center}
+  .st b{display:block;font-size:18px;font-weight:800}
+  .st small{display:block;font-size:11px;color:var(--muted);margin-top:3px}
+  .sw{width:42px;height:25px;border-radius:99px;background:var(--line);position:relative;flex-shrink:0;transition:background .22s}
+  .sw::after{content:"";position:absolute;top:3px;right:3px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .22s cubic-bezier(.34,1.4,.64,1)}
+  .sw.on{background:var(--green)}
+  .sw.on::after{transform:translateX(-17px)}
+  .logout{width:100%;padding:14px;border-radius:16px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:14px;margin-top:14px}
+  .logout:active{transform:scale(.97)}
+
+  /* ================= LOGIN ================= */
+  .auth{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;overflow-y:auto}
+  .auth-inner{max-width:480px;width:100%;margin:0 auto;padding:0 24px 40px;display:flex;flex-direction:column;min-height:100%}
+  .auth-brand{text-align:center;padding:56px 0 8px}
+  .auth-mark{width:72px;height:72px;border-radius:20px;border:4px solid var(--navy);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:800;margin:0 auto 14px;direction:ltr;animation:popIn .5s cubic-bezier(.22,.9,.3,1) both}
+  .auth.enter .auth-mark{animation:none}
+  .auth-brand b{font-size:34px;font-weight:800;letter-spacing:-.5px;direction:ltr;display:block}
+  .auth-brand span{font-size:10px;letter-spacing:2.6px;color:var(--navy);direction:ltr;display:block;margin-top:3px}
+  .auth-body{margin-top:36px;animation:fadeUp .4s ease both}
+  .auth-body h2{font-size:22px;font-weight:800;margin-bottom:6px}
+  .auth-body p{font-size:14px;color:var(--muted);line-height:1.7}
+  .field{margin-top:24px}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px}
+  .phone-box{display:flex;align-items:center;gap:10px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:0 14px;transition:border-color .2s,box-shadow .2s}
+  .phone-box:focus-within{border-color:var(--navy);box-shadow:0 0 0 4px rgba(18,35,92,.07)}
+  .cc{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;color:var(--text);padding-left:12px;border-left:1.5px solid var(--line);direction:ltr;flex-shrink:0}
+  .phone-box input{flex:1;border:none;outline:none;background:none;padding:16px 0;font-size:17px;font-weight:600;letter-spacing:1px;direction:ltr;text-align:left;color:var(--text)}
+  .phone-box input::placeholder{letter-spacing:1px;color:#C3C9D9;font-weight:500}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.6}
+  .err{font-size:12px;color:#DC2626;margin-top:10px;font-weight:600;animation:fadeIn .2s ease both}
+
+  .otp-row{display:flex;gap:10px;direction:ltr;justify-content:center;margin-top:6px}
+  .otp-row input{width:52px;height:60px;text-align:center;font-size:24px;font-weight:800;border:1.5px solid var(--line);border-radius:14px;background:var(--card);outline:none;color:var(--text);transition:border-color .18s,box-shadow .18s,transform .18s}
+  .otp-row input:focus{border-color:var(--navy);box-shadow:0 0 0 4px rgba(18,35,92,.07);transform:translateY(-2px)}
+  .otp-row input.filled{border-color:var(--navy)}
+  .otp-row.bad input{border-color:#DC2626;animation:shake .4s ease}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+
+  .cta{width:100%;padding:16px;border-radius:16px;background:var(--navy);color:#fff;font-size:15px;font-weight:700;margin-top:24px;transition:transform .16s,opacity .2s}
+  .cta:active{transform:scale(.97)}
+  .cta:disabled{opacity:.4;cursor:not-allowed}
+  .ghost{width:100%;padding:14px;font-size:13px;font-weight:600;color:var(--muted);margin-top:6px}
+  .ghost b{color:var(--blue)}
+  .demo-tip{background:#FFF8E7;border:1px solid #F5E2B8;border-radius:14px;padding:13px 15px;font-size:12.5px;line-height:1.7;color:#8A6D2B;margin-top:20px}
+  .demo-tip b{color:#6B5316}
+  .auth-foot{margin-top:auto;padding-top:28px;text-align:center;font-size:11.5px;color:var(--muted);line-height:1.8}
+
+  /* ================= SPLASH (light) ================= */
+  .splash{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+  .splash::before{content:"";position:absolute;width:min(120vw,700px);height:min(120vw,700px);border-radius:50%;background:radial-gradient(circle,rgba(124,92,230,.10),rgba(59,130,246,.07) 40%,transparent 68%);animation:auraDrift 6s ease-in-out infinite}
+  .splash::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.85) 50%,transparent 62%);background-size:250% 100%;background-position:200% 0;animation:sweepLight 2.2s cubic-bezier(.4,.1,.2,1) .5s}
+
+  .sp-stage{position:relative;width:130px;height:130px;display:flex;align-items:center;justify-content:center;z-index:2;transition:opacity .28s ease}
+
+  /* logo mark drawn as SVG stroke */
+  .sp-mark{position:relative;z-index:3;width:104px;height:104px;display:flex;align-items:center;justify-content:center}
+  .sp-mark svg{position:absolute;inset:0;width:100%;height:100%}
+  .sp-mark rect{fill:none;stroke:var(--navy);stroke-width:5;stroke-dasharray:360;stroke-dashoffset:360;animation:drawBox 1s cubic-bezier(.3,.8,.3,1) .15s forwards}
+  .sp-n{font-size:52px;font-weight:800;color:var(--navy);direction:ltr;opacity:0;animation:nRise .6s cubic-bezier(.22,1.4,.36,1) .75s both}
+
+  .sp-word{position:relative;z-index:3;text-align:center;margin-top:6px}
+  .sp-letters{display:flex;justify-content:center;direction:ltr;gap:1px}
+  .sp-letters i{font-style:normal;font-size:46px;font-weight:800;color:var(--navy);letter-spacing:-1px;display:inline-block;opacity:0;animation:letterDrop .55s cubic-bezier(.22,1.5,.36,1) both}
+  .sp-letters i:nth-child(1){animation-delay:1.0s}
+  .sp-letters i:nth-child(2){animation-delay:1.1s}
+  .sp-letters i:nth-child(3){animation-delay:1.2s}
+  .sp-sub{font-size:10.5px;letter-spacing:4.5px;color:var(--muted);direction:ltr;margin-top:7px;opacity:0;animation:fadeUp .6s ease 1.35s both}
+  .sp-rule{width:0;height:2px;border-radius:2px;background:linear-gradient(90deg,#7C5CE6,#3B82F6,#22A87A,#F59E0B);margin:16px auto 0;animation:ruleGrow .8s cubic-bezier(.3,.8,.3,1) 1.5s forwards}
+  .sp-tag{position:relative;z-index:3;margin-top:14px;font-size:14.5px;font-weight:600;color:var(--text);opacity:0;animation:fadeUp .6s ease 1.7s both}
+
+  .sp-load{position:absolute;bottom:60px;width:130px;height:3px;border-radius:99px;background:var(--line);overflow:hidden;z-index:3}
+  .sp-load i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#7C5CE6,#3B82F6);animation:loadBar 2.4s cubic-bezier(.35,.1,.2,1) .3s forwards}
+
+  .splash.out{pointer-events:none}
+  .splash.out::after{animation:none;opacity:0}
+  .splash.out::before{animation:auraFade .55s ease forwards}
+  /* supporting content clears out first */
+  .splash.out .sp-word,.splash.out .sp-tag,.splash.out .sp-load{animation:liftAway .42s cubic-bezier(.5,0,.75,0) forwards}
+  .splash.out .sp-tag{animation-delay:.04s}
+  .splash.out .sp-load{animation-delay:.08s}
+  /* the mark travels up to where the login logo will sit */
+  .splash.out .sp-stage{animation:markTravel .78s cubic-bezier(.55,0,.2,1) .12s forwards}
+  .splash.out .sp-mark rect{animation:boxSoften .78s cubic-bezier(.55,0,.2,1) .12s forwards}
+  /* light wipe reveals the screen beneath */
+  .splash.out .wipe{opacity:1;animation:wipeOpen .72s cubic-bezier(.5,0,.2,1) .18s forwards}
+  .wipe{position:absolute;inset:0;background:var(--bg);opacity:0;z-index:1;clip-path:circle(150% at 50% 42%)}
+
+  /* login screen rises to meet the mark */
+  .auth.enter .auth-brand{animation:brandSettle .6s cubic-bezier(.22,1.2,.36,1) .34s both}
+  .auth.enter .auth-body{animation:bodyRise .55s cubic-bezier(.22,.9,.3,1) .48s both}
+
+  @keyframes liftAway{to{opacity:0;transform:translateY(-26px) scale(.94)}}
+  @keyframes auraFade{to{opacity:0;transform:scale(1.5)}}
+  @keyframes markTravel{
+    0%{transform:translateY(0) scale(1)}
+    100%{transform:translateY(calc(-50vh + 148px)) scale(.72)}
+  }
+  @keyframes boxSoften{to{stroke-width:4.2}}
+  @keyframes wipeOpen{
+    0%{clip-path:circle(0% at 50% 42%);opacity:1}
+    100%{clip-path:circle(150% at 50% 42%);opacity:1}
+  }
+  @keyframes brandSettle{0%{opacity:0;transform:translateY(-16px) scale(1.08)}100%{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes bodyRise{0%{opacity:0;transform:translateY(28px)}100%{opacity:1;transform:translateY(0)}}
+
+  @keyframes drawBox{to{stroke-dashoffset:0}}
+  @keyframes nRise{0%{opacity:0;transform:translateY(16px) scale(.7)}100%{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes letterDrop{0%{opacity:0;transform:translateY(-22px) rotate(-8deg)}100%{opacity:1;transform:translateY(0) rotate(0)}}
+  @keyframes auraDrift{0%,100%{transform:scale(1) translate(0,0);opacity:.75}50%{transform:scale(1.14) translate(2%,-2%);opacity:1}}
+  @keyframes sweepLight{to{background-position:-60% 0}}
+  @keyframes ruleGrow{to{width:120px}}
+  @keyframes loadBar{to{width:100%}}
+
+  .toast div{background:var(--navy);color:#fff;font-size:13px;font-weight:600;padding:11px 20px;border-radius:99px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+
+  /* ================= ANIMATIONS ================= */
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes popIn{0%{opacity:0;transform:scale(.9)}60%{transform:scale(1.02)}100%{opacity:1;transform:scale(1)}}
+  @keyframes slideUpSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes growBar{from{height:0}}
+  @keyframes sweep{from{width:0}}
+  @keyframes drawLine{to{stroke-dashoffset:0}}
+  @keyframes pulseDot{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.65}}
+  @keyframes ringPulse{0%{box-shadow:0 0 0 0 rgba(228,87,46,.5)}70%{box-shadow:0 0 0 14px rgba(228,87,46,0)}100%{box-shadow:0 0 0 0 rgba(228,87,46,0)}}
+  @keyframes spinOnce{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  @keyframes shimmer{100%{background-position:200% 0}}
+  @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+
+  /* view enters + staggered children */
+  #view{animation:fadeIn .22s ease both}
+  #view > *{animation:fadeUp .38s cubic-bezier(.22,.9,.3,1) both}
+  #view > *:nth-child(1){animation-delay:.02s}
+  #view > *:nth-child(2){animation-delay:.07s}
+  #view > *:nth-child(3){animation-delay:.12s}
+  #view > *:nth-child(4){animation-delay:.17s}
+  #view > *:nth-child(5){animation-delay:.22s}
+  #view > *:nth-child(6){animation-delay:.27s}
+
+  .tiles .tile{animation:popIn .4s cubic-bezier(.22,.9,.3,1) both}
+  .tiles .tile:nth-child(1){animation-delay:.10s}
+  .tiles .tile:nth-child(2){animation-delay:.16s}
+  .tiles .tile:nth-child(3){animation-delay:.22s}
+  .tiles .tile:nth-child(4){animation-delay:.28s}
+
+  .list .row,.list .rw{animation:fadeUp .34s ease both}
+  .list .row:nth-child(1),.list .rw:nth-child(1){animation-delay:.06s}
+  .list .row:nth-child(2),.list .rw:nth-child(2){animation-delay:.12s}
+  .list .row:nth-child(3),.list .rw:nth-child(3){animation-delay:.18s}
+  .list .row:nth-child(4),.list .rw:nth-child(4){animation-delay:.24s}
+  .list .row:nth-child(5),.list .rw:nth-child(5){animation-delay:.30s}
+  .list .row:nth-child(6),.list .rw:nth-child(6){animation-delay:.36s}
+
+  /* press feedback */
+  .tile,.row,.box,.hero-btn,.btn,.rw button,.nav button,.bell,.sec-head button{transition:transform .16s cubic-bezier(.22,.9,.3,1),box-shadow .2s ease,background .2s ease,opacity .2s ease}
+  .tile:active,.row:active,.hero-btn:active,.rw button:active,.sec-head button:active{transform:scale(.96)}
+  .btn:active{transform:scale(.97)}
+  .bell:active{transform:scale(.9)}
+  .tile:hover,.box:hover{box-shadow:0 6px 18px rgba(18,35,92,.07)}
+  .row:hover{background:#FAFBFF}
+
+  /* hero */
+  .hero{animation:fadeUp .45s cubic-bezier(.22,.9,.3,1) both}
+  .hero-amount{animation:popIn .5s cubic-bezier(.22,.9,.3,1) .08s both}
+  .spark path{stroke-dasharray:420;stroke-dashoffset:420;animation:drawLine 1.4s cubic-bezier(.3,.8,.3,1) .25s forwards}
+  .spark circle{animation:fadeIn .3s ease 1.5s both,floatY 3s ease-in-out 1.8s infinite}
+  .bell i{animation:pulseDot 2.2s ease-in-out infinite}
+
+  /* charts */
+  .bfill{animation:growBar .7s cubic-bezier(.22,.9,.3,1) both;transform-origin:bottom}
+  .bcol:nth-child(1) .bfill{animation-delay:.05s}
+  .bcol:nth-child(2) .bfill{animation-delay:.12s}
+  .bcol:nth-child(3) .bfill{animation-delay:.19s}
+  .bcol:nth-child(4) .bfill{animation-delay:.26s}
+  .bcol:nth-child(5) .bfill{animation-delay:.33s}
+  .bcol:nth-child(6) .bfill{animation-delay:.40s}
+  .donut{animation:popIn .55s cubic-bezier(.22,.9,.3,1) .1s both}
+  .donut-mid{animation:fadeIn .4s ease .45s both}
+  .lg{animation:fadeUp .3s ease both}
+  .lg:nth-child(1){animation-delay:.20s}
+  .lg:nth-child(2){animation-delay:.26s}
+  .lg:nth-child(3){animation-delay:.32s}
+  .lg:nth-child(4){animation-delay:.38s}
+  .lg:nth-child(5){animation-delay:.44s}
+
+  /* progress fills sweep in */
+  .fill,.loy-fill{animation:sweep .8s cubic-bezier(.22,.9,.3,1) .15s both}
+  .loy-badge{animation:popIn .5s cubic-bezier(.22,.9,.3,1) .2s both}
+
+  /* queue */
+  .qnum{animation:popIn .5s cubic-bezier(.22,.9,.3,1) .1s both}
+  .qstate{animation:fadeIn .4s ease .3s both}
+  .qtop.now .qnum{animation:popIn .5s cubic-bezier(.22,.9,.3,1) both,floatY 2s ease-in-out .5s infinite}
+  .now-alert{animation:popIn .4s cubic-bezier(.22,.9,.3,1) both,ringPulse 2s ease-out .4s infinite}
+  #qbtn:active svg{animation:spinOnce .5s ease}
+
+  /* modal sheet */
+  .ov{animation:fadeIn .2s ease both}
+  .sheet{animation:slideUpSheet .32s cubic-bezier(.22,.9,.3,1) both}
+  .sheet .mrow{animation:fadeUp .28s ease both}
+  .sheet .mrow:nth-child(1){animation-delay:.06s}
+  .sheet .mrow:nth-child(2){animation-delay:.10s}
+  .sheet .mrow:nth-child(3){animation-delay:.14s}
+  .sheet .mrow:nth-child(4){animation-delay:.18s}
+  .sheet .mrow:nth-child(5){animation-delay:.22s}
+
+  /* nav active lift */
+  .nav button svg{transition:transform .22s cubic-bezier(.34,1.56,.64,1)}
+  .nav button.on svg{transform:translateY(-2px) scale(1.08)}
+  .nav button:active svg{transform:scale(.88)}
+
+  /* skeleton shimmer utility */
+  .shimmer{background:linear-gradient(90deg,var(--line) 25%,#F6F8FF 50%,var(--line) 75%);background-size:200% 100%;animation:shimmer 1.3s linear infinite}
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  }
 </style>
 </head>
 <body>
-<div class="device" id="device">
-
-  <div class="statusbar">
-    <span id="clock">9:41</span>
-    <div class="icons">
-      <svg width="16" height="12" viewBox="0 0 16 12"><rect x="0" y="6" width="3" height="6" rx="1" fill="#12235C"/><rect x="4.5" y="4" width="3" height="8" rx="1" fill="#12235C"/><rect x="9" y="2" width="3" height="10" rx="1" fill="#12235C"/><rect x="13" y="0" width="3" height="12" rx="1" fill="#12235C"/></svg>
-      <svg width="20" height="12" viewBox="0 0 20 12"><rect x="0.5" y="0.5" width="17" height="11" rx="2.5" stroke="#12235C"/><rect x="2" y="2" width="14" height="8" rx="1.5" fill="#12235C"/><rect x="18" y="4" width="1.5" height="4" rx="0.7" fill="#12235C"/></svg>
+<div class="splash" id="splash">
+  <div class="wipe"></div>
+  <div class="sp-stage">
+    <div class="sp-mark">
+      <svg viewBox="0 0 104 104"><rect x="4" y="4" width="96" height="96" rx="26"/></svg>
+      <span class="sp-n">N</span>
     </div>
   </div>
-
-  <div class="screens" id="screens">
-
-    <section class="screen active" id="screen-splash">
-      <div class="splash-logo" id="splash-logo-holder"></div>
-      <div class="splash-slogan">من الدفع تبدأ علاقتك المالية</div>
-      <div class="splash-promise">من لحظة الدفع، تحصل على فاتورتك وخدماتك وولائك… بلا رسائل مزعجة.</div>
-      <div class="splash-dots"><span></span><span></span><span></span></div>
-    </section>
-
-    <section class="screen" id="screen-login">
-      <div class="auth-wrap">
-        <div class="auth-logo" id="login-logo-holder"></div>
-        <div class="auth-title">تسجيل الدخول</div>
-        <div class="auth-desc">أدخل رقم جوالك السعودي وسنرسل لك رمز تحقق</div>
-        <label class="field-label">رقم الجوال</label>
-        <div class="phone-input-row">
-          <span class="cc">+966</span>
-          <input type="tel" id="phone-input" placeholder="05xxxxxxxx" maxlength="10" inputmode="numeric">
-        </div>
-        <div class="error-text" id="phone-error"></div>
-        <button class="btn-primary" id="phone-submit" disabled>إرسال رمز التحقق</button>
-        <div class="hint" style="text-align:center;margin-top:16px;">بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية</div>
-      </div>
-    </section>
-
-    <section class="screen" id="screen-otp">
-      <div class="auth-wrap">
-        <button class="backbtn" id="otp-back" style="margin-bottom:20px;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
-        </button>
-        <div class="auth-title">رمز التحقق</div>
-        <div class="auth-desc">أدخل الرمز المرسل إلى <span id="otp-phone-display" style="direction:ltr;display:inline-block;font-weight:800;color:var(--navy);"></span></div>
-        <div class="otp-row" id="otp-row">
-          <input class="otp-box" maxlength="1" inputmode="numeric">
-          <input class="otp-box" maxlength="1" inputmode="numeric">
-          <input class="otp-box" maxlength="1" inputmode="numeric">
-          <input class="otp-box" maxlength="1" inputmode="numeric">
-        </div>
-        <div class="error-text" id="otp-error" style="text-align:center;"></div>
-        <button class="btn-primary" id="otp-submit">تأكيد</button>
-        <button class="btn-ghost" id="otp-resend">إعادة الإرسال (0:60)</button>
-        <div class="otp-meta">تجريبي: الرمز الصحيح هو 1234</div>
-      </div>
-    </section>
-
-    <section class="screen" id="screen-home">
-      <div class="appheader">
-        <div>
-          <h1 id="home-greeting">مرحباً، فهد</h1>
-          <div class="sub">أغسطس 2026 · حسابك في NOJ</div>
-        </div>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-
-      <div class="total-card">
-        <div class="lbl">إجمالي مصروفاتك هذا الشهر</div>
-        <div class="amount" id="home-total-amount">0.00<span>ريال</span></div>
-        <div class="trend" id="home-trend"></div>
-      </div>
-
-      <div class="shortcuts">
-        <div class="shortcut" data-goto="reports"><div class="ic" id="ic-shortcut-reports"></div><span>التقارير</span></div>
-        <div class="shortcut" data-goto="invoices"><div class="ic" id="ic-shortcut-invoices"></div><span>الفواتير</span></div>
-        <div class="shortcut" data-goto="queue"><div class="ic" id="ic-shortcut-queue"></div><span>الانتظار</span></div>
-        <div class="shortcut" data-goto="loyalty"><div class="ic" id="ic-shortcut-loyalty"></div><span>الولاء</span></div>
-      </div>
-
-      <div class="section">
-        <div class="section-title">الانتظار الذكي <span class="link" data-goto="queue">التفاصيل</span></div>
-        <div class="card preview-card" id="home-queue-preview"></div>
-
-        <div class="section-title">أحدث الفواتير <span class="link" data-goto="invoices">الكل</span></div>
-        <div id="home-invoices-preview"></div>
-
-        <div class="section-title">الولاء <span class="link" data-goto="loyalty">التفاصيل</span></div>
-        <div class="card preview-card" id="home-loyalty-preview"></div>
-      </div>
-    </section>
-
-    <section class="screen" id="screen-queue">
-      <div class="appheader">
-        <h1>الانتظار الذكي</h1>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-      <div class="queue-hero">
-        <div class="merchant" id="queue-merchant"></div>
-        <div class="queue-num" id="queue-number">--<small>رقم دورك</small></div>
-        <div class="queue-stats">
-          <div class="queue-stat"><div class="val" id="queue-ahead">-</div><div class="lbl">قبلك بالدور</div></div>
-          <div class="queue-stat"><div class="val" id="queue-eta">-</div><div class="lbl">الوقت المتوقع</div></div>
-        </div>
-        <div class="queue-progress"><i id="queue-progress-bar"></i></div>
-        <div class="queue-tip" id="queue-tip"></div>
-        <div class="queue-done" id="queue-done-msg" style="display:none;">حان دورك الآن 🎉</div>
-      </div>
-      <div class="section">
-        <div class="section-title">ملاحظات</div>
-        <div class="card" style="font-size:13px;color:var(--muted);line-height:1.9;">
-          سيصلك تنبيه تلقائي قبل دورك بـ 3 مراجعين، تابع صفحة التنبيهات لعدم تفويت دورك.
-        </div>
-      </div>
-    </section>
-
-    <section class="screen" id="screen-invoices">
-      <div class="appheader">
-        <h1>فواتيري</h1>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-      <div class="search-box">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input type="text" id="invoice-search" placeholder="ابحث باسم المتجر أو الفئة">
-      </div>
-      <div class="invoice-list" id="invoice-list"></div>
-    </section>
-
-    <section class="screen" id="screen-loyalty">
-      <div class="appheader">
-        <h1>الولاء</h1>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-      <div class="loyalty-hero">
-        <div class="tier" id="loyalty-tier-label"></div>
-        <div class="pts" id="loyalty-points">0 <span>نقطة</span></div>
-        <div class="loyalty-bar"><i id="loyalty-bar-fill" style="width:0%"></i></div>
-        <div class="next" id="loyalty-next-label"></div>
-      </div>
-      <div class="tiers-row">
-        <span data-tier="برونزي">برونزي</span>
-        <span data-tier="فضي">فضي</span>
-        <span data-tier="ذهبي">ذهبي</span>
-        <span data-tier="بلاتيني">بلاتيني</span>
-      </div>
-      <div class="section">
-        <div class="section-title">استبدل مكافآتك</div>
-        <div class="rewards-grid" id="rewards-grid"></div>
-      </div>
-    </section>
-
-    <section class="screen" id="screen-reports">
-      <div class="appheader">
-        <h1>تحليل المصروفات</h1>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-      <div class="card report-card">
-        <div class="section-title" style="margin-bottom:14px;">توزيع الإنفاق حسب الفئة</div>
-        <div class="donut-wrap">
-          <svg id="donut-chart" width="140" height="140" viewBox="0 0 140 140"></svg>
-          <div class="donut-legend" id="donut-legend"></div>
-        </div>
-      </div>
-      <div class="card report-card">
-        <div class="section-title" style="margin-bottom:4px;">الاتجاه الشهري</div>
-        <div class="bars-wrap" id="bars-wrap"></div>
-      </div>
-      <div class="insight" id="insight-1"></div>
-      <div class="insight" id="insight-2"></div>
-    </section>
-
-    <section class="screen" id="screen-notifications">
-      <div class="appheader">
-        <h1>التنبيهات</h1>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-      <div class="list-menu" id="notif-list"></div>
-    </section>
-
-    <section class="screen" id="screen-more">
-      <div class="appheader">
-        <h1>المزيد</h1>
-        <button class="nbtn" data-open-profile>N</button>
-      </div>
-      <div class="list-menu">
-        <div class="menu-item" data-open-profile>
-          <div class="ic-round" id="ic-more-profile"></div>
-          <div class="title">الملف الشخصي</div>
-          <div class="chev" id="ic-more-chev1"></div>
-        </div>
-        <div class="menu-item">
-          <div class="ic-round" id="ic-more-cards"></div>
-          <div class="title">طرق الدفع</div>
-          <div class="chev" id="ic-more-chev2"></div>
-        </div>
-        <div class="menu-item">
-          <div class="ic-round" id="ic-more-bell"></div>
-          <div class="title">إشعارات الدفع</div>
-          <div class="switch on" id="switch-push"><i></i></div>
-        </div>
-        <div class="menu-item">
-          <div class="ic-round" id="ic-more-lang"></div>
-          <div class="title">اللغة</div>
-          <div class="badge">العربية</div>
-        </div>
-        <div class="menu-item">
-          <div class="ic-round" id="ic-more-help"></div>
-          <div class="title">مركز المساعدة</div>
-          <div class="chev" id="ic-more-chev3"></div>
-        </div>
-        <div class="menu-item">
-          <div class="ic-round" id="ic-more-info"></div>
-          <div class="title">عن NOJ</div>
-          <div class="chev" id="ic-more-chev4"></div>
-        </div>
-        <div class="menu-item" id="logout-btn" style="border-color:rgba(225,91,77,.4);">
-          <div class="ic-round" style="background:rgba(225,91,77,.14);color:var(--danger);" id="ic-more-logout"></div>
-          <div class="title" style="color:var(--danger);">تسجيل الخروج</div>
-        </div>
-      </div>
-    </section>
-
+  <div class="sp-word">
+    <div class="sp-letters"><i>N</i><i>O</i><i>J</i></div>
+    <div class="sp-sub">NO ORDINARY JOURNEY</div>
+    <div class="sp-rule"></div>
   </div>
-
-  <nav class="bottomnav" id="bottomnav">
-    <button class="navbtn active" data-nav="home"><span class="ic" id="nav-ic-home"></span><span>الرئيسية</span></button>
-    <button class="navbtn" data-nav="notifications"><span class="ic" id="nav-ic-bell"></span><span>التنبيهات</span></button>
-    <button class="navbtn" data-nav="loyalty"><span class="ic" id="nav-ic-star"></span><span>الولاء</span></button>
-    <button class="navbtn" data-nav="reports"><span class="ic" id="nav-ic-chart"></span><span>التقارير</span></button>
-    <button class="navbtn" data-nav="more"><span class="ic" id="nav-ic-more"></span><span>المزيد</span></button>
-  </nav>
-
-  <div class="toast" id="toast"></div>
-
-  <div class="modal-overlay" id="modal-invoice">
-    <div class="modal-sheet">
-      <button class="modal-close" data-close-modal>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
-      <div class="modal-handle"></div>
-      <div class="modal-title" id="inv-modal-title"></div>
-      <div class="sub" style="font-size:12.5px;color:var(--muted);margin-bottom:14px;" id="inv-modal-date"></div>
-      <div class="card">
-        <div class="detail-row"><span class="k">رقم الفاتورة</span><span class="v" id="inv-modal-id"></span></div>
-        <div class="detail-row"><span class="k">الفئة</span><span class="v" id="inv-modal-cat"></span></div>
-        <div class="detail-row"><span class="k">طريقة الدفع</span><span class="v" id="inv-modal-pay"></span></div>
-        <div class="detail-row"><span class="k">نقاط مكتسبة</span><span class="v" id="inv-modal-pts"></span></div>
-        <div class="detail-row"><span class="k">الإجمالي</span><span class="v" id="inv-modal-total"></span></div>
-      </div>
-      <div class="card" style="margin-top:12px;">
-        <div class="section-title" style="margin-bottom:2px;">تفاصيل الفاتورة</div>
-        <div class="items-table" id="inv-modal-items"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="modal-profile">
-    <div class="modal-sheet">
-      <button class="modal-close" data-close-modal>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
-      <div class="modal-handle"></div>
-      <div class="profile-avatar" id="profile-avatar">ف</div>
-      <div class="profile-name" id="profile-name">فهد العتيبي</div>
-      <div class="profile-phone" id="profile-phone">+966 5X XXX XXXX</div>
-      <div class="profile-tier"><span class="badge gold" id="profile-tier-badge">فضي</span></div>
-      <div class="list-menu" style="margin-top:20px;">
-        <div class="menu-item"><div class="ic-round" id="ic-profile-edit"></div><div class="title">تعديل البيانات</div><div class="chev" id="ic-profile-chev"></div></div>
-        <div class="menu-item" id="profile-logout-btn"><div class="ic-round" style="background:rgba(225,91,77,.14);color:var(--danger);" id="ic-profile-logout"></div><div class="title" style="color:var(--danger);">تسجيل الخروج</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="modal-redeem">
-    <div class="modal-sheet" style="text-align:center;padding-bottom:36px;">
-      <button class="modal-close" data-close-modal>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-      </button>
-      <div class="modal-handle"></div>
-      <div id="redeem-icon" style="margin:10px auto 16px;width:64px;height:64px;border-radius:50%;background:var(--gold-dim);color:var(--gold);display:flex;align-items:center;justify-content:center;"></div>
-      <div class="modal-title" id="redeem-title" style="text-align:center;"></div>
-      <div style="font-size:13px;color:var(--muted);margin:8px 0 20px;" id="redeem-desc"></div>
-      <button class="btn-primary" id="redeem-confirm" style="width:100%;">تأكيد الاستبدال</button>
-    </div>
-  </div>
-
+  <div class="sp-tag">من الدفع تبدأ علاقتك المالية</div>
+  <div class="sp-load"><i></i></div>
 </div>
 
+<div class="auth" id="auth"></div>
+
+<div class="app" id="app">
+  <div class="head">
+    <button class="mark" id="profile">N</button>
+    <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
+    <button class="bell" id="bell">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 004 0"/></svg>
+      <i></i>
+    </button>
+  </div>
+  <div id="view"></div>
+</div>
+
+<nav class="nav" id="nav"></nav>
+<div class="toast" id="toast"><div id="toast-text"></div></div>
+
 <script>
-(function(){
-"use strict";
+const P={
+ home:'<path d="M3 10.5l9-7 9 7"/><path d="M5.5 9.5V20h13V9.5"/>',
+ bell:'<path d="M6 8a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 004 0"/>',
+ chart:'<path d="M5 20V9"/><path d="M12 20V4"/><path d="M19 20v-7"/>',
+ pie:'<path d="M12 3a9 9 0 109 9h-9z"/><path d="M14 3.5A9 9 0 0120.5 10H14z"/>',
+ grid:'<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
+ clock:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2.5"/>',
+ receipt:'<path d="M6.5 3h11v18l-2.7-1.8-2.8 1.8-2.8-1.8L6.5 21z"/><path d="M9.5 8h5M9.5 12h5"/>',
+ gift:'<rect x="3.5" y="9" width="17" height="11.5" rx="2"/><path d="M3.5 13h17M12 9v11.5"/><path d="M12 9c-1.4-4-6-4-6-.5M12 9c1.4-4 6-4 6-.5"/>',
+ bars:'<path d="M4 9l4-4 4 4 4-4 4 4"/><path d="M4 15l4-4 4 4 4-4 4 4"/>',
+ hospital:'<path d="M5 21V8l7-4 7 4v13"/><path d="M12 10v6M9 13h6"/>',
+ fork:'<path d="M7 3v7a2 2 0 004 0V3"/><path d="M9 10v11"/><path d="M17 3c-1.5 1.5-2 3-2 5s.7 3 2 3v10"/>',
+ chevron:'<path d="M15 6l-6 6 6 6"/>',
+ refresh:'<path d="M4 12a8 8 0 0114-5"/><path d="M20 12a8 8 0 01-14 5"/><path d="M18 3v5h-5"/><path d="M6 21v-5h5"/>',
+ pin:'<path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/>',
+ star:'<path d="M12 3.5l2.5 5.6 6.1.6-4.6 4.1 1.4 6-5.4-3-5.4 3 1.4-6L3.4 9.7l6.1-.6z"/>',
+ check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+ x:'<path d="M6 6l12 12M18 6L6 18"/>',
+ search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+ store:'<path d="M4 8l1-4h14l1 4"/><path d="M4 8h16v11H4z"/><path d="M9 19v-5h6v5"/>',
+ bag:'<path d="M6 8h12l1 12H5z"/><path d="M9 8a3 3 0 016 0"/>',
+ coffee:'<path d="M4 9h13v6a4 4 0 01-4 4H8a4 4 0 01-4-4z"/><path d="M17 10h1.5a2.5 2.5 0 010 5H17"/>',
+ car:'<path d="M4 16v-3l2-4h12l2 4v3"/><rect x="3" y="16" width="18" height="3"/><circle cx="7" cy="19" r="1.2"/><circle cx="17" cy="19" r="1.2"/>',
+ dots:'<circle cx="6" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18" cy="12" r="1.3"/>',
+ up:'<path d="M5 15l5-5 4 4 6-6"/><path d="M16 8h4v4"/>',
+ down:'<path d="M5 9l5 5 4-4 6 6"/><path d="M16 16h4v-4"/>',
+ spark:'<path d="M12 3.5l1.6 4.9L18.5 10l-4.9 1.6L12 16.5l-1.6-4.9L5.5 10l4.9-1.6z"/>',
+ arrow:'<path d="M7 17L17 7"/><path d="M9 7h8v8"/>'
+};
+function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.8)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 
-const ICONS = {
-  logo: `<svg width="96" height="96" viewBox="0 0 96 96"><circle cx="48" cy="48" r="46" fill="#12235C"/><circle cx="48" cy="48" r="46" fill="none" stroke="#C99A2E" stroke-width="2"/><text x="48" y="63" text-anchor="middle" font-size="38" font-weight="800" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif">N</text></svg>`,
-  logoSmall: `<svg width="60" height="60" viewBox="0 0 96 96"><circle cx="48" cy="48" r="46" fill="#12235C"/><circle cx="48" cy="48" r="46" fill="none" stroke="#C99A2E" stroke-width="2"/><text x="48" y="63" text-anchor="middle" font-size="38" font-weight="800" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif">N</text></svg>`,
-  home: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>`,
-  bell: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>`,
-  star: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.1 6.3 6.9 1-5 4.9L18.2 21 12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1L12 2z"/></svg>`,
-  chart: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9"/><path d="M21 12A9 9 0 0012 3v9h9z"/></svg>`,
-  more: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>`,
-  clock: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`,
-  receipt: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>`,
-  wallet: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 012-2h13a1 1 0 011 1v3"/><path d="M3 7v11a2 2 0 002 2h14a1 1 0 001-1v-6a1 1 0 00-1-1h-5a2 2 0 000 4h6"/></svg>`,
-  gift: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18M12 9v12"/><path d="M12 9C9 9 8 7 8 5.5A2.5 2.5 0 0110.5 3C12 3 12 6 12 9zM12 9c3 0 4-2 4-3.5A2.5 2.5 0 0013.5 3C12 3 12 6 12 9z"/></svg>`,
-  cart: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/><path d="M2.5 3h2l2.6 12.4a2 2 0 002 1.6h8.4a2 2 0 002-1.6L21 8H6"/></svg>`,
-  shirt: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4L4 7l2 3 2-1v11h8V9l2 1 2-3-4-3-2 2h-4l-2-2z"/></svg>`,
-  fuel: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V6a2 2 0 012-2h5a2 2 0 012 2v15"/><path d="M3 21h13"/><path d="M14 9h2l3 3v6a1.5 1.5 0 01-3 0v-2h-2"/></svg>`,
-  heart: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-4.6-9.5-9C.7 8 2 4.5 5.5 4a5 5 0 016.5 2 5 5 0 016.5-2c3.5.5 4.8 4 3 8-2.5 4.4-9.5 9-9.5 9z"/></svg>`,
-  film: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 15h18M8 4v16M16 4v16"/></svg>`,
-  search: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>`,
-  chev: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>`,
-  cards: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>`,
-  lang: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>`,
-  help: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.7-2.2 2-2.5 3.5"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>`,
-  info: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/></svg>`,
-  logout: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>`,
-  edit: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
-  coffee: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13v6a5 5 0 01-5 5H9a5 5 0 01-5-5V8z"/><path d="M17 9h2a2.5 2.5 0 010 5h-2M6 3c0 1-1 1-1 2M10 3c0 1-1 1-1 2"/></svg>`,
-  percent: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.3"/><circle cx="17" cy="17" r="2.3"/></svg>`,
-  truck: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8h11v9H2z"/><path d="M13 11h4l4 4v2h-8z"/><circle cx="6" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/></svg>`,
-  ticket: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 002-2h14a2 2 0 002 2v2a2 2 0 000 4v2a2 2 0 00-2 2H5a2 2 0 00-2-2v-2a2 2 0 000-4z"/><path d="M9 5v14" stroke-dasharray="2 3"/></svg>`,
-  check: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`
+const STORAGE_PREFIX='noj_';
+const K={SESSION:'session',PHONE:'phone',POINTS:'points',NOTIF:'notif_switches'};
+const Store={
+  available:(function(){try{var t='__noj_probe__';localStorage.setItem(t,'1');localStorage.removeItem(t);return true}catch(e){return false}})(),
+  get:function(key,fallback){if(!Store.available)return fallback;try{var raw=localStorage.getItem(STORAGE_PREFIX+key);return raw===null?fallback:JSON.parse(raw)}catch(e){return fallback}},
+  set:function(key,value){if(!Store.available)return false;try{localStorage.setItem(STORAGE_PREFIX+key,JSON.stringify(value));return true}catch(e){return false}},
+  remove:function(key){if(!Store.available)return;try{localStorage.removeItem(STORAGE_PREFIX+key)}catch(e){}},
+  clearAll:function(){Object.keys(K).forEach(function(k){Store.remove(K[k])})}
 };
 
-const CATEGORY_META = {
-  "مطاعم":  { icon:"heart2", ic:ICONS.coffee, color:"#2D7BF4" },
-  "بقالة":  { icon:"cart",   ic:ICONS.cart,   color:"#C99A2E" },
-  "تسوق":   { icon:"shirt",  ic:ICONS.shirt,  color:"#12235C" },
-  "وقود":   { icon:"fuel",   ic:ICONS.fuel,   color:"#1FA971" },
-  "صحة":    { icon:"heart",  ic:ICONS.heart,  color:"#E15B4D" },
-  "ترفيه":  { icon:"film",   ic:ICONS.film,   color:"#8A5CF6" }
-};
+const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'مواصلات':{c:'#F59E0B',i:'car'},'أخرى':{c:'#64748B',i:'dots'}};
+const INVOICES=[
+ {id:1,m:'مطعم مذاق',d:'20/05/2025',a:120.50,c:'مطاعم',items:[{n:'برياني دجاج',p:45},{n:'عصير مشمش',p:12},{n:'حمص وسلطة',p:18},{n:'خبز تنور',p:5},{n:'رسوم خدمة',p:40.5}]},
+ {id:2,m:'بنده - الياسمين',d:'19/05/2025',a:214,c:'بقالة',items:[{n:'خضار وفواكه',p:62},{n:'منتجات ألبان',p:48},{n:'مواد تنظيف',p:39},{n:'مخبوزات',p:25},{n:'متنوع',p:40}]},
+ {id:3,m:'ستاربكس - النخيل',d:'18/05/2025',a:38,c:'مقاهي',items:[{n:'قهوة لاتيه كبير',p:24},{n:'كرواسون',p:14}]},
+ {id:4,m:'صيدلية النهدي',d:'17/05/2025',a:67,c:'أخرى',items:[{n:'فيتامينات',p:45},{n:'مستلزمات شخصية',p:22}]},
+ {id:5,m:'أوبر',d:'16/05/2025',a:29,c:'مواصلات',items:[{n:'رحلة - المكتب للمنزل',p:29}]},
+ {id:6,m:'مقهى بارز',d:'15/05/2025',a:22,c:'مقاهي',items:[{n:'كابتشينو',p:16},{n:'ماء',p:6}]}
+];
+const CATS=[{n:'مطاعم',v:35,a:998},{n:'بقالة',v:25,a:712},{n:'مقاهي',v:15,a:428},{n:'مواصلات',v:12,a:342},{n:'أخرى',v:13,a:370}];
+const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510},{m:'يونيو',t:1980},{m:'يوليو',t:2540},{m:'أغسطس',t:2850}];
+const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 35%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
+const REWARDS=[{id:1,t:'قهوة مجانية',m:'ستاربكس',c:200},{id:2,t:'خصم 15% على الطلب القادم',m:'مطعم مذاق',c:350},{id:3,t:'توصيل مجاني على أي رحلة',m:'أوبر',c:150},{id:4,t:'حلوى مجانية مع أي طلب',m:'بنده',c:100}];
+const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'alerts',l:'التنبيهات',i:'bell'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
 
-const DB = {
-  user: { name:"فهد العتيبي", phone:"", initial:"ف" },
-  monthLabel: "أغسطس 2026",
-  invoices: [
-    { id:"INV-10231", merchant:"مطعم بيتزا العائلة", category:"مطاعم", date:"24 أغسطس 2026", amount:145.00, pay:"مدى", items:[{n:"بيتزا عائلية",q:1,p:95},{n:"مشروبات",q:3,p:30},{n:"سلطة",q:1,p:20}] },
-    { id:"INV-10222", merchant:"بندة للتموين", category:"بقالة", date:"22 أغسطس 2026", amount:210.00, pay:"Apple Pay", items:[{n:"مواد غذائية متنوعة",q:1,p:180},{n:"منظفات",q:1,p:30}] },
-    { id:"INV-10210", merchant:"مركز الرياض لطب الأسنان", category:"صحة", date:"20 أغسطس 2026", amount:70.00, pay:"مدى", items:[{n:"كشف عام",q:1,p:70}] },
-    { id:"INV-10198", merchant:"متجر الأناقة للملابس", category:"تسوق", date:"18 أغسطس 2026", amount:260.00, pay:"بطاقة ائتمان", items:[{n:"قميص رجالي",q:2,p:90},{n:"حذاء",q:1,p:170}] },
-    { id:"INV-10175", merchant:"محطة أرامكو", category:"وقود", date:"15 أغسطس 2026", amount:180.00, pay:"مدى", items:[{n:"بنزين 95",q:1,p:180}] },
-    { id:"INV-10160", merchant:"القهوة المختصة", category:"مطاعم", date:"12 أغسطس 2026", amount:90.00, pay:"Apple Pay", items:[{n:"قهوة مختصة",q:2,p:50},{n:"حلا",q:1,p:40}] },
-    { id:"INV-10142", merchant:"سينما VOX", category:"ترفيه", date:"10 أغسطس 2026", amount:39.75, pay:"مدى", items:[{n:"تذاكر عرض",q:2,p:39.75}] },
-    { id:"INV-10120", merchant:"بقالة التميز", category:"بقالة", date:"05 أغسطس 2026", amount:115.00, pay:"مدى", items:[{n:"مواد غذائية",q:1,p:115}] },
-    { id:"INV-10101", merchant:"مطعم نجوم الشام", category:"مطاعم", date:"03 أغسطس 2026", amount:175.00, pay:"بطاقة ائتمان", items:[{n:"مشاوي مشكلة",q:1,p:130},{n:"مقبلات",q:2,p:45}] }
-  ],
-  monthlyTrend: [
-    { label:"مارس", value:980 },
-    { label:"أبريل", value:1105 },
-    { label:"مايو", value:890 },
-    { label:"يونيو", value:1210 },
-    { label:"يوليو", value:1150 }
-  ],
-  loyalty: {
-    points: 854,
-    tiers: [ {name:"برونزي", min:0}, {name:"فضي", min:500}, {name:"ذهبي", min:1500}, {name:"بلاتيني", min:4000} ],
-    rewards: [
-      { id:1, title:"قهوة مجانية", cost:80, ic:ICONS.coffee },
-      { id:2, title:"توصيل مجاني على طلبك القادم", cost:100, ic:ICONS.truck },
-      { id:3, title:"خصم 10% على فاتورتك القادمة", cost:150, ic:ICONS.percent },
-      { id:4, title:"قسيمة شرائية بقيمة 20 ريال", cost:200, ic:ICONS.gift },
-      { id:5, title:"قسيمة شرائية بقيمة 50 ريال", cost:450, ic:ICONS.gift }
-    ]
-  },
-  queue: { merchant:"مطعم بيتزا العائلة", number:58, ahead:6, avgMin:3 },
-  notifications: [
-    { title:"تم إصدار فاتورتك من مطعم بيتزا العائلة بقيمة 145.00 ريال", time:"اليوم · 24 أغسطس", ic:ICONS.receipt, unread:true },
-    { title:"دورك يقترب في مطعم بيتزا العائلة، تبقى 3 مراجعين", time:"اليوم · قبل ساعة", ic:ICONS.ticket, unread:true },
-    { title:"حصلت على 26 نقطة ولاء من متجر الأناقة للملابس", time:"أمس", ic:ICONS.star, unread:true },
-    { title:"عرض خاص: خصم 15% في محطات أرامكو نهاية الأسبوع", time:"20 أغسطس", ic:ICONS.gift, unread:false },
-    { title:"تبقى 646 نقطة للوصول إلى مستوى الذهبي", time:"18 أغسطس", ic:ICONS.chart, unread:false }
-  ]
-};
+let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,pts:1250,query:'',sw:{notif:true,spend:true,offers:false}};
+const INITIAL_POINTS=S.pts;
+const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
+S.showClear=false;
 
-const fmt = n => n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
-const fmt0 = n => Math.round(n).toLocaleString("en-US");
-
-function computeTotal(){ return DB.invoices.reduce((s,i)=>s+i.amount,0); }
-function computeCategoryTotals(){
-  const map = {};
-  DB.invoices.forEach(inv=>{ map[inv.category]=(map[inv.category]||0)+inv.amount; });
-  return map;
+function donut(size,mid,big){
+  let acc=0;
+  const st=CATS.map(function(d){var f=acc;acc+=d.v;return CAT[d.n].c+' '+f+'% '+acc+'%'}).join(',');
+  return '<div class="donut'+(big?' lg':'')+'" style="width:'+size+'px;height:'+size+'px;background:conic-gradient('+st+')">'+(mid?'<div class="donut-mid"><b>'+mid.b+'</b><small>'+mid.s+'</small></div>':'')+'</div>';
 }
-function currentTier(points){
-  let cur = DB.loyalty.tiers[0], next=null;
-  for(let i=0;i<DB.loyalty.tiers.length;i++){
-    if(points>=DB.loyalty.tiers[i].min) cur = DB.loyalty.tiers[i];
+
+function home(){
+  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var last=INVOICES[0];
+  return ''+
+  '<div class="greet"><h1>مرحباً أحمد 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
+  '<div class="hero">'+
+    '<svg class="spark" viewBox="0 0 200 70" height="70" preserveAspectRatio="none">'+
+      '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24 S 186 12, 198 10" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round"/>'+
+      '<circle cx="198" cy="10" r="5" fill="#fff"/></svg>'+
+    '<div class="hero-top"><div>'+
+      '<div class="hero-label">إجمالي المصروفات</div>'+
+      '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
+      '<div class="hero-sub">هذا الشهر</div>'+
+      '<div class="hero-delta">↑ 12% عن الشهر الماضي</div>'+
+    '</div><button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+' عرض التحليل</button></div>'+
+  '</div>'+
+  '<div class="tiles">'+
+    '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span></button>'+
+    '<button class="tile" data-go="invoices">'+ic('receipt',26,'#3B82F6')+'<span>الفاتورة الذكية</span></button>'+
+    '<button class="tile" data-go="loyalty">'+ic('gift',26,'#22A87A')+'<span>الولاء</span></button>'+
+    '<button class="tile" data-go="spending">'+ic('pie',26,'#F59E0B')+'<span>تحليل المصروفات</span></button>'+
+  '</div>'+
+  '<div class="sec"><div class="sec-head"><h2>الانتظار الذكي</h2><button data-go="queue">عرض الكل</button></div>'+
+    '<div class="list">'+
+      '<button class="row" data-go="queue"><div class="row-ico" style="background:#E7F7EF">'+ic('hospital',22,'#22A87A')+'</div>'+
+      '<div class="row-txt"><b>احجز دورك في المراكز القريبة</b><small>تجنب الانتظار واحجز موعدك بسهولة</small></div>'+ic('chevron',18,'#22A87A')+'</button>'+
+      '<button class="row" data-go="queue"><div class="row-ico" style="background:#F1ECFF">'+ic('fork',22,'#7C5CE6')+'</div>'+
+      '<div class="row-txt"><b>احجز طاولتك في مطاعمك المفضلة</b><small>اختر الوقت المناسب واستمتع بوقتك</small></div>'+ic('chevron',18,'#7C5CE6')+'</button>'+
+    '</div></div>'+
+  '<div class="duo">'+
+    '<div class="box"><div class="box-head"><h3>تحليل المصروفات</h3><button data-go="spending">عرض الكل</button></div>'+
+      '<div class="donut-row">'+donut(96,{b:total.toLocaleString('en-US'),s:'ريال'})+
+      '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+c.n+'</b><s>'+c.v+'%</s></div>'}).join('')+'</div></div></div>'+
+    '<div class="box"><div class="box-head"><h3>الفواتير الذكية</h3><button data-go="invoices">عرض الكل</button></div>'+
+      '<div class="inv-mini"><div class="inv-ico">'+ic('receipt',26,'#3B82F6')+'</div>'+
+      '<div class="inv-info"><b>18 فاتورة هذا الشهر</b><small>آخر فاتورة</small>'+
+      '<small style="color:var(--text);font-weight:700">'+last.m+'</small>'+
+      '<small class="amt">'+last.a.toFixed(2)+' ريال</small><small>'+last.d+'</small></div></div></div>'+
+  '</div>'+
+  '<div class="sec"><div class="sec-head"><h2>الولاء</h2><button data-go="loyalty">عرض الكل</button></div>'+loyCard()+'</div>';
+}
+
+function loyCard(){
+  return '<div class="box"><div class="loy">'+
+    '<div class="loy-ico">'+ic('gift',30,'#22A87A')+'</div>'+
+    '<div class="loy-mid"><small>نقاطك</small><b>'+S.pts.toLocaleString('en-US')+'</b>'+
+    '<p>أنت على بعد '+Math.max(0,1500-S.pts)+' نقطة من مكافأة جديدة</p></div>'+
+    '<div class="loy-right"><div class="loy-tier"><b>المستوى الذهبي</b><div class="loy-badge">'+ic('star',18,'#fff',2)+'</div></div>'+
+    '<div class="loy-track"><div class="loy-fill" style="width:'+Math.min(100,S.pts/1500*100)+'%"></div></div>'+
+    '<div class="loy-num">'+S.pts.toLocaleString('en-US')+' / 1,500 نقطة</div></div>'+
+  '</div></div>';
+}
+
+function queue(){
+  var q=S.q;
+  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="home">الرئيسية</button></div>'+
+  '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
+    '<small>'+ic('pin',12,'#fff')+' مطعم مذاق - فرع العليا</small>'+
+    '<div class="qnum">#47</div>'+
+    '<div class="qstate">'+(q.now?'حان دورك الآن — توجه للاستلام':'رقم تذكرتك')+'</div></div>'+
+  '<div class="qbody">'+
+    (q.now
+      ?'<div class="now-alert" style="display:flex;gap:10px;align-items:center;background:#FEF2F2;padding:12px;border-radius:12px;font-size:13px;font-weight:600">'+ic('check',20,'#E4572E')+' تم إشعارك — لديك 3 دقائق قبل انتقال الدور</div>'
+      :'<div class="qrow"><span>عدد الأشخاص قبلك</span><span>'+q.ahead+'</span></div>'+
+       '<div class="qrow"><span>الوقت المتوقع</span><span>~'+q.min+' دقيقة</span></div>'+
+       '<div class="track"><div class="fill" style="width:'+(100-q.ahead*18)+'%"></div></div>')+
+    '<button class="btn" id="qbtn">'+ic('refresh',16,'#fff')+' '+(q.now?'بدء محاكاة جديدة':'محاكاة تحديث الدور')+'</button>'+
+  '</div></div>'+
+  '<div class="note">بناءً على بيانات الازدحام السابقة، أهدأ وقت لزيارة هذا الفرع اليوم هو <b>3:00 - 4:30 عصرًا</b>.</div>';
+}
+
+function invoices(){
+  var f=INVOICES.filter(function(i){return i.m.indexOf(S.query)>-1||i.c.indexOf(S.query)>-1});
+  var sel=INVOICES.filter(function(i){return i.id===S.sel})[0];
+  var grid=f.length===0?'<div class="empty">لا توجد فواتير مطابقة لبحثك</div>':
+    '<div class="list">'+f.map(function(i){var m=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
+      '<div class="row-ico" style="background:'+m.c+'18">'+ic(m.i,22,m.c)+'</div>'+
+      '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+i.c+'</span></div>'+
+      '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>';
+  var modal=sel?'<div class="ov" id="ov"><div class="sheet" id="sheet">'+
+    '<div class="sheet-head"><h3>تفاصيل الفاتورة</h3><button id="cls">'+ic('x',18,'#12235C')+'</button></div>'+
+    '<div><b style="font-size:14px">'+sel.m+'</b><div style="font-size:12px;color:var(--muted);margin-top:3px">'+sel.d+'</div></div>'+
+    '<div class="dash"></div>'+
+    sel.items.map(function(t){return '<div class="mrow"><span>'+t.n+'</span><span>'+t.p+' ريال</span></div>'}).join('')+
+    '<div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div></div></div>':'';
+  return '<div class="sec-head" style="margin-top:20px"><h2>الفواتير الذكية</h2><button data-go="home">الرئيسية</button></div>'+
+    '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="q" placeholder="ابحث عن متجر أو فئة..." value="'+S.query+'"></div>'+grid+modal;
+}
+
+function loyalty(){
+  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+
+  loyCard()+
+  '<div class="sec"><div class="sec-head"><h2>مكافآت متاحة</h2></div><div class="list">'+
+  REWARDS.map(function(r){return '<div class="rw"><div><b>'+r.t+'</b><small>'+r.m+' · '+r.c+' نقطة</small></div>'+
+    '<button data-rw="'+r.id+'" style="background:'+(S.pts>=r.c?'var(--navy)':'var(--line)')+';color:'+(S.pts>=r.c?'#fff':'var(--muted)')+'">استبدال</button></div>'}).join('')+
+  '</div></div>';
+}
+
+function spending(){
+  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var max=Math.max.apply(null,TREND.map(function(d){return d.t}));
+  return '<div class="sec-head" style="margin-top:20px"><h2>تحليل المصروفات</h2><button data-go="home">الرئيسية</button></div>'+
+  '<div class="box"><small style="font-size:12px;color:var(--muted)">إجمالي الإنفاق هذا الشهر</small>'+
+  '<div style="font-size:26px;font-weight:800;margin:4px 0 12px;direction:ltr;text-align:right">'+total.toLocaleString('en-US')+' ريال</div>'+
+  '<div class="donut-row">'+donut(120,{b:total.toLocaleString('en-US'),s:'ريال'},true)+
+  '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+c.n+'</b><s>'+c.v+'% · '+c.a+'</s></div>'}).join('')+'</div></div></div>'+
+  '<div class="box" style="margin-top:14px"><div class="box-head"><h3>الاتجاه الشهري</h3></div>'+
+  '<div class="bars">'+TREND.map(function(d){return '<div class="bcol" title="'+d.t+' ريال"><div class="bfill" style="height:'+(d.t/max*105)+'px"></div><small>'+d.m+'</small></div>'}).join('')+'</div></div>'+
+  '<div class="box" style="margin-top:14px"><div class="box-head"><h3>'+ic('spark',15,'#F59E0B')+' ماذا يقول NOJ؟</h3></div>'+
+  INSIGHTS.map(function(i){return '<div class="ins">'+ic(i.t==='up'?'up':i.t==='down'?'down':'arrow',16,'#F59E0B')+'<span>'+i.x+'</span></div>'}).join('')+'</div>';
+}
+
+function alerts(){
+  var A=[{i:'clock',c:'#7C5CE6',t:'اقترب دورك في مطعم مذاق',s:'بقي شخصان قبلك — قبل 4 دقائق'},
+         {i:'receipt',c:'#3B82F6',t:'وصلت فاتورتك الرقمية',s:'مطعم مذاق · 120.50 ريال — اليوم'},
+         {i:'gift',c:'#22A87A',t:'حصلت على 45 نقطة ولاء',s:'من مشترياتك اليوم'},
+         {i:'up',c:'#F59E0B',t:'تنبيه إنفاق',s:'تجاوزت 80% من ميزانية المطاعم — أمس'}];
+  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="home">الرئيسية</button></div>'+
+  '<div class="list">'+A.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
+  '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>';
+}
+
+function reports(){
+  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2><button data-go="home">الرئيسية</button></div>'+
+  '<div class="box"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
+  '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
+  '<div class="mrow"><span>عدد الفواتير</span><span>18</span></div>'+
+  '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/18)+' ريال</span></div>'+
+  '<div class="mrow"><span>أعلى فئة</span><span>مطاعم (35%)</span></div>'+
+  '<div class="mrow"><span>نقاط الولاء</span><span>'+S.pts.toLocaleString('en-US')+'</span></div>'+
+  '<div class="dash"></div><div class="mrow"><span>وقت الانتظار الموفَّر</span><span>~2.5 ساعة</span></div></div>'+
+  '<div class="box" style="margin-top:14px"><div class="box-head"><h3>أكثر المتاجر زيارة</h3></div>'+
+  INVOICES.slice(0,4).map(function(i,n){return '<div class="mrow"><span>'+(n+1)+'. '+i.m+'</span><span>'+i.a.toFixed(2)+' ريال</span></div>'}).join('')+'</div>';
+}
+
+function more(){
+  var M=[{i:'gift',c:'#22A87A',t:'البطاقة العائلية',s:'قريبًا — المرحلة الثانية'},
+         {i:'bars',c:'#7C5CE6',t:'إدارة الالتزامات',s:'قريبًا — المرحلة الثانية'},
+         {i:'store',c:'#3B82F6',t:'المتاجر المشتركة',s:'تصفح المتاجر المرتبطة بـ NOJ'},
+         {i:'bell',c:'#F59E0B',t:'إعدادات التنبيهات',s:'تحكم في تنبيهات الدور والإنفاق'}];
+  return '<div class="sec-head" style="margin-top:20px"><h2>المزيد</h2><button data-go="home">الرئيسية</button></div>'+
+  '<div class="list">'+M.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
+  '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div>'+ic('chevron',18,'#8A93AD')+'</div>'}).join('')+'</div>'+
+  '<div class="note">NOJ — من الدفع تبدأ علاقتك المالية. هذه نسخة تجريبية توضح المرحلة الأولى من المنصة.</div>';
+}
+
+function clearConfirmSheet(){
+  return '<div class="ov" id="ovClear"><div class="sheet" id="sheetClear">'+
+    '<div class="sheet-head"><h3>مسح جميع البيانات؟</h3><button id="clsClear">'+ic('x',18,'#12235C')+'</button></div>'+
+    '<div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم حذف جلسة الدخول ونقاط الولاء وتفضيلات الإشعارات المحفوظة على هذا الجهاز، وسيُطلب منك تسجيل الدخول من جديد. لا يمكن التراجع عن هذا الإجراء.</div>'+
+    '<button class="logout" id="confirmClear" style="margin-top:16px;margin-bottom:76px">مسح نهائي</button>'+
+  '</div></div>';
+}
+
+function profile(){
+  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var opts=[{k:'notif',i:'bell',c:'#F59E0B',t:'تنبيهات الدور',s:'إشعار عند اقتراب دورك'},
+            {k:'spend',i:'up',c:'#7C5CE6',t:'تنبيهات الإنفاق',s:'تنبيه عند تجاوز الميزانية'},
+            {k:'offers',i:'gift',c:'#22A87A',t:'العروض والمكافآت',s:'استقبال العروض المخصصة'}];
+  var links=[{i:'receipt',c:'#3B82F6',t:'وسائل الدفع',s:'إدارة البطاقات المرتبطة'},
+             {i:'store',c:'#7C5CE6',t:'المتاجر المفضلة',s:'٤ متاجر محفوظة'},
+             {i:'pin',c:'#22A87A',t:'العناوين',s:'المنزل، العمل'},
+             {i:'grid',c:'#64748B',t:'اللغة والمنطقة',s:'العربية · السعودية'}];
+  return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2><button data-go="home">الرئيسية</button></div>'+
+  '<div class="prof-hero"><div class="prof-av">أ</div><div class="prof-id"><b>أحمد الذبياني</b>'+
+  '<small>ahmed@noj.app</small><small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
+  '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى الذهبي</span></div></div>'+
+  '<div class="stats3">'+
+    '<div class="st"><b>'+S.pts.toLocaleString('en-US')+'</b><small>نقاط الولاء</small></div>'+
+    '<div class="st"><b>18</b><small>فواتير الشهر</small></div>'+
+    '<div class="st"><b>'+total.toLocaleString('en-US')+'</b><small>إنفاق الشهر</small></div>'+
+  '</div>'+
+  '<div class="sec"><div class="sec-head"><h2>الإشعارات</h2></div><div class="list">'+
+  opts.map(function(o){return '<div class="row"><div class="row-ico" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
+    '<div class="row-txt"><b>'+o.t+'</b><small>'+o.s+'</small></div>'+
+    '<div class="sw'+(S.sw[o.k]?' on':'')+'" data-sw="'+o.k+'"></div></div>'}).join('')+'</div></div>'+
+  '<div class="sec"><div class="sec-head"><h2>الحساب</h2></div><div class="list">'+
+  links.map(function(l){return '<div class="row"><div class="row-ico" style="background:'+l.c+'18">'+ic(l.i,22,l.c)+'</div>'+
+    '<div class="row-txt"><b>'+l.t+'</b><small>'+l.s+'</small></div>'+ic('chevron',18,'#8A93AD')+'</div>'}).join('')+'</div></div>'+
+  '<button class="logout" id="clearData" style="margin-top:14px">مسح البيانات</button>'+
+  '<button class="logout" id="logout">تسجيل الخروج</button>'+
+  '<div class="note">NOJ — من الدفع تبدأ علاقتك المالية. نسخة تجريبية · v1.0</div>'+
+  (S.showClear?clearConfirmSheet():'');
+}
+
+var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile};
+
+function toast(m){var e=document.getElementById('toast');document.getElementById('toast-text').textContent=m;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},2400)}
+
+function countUp(el,target,dur,dec){
+  if(!el)return;
+  if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+    el.textContent=target.toLocaleString('en-US',dec?{minimumFractionDigits:2}:{});return;
   }
-  const idx = DB.loyalty.tiers.indexOf(cur);
-  next = DB.loyalty.tiers[idx+1] || null;
-  return { cur, next };
-}
-
-let state = { screen:"splash", phone:"", timer:null, resendTimer:null, queueInterval:null };
-
-function $(sel){ return document.querySelector(sel); }
-function $all(sel){ return Array.from(document.querySelectorAll(sel)); }
-
-function goTo(name){
-  $all(".screen").forEach(s=>s.classList.remove("active"));
-  const el = document.getElementById("screen-"+name);
-  if(el){ el.classList.add("active"); el.scrollTop = 0; }
-  state.screen = name;
-  const authedScreens = ["home","queue","invoices","loyalty","reports","notifications","more"];
-  $("#bottomnav").style.display = authedScreens.includes(name) ? "flex" : "none";
-  $all(".navbtn").forEach(b=>b.classList.toggle("active", b.dataset.nav===name));
-  if(name==="home") renderHome();
-  if(name==="queue") renderQueue();
-  if(name==="invoices") renderInvoices();
-  if(name==="loyalty") renderLoyalty();
-  if(name==="reports") renderReports();
-  if(name==="notifications") renderNotifications();
-}
-
-function showToast(msg){
-  const t = $("#toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  clearTimeout(t._timer);
-  t._timer = setTimeout(()=>t.classList.remove("show"), 2200);
-}
-
-/* ---------------- Splash ---------------- */
-document.getElementById("splash-logo-holder").innerHTML = ICONS.logo;
-document.getElementById("login-logo-holder").innerHTML = ICONS.logoSmall;
-
-setTimeout(()=>{
-  if(localStorage.getItem("noj_session")){
-    goTo("home");
-  } else {
-    goTo("login");
+  var start=null;
+  function step(ts){
+    if(!start)start=ts;
+    var p=Math.min((ts-start)/dur,1);
+    var e=1-Math.pow(1-p,3);
+    var val=target*e;
+    el.textContent=dec
+      ? val.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+      : Math.round(val).toLocaleString('en-US');
+    if(p<1)requestAnimationFrame(step);
   }
-}, 1700);
-
-/* ---------------- Login / OTP ---------------- */
-const phoneInput = $("#phone-input");
-const phoneSubmit = $("#phone-submit");
-const phoneError = $("#phone-error");
-
-phoneInput.addEventListener("input", ()=>{
-  phoneInput.value = phoneInput.value.replace(/\D/g,"").slice(0,10);
-  const valid = /^05\d{8}$/.test(phoneInput.value);
-  phoneSubmit.disabled = !valid;
-  phoneError.textContent = "";
-});
-
-phoneSubmit.addEventListener("click", ()=>{
-  const val = phoneInput.value;
-  if(!/^05\d{8}$/.test(val)){
-    phoneError.textContent = "يرجى إدخال رقم جوال سعودي صحيح (يبدأ بـ 05)";
-    return;
-  }
-  state.phone = val;
-  const display = "+966 " + val.slice(1,3) + " " + val.slice(3,6) + " " + val.slice(6);
-  $("#otp-phone-display").textContent = display;
-  $all(".otp-box").forEach(b=>b.value="");
-  $("#otp-error").textContent = "";
-  goTo("otp");
-  startResendTimer();
-  setTimeout(()=>$(".otp-box").focus(), 300);
-});
-
-$("#otp-back").addEventListener("click", ()=>{ clearInterval(state.resendTimer); goTo("login"); });
-
-const otpBoxes = $all(".otp-box");
-otpBoxes.forEach((box,idx)=>{
-  box.addEventListener("input", ()=>{
-    box.value = box.value.replace(/\D/g,"").slice(0,1);
-    if(box.value && idx<otpBoxes.length-1) otpBoxes[idx+1].focus();
-    $("#otp-error").textContent = "";
-  });
-  box.addEventListener("keydown", (e)=>{
-    if(e.key==="Backspace" && !box.value && idx>0){ otpBoxes[idx-1].focus(); }
-  });
-});
-
-$("#otp-submit").addEventListener("click", verifyOtp);
-function verifyOtp(){
-  const code = otpBoxes.map(b=>b.value).join("");
-  if(code.length<4){
-    $("#otp-error").textContent = "أدخل الرمز المكون من 4 أرقام";
-    triggerShake();
-    return;
-  }
-  if(code === "1234"){
-    localStorage.setItem("noj_session","1");
-    DB.user.phone = "+966 " + state.phone.slice(1,3) + " " + state.phone.slice(3,6) + " " + state.phone.slice(6);
-    $("#profile-phone").textContent = DB.user.phone;
-    clearInterval(state.resendTimer);
-    showToast("تم تسجيل الدخول بنجاح");
-    goTo("home");
-  } else {
-    $("#otp-error").textContent = "رمز التحقق غير صحيح، حاول مرة أخرى";
-    triggerShake();
-  }
-}
-function triggerShake(){
-  const row = $("#otp-row");
-  row.classList.remove("shake"); void row.offsetWidth; row.classList.add("shake");
+  requestAnimationFrame(step);
 }
 
-function startResendTimer(){
-  let t = 60;
-  const btn = $("#otp-resend");
-  btn.disabled = true;
-  clearInterval(state.resendTimer);
-  btn.textContent = `إعادة الإرسال (0:${t.toString().padStart(2,"0")})`;
-  state.resendTimer = setInterval(()=>{
-    t--;
-    if(t<=0){
-      clearInterval(state.resendTimer);
-      btn.disabled = false;
-      btn.textContent = "إعادة إرسال الرمز";
-    } else {
-      btn.textContent = `إعادة الإرسال (0:${t.toString().padStart(2,"0")})`;
-    }
+/* ================= AUTH ================= */
+var A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
+var DEMO_CODE='1234';
+
+function hydrateFromStorage(){
+  var savedPts=Store.get(K.POINTS,null);
+  if(typeof savedPts==='number'&&!isNaN(savedPts))S.pts=savedPts;
+  var savedSw=Store.get(K.NOTIF,null);
+  if(savedSw&&typeof savedSw==='object'){
+    if(typeof savedSw.notif==='boolean')S.sw.notif=savedSw.notif;
+    if(typeof savedSw.spend==='boolean')S.sw.spend=savedSw.spend;
+    if(typeof savedSw.offers==='boolean')S.sw.offers=savedSw.offers;
+  }
+  var savedPhone=Store.get(K.PHONE,'');
+  if(savedPhone)A.phone=savedPhone;
+}
+
+function fmtPhone(p){
+  return p.replace(/(\d{2})(\d{3})(\d{4})/,'$1 $2 $3').trim();
+}
+
+function authPhone(){
+  return '<div class="auth-body">'+
+    '<h2>تسجيل الدخول</h2>'+
+    '<p>أدخل رقم جوالك وسنرسل لك رمز تحقق مكوّن من 4 أرقام.</p>'+
+    '<div class="field"><label>رقم الجوال</label>'+
+      '<div class="phone-box"><span class="cc">🇸🇦 +966</span>'+
+      '<input id="ph" type="tel" inputmode="numeric" maxlength="9" placeholder="5X XXX XXXX" value="'+A.phone+'"></div>'+
+      (A.err?'<div class="err">'+A.err+'</div>':'<div class="hint">سيصلك الرمز عبر رسالة نصية على هذا الرقم.</div>')+
+    '</div>'+
+    '<button class="cta" id="send">'+(A.sending?'جارٍ الإرسال...':'إرسال رمز التحقق')+'</button>'+
+    '<div class="demo-tip"><b>نسخة تجريبية:</b> لا تُرسل رسائل فعلية. أدخل أي رقم من 9 خانات، ورمز التحقق هو <b>'+DEMO_CODE+'</b>.</div>'+
+    '<div class="auth-foot">بمتابعتك أنت توافق على شروط الاستخدام وسياسة الخصوصية الخاصة بـ NOJ.</div>'+
+  '</div>';
+}
+
+function authCode(){
+  var boxes='';
+  for(var i=0;i<4;i++){
+    var v=A.code[i]||'';
+    boxes+='<input type="tel" inputmode="numeric" maxlength="1" data-otp="'+i+'" value="'+v+'"'+(v?' class="filled"':'')+'>';
+  }
+  return '<div class="auth-body">'+
+    '<h2>رمز التحقق</h2>'+
+    '<p>أرسلنا رمزًا مكوّنًا من 4 أرقام إلى<br><b style="color:var(--text);direction:ltr;display:inline-block">+966 '+fmtPhone(A.phone)+'</b> '+
+    '<button id="edit" style="color:var(--blue);font-weight:700;font-size:13px">تعديل</button></p>'+
+    '<div class="field"><div class="otp-row'+(A.err?' bad':'')+'" id="otp">'+boxes+'</div>'+
+    (A.err?'<div class="err" style="text-align:center">'+A.err+'</div>':'')+'</div>'+
+    '<button class="cta" id="verify"'+(A.code.length<4?' disabled':'')+'>تأكيد الدخول</button>'+
+    '<button class="ghost" id="resend">'+(A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>')+'</button>'+
+    '<div class="demo-tip">رمز التحقق في النسخة التجريبية هو <b>'+DEMO_CODE+'</b>.</div>'+
+  '</div>';
+}
+
+function renderAuth(){
+  var el=document.getElementById('auth');
+  el.innerHTML='<div class="auth-inner">'+
+    '<div class="auth-brand"><div class="auth-mark">N</div><b>NOJ</b><span>No Ordinary Journey</span></div>'+
+    (A.step==='phone'?authPhone():authCode())+'</div>';
+  bindAuth();
+}
+
+function startTimer(){
+  A.secs=30;
+  clearInterval(A.timer);
+  A.timer=setInterval(function(){
+    A.secs--;
+    if(A.secs<=0){clearInterval(A.timer);A.secs=0}
+    var r=document.getElementById('resend');
+    if(r)r.innerHTML=A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>';
   },1000);
 }
-$("#otp-resend").addEventListener("click", ()=>{
-  if($("#otp-resend").disabled) return;
-  showToast("تم إرسال رمز جديد");
-  startResendTimer();
-});
 
-/* ---------------- Nav & shortcuts ---------------- */
-$all(".navbtn").forEach(btn=>btn.addEventListener("click", ()=>goTo(btn.dataset.nav)));
-$all("[data-goto]").forEach(el=>el.addEventListener("click", ()=>goTo(el.dataset.goto)));
-$all("[data-open-profile]").forEach(el=>el.addEventListener("click", openProfileModal));
+function bindAuth(){
+  var ph=document.getElementById('ph');
+  if(ph){
+    ph.oninput=function(){
+      this.value=this.value.replace(/\D/g,'').slice(0,9);
+      A.phone=this.value;
+      if(A.err){
+        A.err='';
+        var e=document.querySelector('.auth-body .err');
+        if(e)e.outerHTML='<div class="hint">سيصلك الرمز عبر رسالة نصية على هذا الرقم.</div>';
+      }
+    };
+    ph.onkeydown=function(e){if(e.key==='Enter')document.getElementById('send').click()};
+    setTimeout(function(){ph.focus()},250);
+  }
 
-document.getElementById("nav-ic-home").innerHTML = ICONS.home;
-document.getElementById("nav-ic-bell").innerHTML = ICONS.bell;
-document.getElementById("nav-ic-star").innerHTML = ICONS.star;
-document.getElementById("nav-ic-chart").innerHTML = ICONS.chart;
-document.getElementById("nav-ic-more").innerHTML = ICONS.more;
-document.getElementById("ic-shortcut-reports").innerHTML = ICONS.chart;
-document.getElementById("ic-shortcut-invoices").innerHTML = ICONS.receipt;
-document.getElementById("ic-shortcut-queue").innerHTML = ICONS.clock;
-document.getElementById("ic-shortcut-loyalty").innerHTML = ICONS.star;
-document.getElementById("ic-more-profile").innerHTML = ICONS.home;
-document.getElementById("ic-more-cards").innerHTML = ICONS.cards;
-document.getElementById("ic-more-bell").innerHTML = ICONS.bell;
-document.getElementById("ic-more-lang").innerHTML = ICONS.lang;
-document.getElementById("ic-more-help").innerHTML = ICONS.help;
-document.getElementById("ic-more-info").innerHTML = ICONS.info;
-document.getElementById("ic-more-logout").innerHTML = ICONS.logout;
-document.getElementById("ic-profile-edit").innerHTML = ICONS.edit;
-document.getElementById("ic-profile-logout").innerHTML = ICONS.logout;
-["ic-more-chev1","ic-more-chev2","ic-more-chev3","ic-more-chev4","ic-profile-chev"].forEach(id=>{
-  const el = document.getElementById(id); if(el) el.innerHTML = ICONS.chev;
-});
-
-/* ---------------- Home ---------------- */
-function renderHome(){
-  const total = computeTotal();
-  $("#home-total-amount").innerHTML = fmt(total) + "<span>ريال</span>";
-  const prev = DB.monthlyTrend[DB.monthlyTrend.length-1].value;
-  const change = ((total-prev)/prev*100);
-  const up = change>=0;
-  $("#home-trend").innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:${up?"none":"scaleY(-1)"}"><path d="M4 16l6-6 4 4 6-8"/><path d="M14 6h6v6"/></svg> ${up?"ارتفاع":"انخفاض"} ${Math.abs(change).toFixed(0)}% عن يوليو`;
-
-  const q = DB.queue;
-  $("#home-queue-preview").innerHTML = `
-    <div class="preview-row">
-      <div class="left">
-        <div class="ic-round">${ICONS.ticket}</div>
-        <div><div class="title">${q.merchant}</div><div class="meta">دورك رقم ${q.number} · ${q.ahead} أمامك بالانتظار</div></div>
-      </div>
-      <span class="badge">${q.ahead*q.avgMin} دقيقة</span>
-    </div>`;
-
-  const recents = DB.invoices.slice(0,3);
-  $("#home-invoices-preview").innerHTML = recents.map(inv=>`
-    <div class="invoice-item" data-invoice="${inv.id}" style="margin-bottom:10px;">
-      <div class="ic-round">${CATEGORY_META[inv.category].ic}</div>
-      <div class="grow"><div class="title">${inv.merchant}</div><div class="meta">${inv.category} · ${inv.date}</div></div>
-      <div class="amount">${fmt(inv.amount)}</div>
-    </div>`).join("");
-  $all("#home-invoices-preview [data-invoice]").forEach(el=>el.addEventListener("click", ()=>openInvoiceModal(el.dataset.invoice)));
-
-  const { cur, next } = currentTier(DB.loyalty.points);
-  $("#home-loyalty-preview").innerHTML = `
-    <div class="preview-row">
-      <div class="left">
-        <div class="ic-round">${ICONS.star}</div>
-        <div><div class="title">${fmt0(DB.loyalty.points)} نقطة</div><div class="meta">مستواك الحالي: ${cur.name}</div></div>
-      </div>
-      <span class="badge gold">${next ? (next.min-DB.loyalty.points)+" نقطة للترقية" : "أعلى مستوى"}</span>
-    </div>`;
-}
-
-/* ---------------- Queue ---------------- */
-function renderQueue(){
-  const q = DB.queue;
-  $("#queue-merchant").textContent = q.merchant;
-  updateQueueUI();
-  clearInterval(state.queueInterval);
-  state.queueInterval = setInterval(()=>{
-    if(q.ahead>0){
-      q.ahead--;
-      updateQueueUI();
-    } else {
-      clearInterval(state.queueInterval);
+  var send=document.getElementById('send');
+  if(send)send.onclick=function(){
+    if(A.phone.length<9||A.phone[0]!=='5'){
+      A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
+      renderAuth();return;
     }
-  }, 6000);
-}
-function updateQueueUI(){
-  const q = DB.queue;
-  $("#queue-number").innerHTML = "#"+q.number+"<small>رقم دورك</small>";
-  $("#queue-ahead").textContent = q.ahead;
-  const eta = q.ahead*q.avgMin;
-  $("#queue-eta").textContent = q.ahead>0 ? eta+" د" : "الآن";
-  const startAhead = 6;
-  const pct = 100 - (q.ahead/startAhead*100);
-  $("#queue-progress-bar").style.width = Math.min(100,Math.max(0,pct))+"%";
-  $("#queue-tip").innerHTML = q.ahead>0
-    ? `${ICONS.clock} سنقوم بتنبيهك قبل دورك بثلاثة مراجعين`
-    : "";
-  $("#queue-done-msg").style.display = q.ahead>0 ? "none":"block";
-}
+    A.sending=true;renderAuth();
+    setTimeout(function(){
+      A.sending=false;A.step='code';A.code='';A.err='';
+      renderAuth();startTimer();
+    },700);
+  };
 
-/* ---------------- Invoices ---------------- */
-function renderInvoices(filter){
-  filter = (filter||"").trim().toLowerCase();
-  const list = DB.invoices.filter(inv=>
-    !filter || inv.merchant.toLowerCase().includes(filter) || inv.category.toLowerCase().includes(filter)
-  );
-  const el = $("#invoice-list");
-  if(list.length===0){
-    el.innerHTML = `<div class="empty-state">لا توجد فواتير مطابقة لبحثك</div>`;
-    return;
+  var edit=document.getElementById('edit');
+  if(edit)edit.onclick=function(){A.step='phone';A.code='';A.err='';clearInterval(A.timer);renderAuth()};
+
+  var otps=document.querySelectorAll('[data-otp]');
+  function readCode(){
+    var s='';
+    [].forEach.call(otps,function(b){s+=(b.value||'')});
+    return s;
   }
-  el.innerHTML = list.map(inv=>`
-    <div class="invoice-item" data-invoice="${inv.id}">
-      <div class="ic-round">${CATEGORY_META[inv.category].ic}</div>
-      <div class="grow"><div class="title">${inv.merchant}</div><div class="meta">${inv.category} · ${inv.date} · ${inv.pay}</div></div>
-      <div class="amount">${fmt(inv.amount)}<div style="font-size:11px;color:var(--muted);font-weight:600;">ريال</div></div>
-    </div>`).join("");
-  $all("#invoice-list [data-invoice]").forEach(item=>item.addEventListener("click", ()=>openInvoiceModal(item.dataset.invoice)));
-}
-$("#invoice-search").addEventListener("input", e=>renderInvoices(e.target.value));
-
-function openInvoiceModal(id){
-  const inv = DB.invoices.find(i=>i.id===id);
-  if(!inv) return;
-  $("#inv-modal-title").textContent = inv.merchant;
-  $("#inv-modal-date").textContent = inv.date;
-  $("#inv-modal-id").textContent = inv.id;
-  $("#inv-modal-cat").textContent = inv.category;
-  $("#inv-modal-pay").textContent = inv.pay;
-  $("#inv-modal-pts").textContent = Math.floor(inv.amount/10) + " نقطة";
-  $("#inv-modal-total").textContent = fmt(inv.amount) + " ريال";
-  $("#inv-modal-items").innerHTML = inv.items.map(it=>`
-    <div class="row"><span>${it.n} <span class="qty">×${it.q}</span></span><span>${fmt(it.p)} ريال</span></div>
-  `).join("");
-  openModal("#modal-invoice");
-}
-
-/* ---------------- Loyalty ---------------- */
-function renderLoyalty(){
-  const pts = DB.loyalty.points;
-  const { cur, next } = currentTier(pts);
-  $("#loyalty-tier-label").innerHTML = `${ICONS.star} مستواك: ${cur.name}`;
-  $("#loyalty-points").innerHTML = fmt0(pts) + ' <span>نقطة</span>';
-  $("#profile-tier-badge").textContent = cur.name;
-  if(next){
-    const span = next.min - cur.min;
-    const progressed = pts - cur.min;
-    const pct = Math.min(100, (progressed/span)*100);
-    $("#loyalty-bar-fill").style.width = pct+"%";
-    $("#loyalty-next-label").textContent = `تبقى ${fmt0(next.min-pts)} نقطة للوصول إلى مستوى ${next.name}`;
-  } else {
-    $("#loyalty-bar-fill").style.width = "100%";
-    $("#loyalty-next-label").textContent = "وصلت لأعلى مستوى ولاء، استمتع بأفضل المزايا";
-  }
-  $all(".tiers-row span").forEach(s=>s.classList.toggle("on", s.dataset.tier===cur.name));
-
-  $("#rewards-grid").innerHTML = DB.loyalty.rewards.map(r=>`
-    <div class="reward-item">
-      <div class="ic-round">${r.ic}</div>
-      <div class="grow" style="flex:1;"><div class="title">${r.title}</div><div class="cost">${r.cost} نقطة</div></div>
-      <button class="redeem-btn" data-reward="${r.id}" ${pts<r.cost?"disabled":""}>استبدال</button>
-    </div>`).join("");
-  $all("#rewards-grid [data-reward]").forEach(btn=>btn.addEventListener("click", ()=>openRedeemModal(btn.dataset.reward)));
-}
-
-let pendingReward = null;
-function openRedeemModal(id){
-  const r = DB.loyalty.rewards.find(x=>String(x.id)===String(id));
-  if(!r) return;
-  pendingReward = r;
-  $("#redeem-icon").innerHTML = r.ic;
-  $("#redeem-title").textContent = r.title;
-  $("#redeem-desc").textContent = `سيتم خصم ${r.cost} نقطة من رصيدك مقابل هذه المكافأة`;
-  openModal("#modal-redeem");
-}
-$("#redeem-confirm").addEventListener("click", ()=>{
-  if(!pendingReward) return;
-  if(DB.loyalty.points < pendingReward.cost){
-    showToast("رصيد النقاط غير كافٍ");
-    return;
-  }
-  DB.loyalty.points -= pendingReward.cost;
-  closeModal("#modal-redeem");
-  showToast("تم استبدال المكافأة بنجاح");
-  renderLoyalty();
-  pendingReward = null;
-});
-
-/* ---------------- Reports ---------------- */
-function renderReports(){
-  const catTotals = computeCategoryTotals();
-  const total = computeTotal();
-  const cats = Object.keys(catTotals).sort((a,b)=>catTotals[b]-catTotals[a]);
-
-  const svg = $("#donut-chart");
-  const r = 54, cx=70, cy=70, circumference = 2*Math.PI*r;
-  let offsetAcc = 0;
-  let svgMarkup = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#F0F1F8" stroke-width="18"/>`;
-  cats.forEach(cat=>{
-    const pct = catTotals[cat]/total;
-    const dash = pct*circumference;
-    svgMarkup += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${CATEGORY_META[cat].color}" stroke-width="18"
-      stroke-dasharray="${dash} ${circumference-dash}" stroke-dashoffset="${-offsetAcc}" transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt"/>`;
-    offsetAcc += dash;
+  [].forEach.call(otps,function(box,idx){
+    box.oninput=function(){
+      var v=this.value.replace(/\D/g,'');
+      // support pasting the whole code into one box
+      if(v.length>1){
+        for(var k=0;k<otps.length;k++){otps[k].value=v[k]||'';
+          if(otps[k].value)otps[k].classList.add('filled');else otps[k].classList.remove('filled')}
+        this.blur();
+      }else{
+        this.value=v;
+        if(v)this.classList.add('filled');else this.classList.remove('filled');
+        if(v&&idx<3)otps[idx+1].focus();
+      }
+      A.code=readCode();A.err='';
+      var vb=document.getElementById('verify');
+      if(vb)vb.disabled=A.code.length<4;
+      if(A.code.length===4)setTimeout(doVerify,180);
+    };
+    box.onkeydown=function(e){
+      if(e.key==='Backspace'&&!this.value&&idx>0){
+        otps[idx-1].focus();
+        otps[idx-1].value='';
+        otps[idx-1].classList.remove('filled');
+        A.code=readCode();
+        var vb=document.getElementById('verify');
+        if(vb)vb.disabled=A.code.length<4;
+      }
+    };
+    box.onfocus=function(){this.select()};
   });
-  svgMarkup += `<text x="${cx}" y="${cy-4}" text-anchor="middle" font-size="18" font-weight="800" fill="#12235C" font-family="Segoe UI, Arial">${fmt0(total)}</text>
-    <text x="${cx}" y="${cy+16}" text-anchor="middle" font-size="10" fill="#6B7280" font-family="Segoe UI, Arial">ريال / الشهر</text>`;
-  svg.innerHTML = svgMarkup;
+  if(otps.length)setTimeout(function(){
+    var next=A.code.length<4?otps[A.code.length]:otps[3];
+    (next||otps[0]).focus();
+  },250);
 
-  $("#donut-legend").innerHTML = cats.map(cat=>{
-    const pct = Math.round(catTotals[cat]/total*100);
-    return `<div class="legend-row"><span class="legend-dot" style="background:${CATEGORY_META[cat].color}"></span><span class="name">${cat}</span><span class="pct">${pct}%</span></div>`;
-  }).join("");
+  var v=document.getElementById('verify');
+  if(v)v.onclick=doVerify;
 
-  const months = DB.monthlyTrend.concat([{label:"أغسطس", value: total, current:true}]);
-  const max = Math.max(...months.map(m=>m.value));
-  $("#bars-wrap").innerHTML = months.map(m=>`
-    <div class="bar-col ${m.current?"current":""}">
-      <div class="bar" style="height:${(m.value/max*100).toFixed(0)}%"></div>
-      <div class="lbl">${m.label}</div>
-    </div>`).join("");
-
-  const topCat = cats[0];
-  const topPct = Math.round(catTotals[topCat]/total*100);
-  const prevMonth = DB.monthlyTrend[DB.monthlyTrend.length-1].value;
-  const change = Math.round((total-prevMonth)/prevMonth*100);
-  const avgInvoice = total/DB.invoices.length;
-
-  $("#insight-1").innerHTML = `<div class="ic-round">${ICONS.chart}</div><p>فئة <b>${topCat}</b> هي الأعلى إنفاقاً هذا الشهر بنسبة ${topPct}% من إجمالي مصروفاتك (${fmt(catTotals[topCat])} ريال).</p>`;
-  $("#insight-2").innerHTML = `<div class="ic-round">${ICONS.chart}</div><p>${change>=0?"ارتفع":"انخفض"} إنفاقك بنسبة ${Math.abs(change)}% مقارنة بيوليو، بمتوسط ${fmt(avgInvoice)} ريال لكل فاتورة.</p>`;
+  var rs=document.getElementById('resend');
+  if(rs)rs.onclick=function(){
+    if(A.secs>0)return;
+    A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
+  };
 }
 
-/* ---------------- Notifications ---------------- */
-function renderNotifications(){
-  $("#notif-list").innerHTML = DB.notifications.map(n=>`
-    <div class="notif-item ${n.unread?"unread":""}">
-      <div class="ic-round">${n.ic}</div>
-      <div class="grow"><div class="title">${n.title}</div><div class="time">${n.time}</div></div>
-    </div>`).join("");
+function doVerify(){
+  if(A.code!==DEMO_CODE){
+    A.err='رمز التحقق غير صحيح. حاول مرة أخرى.';
+    A.code='';
+    renderAuth();
+    return;
+  }
+  clearInterval(A.timer);
+  Store.set(K.SESSION,true);
+  Store.set(K.PHONE,A.phone);
+  var el=document.getElementById('auth');
+  el.style.transition='opacity .35s ease, transform .35s ease';
+  el.style.opacity='0';
+  el.style.transform='scale(1.03)';
+  setTimeout(function(){
+    el.style.display='none';
+    document.getElementById('app').style.display='';
+    document.querySelector('.nav').style.display='';
+    render();
+    toast('أهلاً بك في NOJ 👋');
+  },340);
 }
 
-/* ---------------- Profile / Modals ---------------- */
-function openModal(sel){ $(sel).classList.add("open"); }
-function closeModal(sel){ $(sel).classList.remove("open"); }
-$all("[data-close-modal]").forEach(btn=>btn.addEventListener("click", ()=>{
-  btn.closest(".modal-overlay").classList.remove("open");
-}));
-$all(".modal-overlay").forEach(ov=>ov.addEventListener("click", e=>{
-  if(e.target===ov) ov.classList.remove("open");
-}));
-
-function openProfileModal(){
-  $("#profile-name").textContent = DB.user.name;
-  $("#profile-avatar").textContent = DB.user.initial;
-  $("#profile-phone").textContent = DB.user.phone || "+966 5X XXX XXXX";
-  const { cur } = currentTier(DB.loyalty.points);
-  $("#profile-tier-badge").textContent = cur.name;
-  openModal("#modal-profile");
+function logoutFlow(){
+  clearInterval(A.timer);
+  Store.remove(K.SESSION);
+  Store.remove(K.PHONE);
+  A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
+  var el=document.getElementById('auth');
+  el.style.display='';el.style.opacity='';el.style.transform='';
+  document.getElementById('app').style.display='none';
+  document.querySelector('.nav').style.display='none';
+  renderAuth();
 }
 
-function doLogout(){
-  localStorage.removeItem("noj_session");
-  closeModal("#modal-profile");
-  clearInterval(state.queueInterval);
-  DB.queue.ahead = 6;
-  showToast("تم تسجيل الخروج");
-  phoneInput.value = "";
-  phoneSubmit.disabled = true;
-  goTo("login");
+/* ================= APP RENDER ================= */
+function render(){
+  document.getElementById('view').innerHTML=(V[S.tab]||home)();
+  document.getElementById('profile').className='mark'+(S.tab==='profile'?' on':'');
+  document.getElementById('nav').innerHTML=NAV.map(function(n){
+    var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1);
+    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'#12235C':'#8A93AD',on?2.1:1.8)+'<span style="color:'+(on?'#12235C':'#8A93AD')+'">'+n.l+'</span></button>'}).join('');
+  bind();
+  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var heroNum=document.getElementById('heroNum');
+  if(heroNum)countUp(heroNum,total,900,true);
+  [].forEach.call(document.querySelectorAll('.loy-mid b'),function(el){countUp(el,S.pts,800,false)});
+  window.scrollTo(0,0);
 }
-$("#logout-btn").addEventListener("click", doLogout);
-$("#profile-logout-btn").addEventListener("click", doLogout);
 
-/* ---------------- Clock ---------------- */
-function tickClock(){
-  const d = new Date();
-  const h = d.getHours()%12 || 12;
-  const m = d.getMinutes().toString().padStart(2,"0");
-  $("#clock").textContent = h+":"+m;
+function bind(){
+  [].forEach.call(document.querySelectorAll('[data-tab]'),function(b){b.onclick=function(){S.tab=b.getAttribute('data-tab');render()}});
+  [].forEach.call(document.querySelectorAll('[data-go]'),function(b){b.onclick=function(){S.tab=b.getAttribute('data-go');render()}});
+  document.getElementById('bell').onclick=function(){S.tab='alerts';render()};
+  document.getElementById('profile').onclick=function(){S.tab='profile';render()};
+
+  [].forEach.call(document.querySelectorAll('[data-sw]'),function(el){
+    el.onclick=function(){
+      var k=el.getAttribute('data-sw');
+      S.sw[k]=!S.sw[k];
+      Store.set(K.NOTIF,S.sw);
+      el.classList.toggle('on');
+      toast(S.sw[k]?'تم تفعيل التنبيه':'تم إيقاف التنبيه');
+    }});
+
+  var lo=document.getElementById('logout');
+  if(lo)lo.onclick=function(){logoutFlow()};
+
+  var cd=document.getElementById('clearData');
+  if(cd)cd.onclick=function(){S.showClear=true;render()};
+  var ovC=document.getElementById('ovClear');
+  if(ovC){
+    ovC.onclick=function(){S.showClear=false;render()};
+    document.getElementById('sheetClear').onclick=function(e){e.stopPropagation()};
+    document.getElementById('clsClear').onclick=function(){S.showClear=false;render()};
+    document.getElementById('confirmClear').onclick=function(){
+      Store.clearAll();
+      S.pts=INITIAL_POINTS;
+      S.sw={notif:INITIAL_SW.notif,spend:INITIAL_SW.spend,offers:INITIAL_SW.offers};
+      S.showClear=false;
+      logoutFlow();
+      toast('تم مسح البيانات بنجاح');
+    };
+  }
+
+  var qb=document.getElementById('qbtn');
+  if(qb)qb.onclick=function(){var q=S.q;
+    if(q.now)S.q={ahead:5,min:12,now:false};
+    else if(q.ahead<=1)S.q={ahead:0,min:0,now:true};
+    else S.q={ahead:q.ahead-1,min:Math.max(2,q.min-3),now:false};
+    render()};
+
+  var qi=document.getElementById('q');
+  if(qi)qi.oninput=function(e){var p=e.target.selectionStart;S.query=e.target.value;render();
+    var n=document.getElementById('q');if(n){n.focus();n.setSelectionRange(p,p)}};
+
+  [].forEach.call(document.querySelectorAll('[data-inv]'),function(c){c.onclick=function(){S.sel=parseInt(c.getAttribute('data-inv'),10);render()}});
+  var ov=document.getElementById('ov');
+  if(ov){ov.onclick=function(){S.sel=null;render()};
+    document.getElementById('sheet').onclick=function(e){e.stopPropagation()};
+    document.getElementById('cls').onclick=function(){S.sel=null;render()}}
+
+  [].forEach.call(document.querySelectorAll('[data-rw]'),function(b){b.onclick=function(){
+    var r=REWARDS.filter(function(x){return x.id===parseInt(b.getAttribute('data-rw'),10)})[0];
+    if(S.pts<r.c){toast('نقاطك غير كافية لاستبدال هذه المكافأة');return}
+    S.pts-=r.c;Store.set(K.POINTS,S.pts);render();toast('تم استبدال: '+r.t+' 🎉')}});
 }
-tickClock();
-setInterval(tickClock, 30000);
 
-})();
+document.getElementById('app').style.display='none';
+document.querySelector('.nav').style.display='none';
+document.getElementById('auth').style.display='none';
+
+var hasSession=!!Store.get(K.SESSION,false);
+
+setTimeout(function(){
+  var sp=document.getElementById('splash');
+
+  if(hasSession){
+    hydrateFromStorage();
+    sp.classList.add('out');
+
+    setTimeout(function(){
+      var stage=sp.querySelector('.sp-stage');
+      if(stage)stage.style.opacity='0';
+    },760);
+
+    setTimeout(function(){
+      sp.style.display='none';
+      document.getElementById('app').style.display='';
+      document.querySelector('.nav').style.display='';
+      render();
+    },1050);
+    return;
+  }
+
+  var au=document.getElementById('auth');
+
+  // build the login screen underneath while the splash is still visible
+  au.style.display='';
+  au.classList.add('enter');
+  renderAuth();
+
+  // begin the choreographed handoff
+  sp.classList.add('out');
+
+  // hide the splash's own logo just as the login logo lands in the same spot
+  setTimeout(function(){
+    var stage=sp.querySelector('.sp-stage');
+    if(stage)stage.style.opacity='0';
+  },760);
+
+  setTimeout(function(){
+    sp.style.display='none';
+    au.classList.remove('enter');
+  },1050);
+},2900);
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('sw.js',{scope:'./index.html'}).catch(function(){});
+  });
+}
 </script>
 </body>
 </html>
