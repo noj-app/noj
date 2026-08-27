@@ -116,11 +116,11 @@
   .kp p{font-size:16.5px;color:var(--muted);margin-bottom:22px}
   .disp{background:var(--panel);border:2.5px solid var(--line);border-radius:18px;padding:20px;display:flex;align-items:center;justify-content:center;gap:13px;direction:ltr;margin-bottom:8px}
   .disp .cc{font-size:25px;font-weight:800;color:var(--muted)}
-  .disp .dg{font-size:33px;font-weight:800;letter-spacing:3px;min-height:42px;display:flex;align-items:center}
+  .disp .dg{font-size:33px;font-weight:800;letter-spacing:3px;min-height:42px;display:flex;align-items:center;contain:content}
   .disp .dg .plc{color:#C9CFDD}
   .car{width:3px;height:30px;background:var(--navy);margin-right:2px;animation:blink 1s step-end infinite}
   @keyframes blink{50%{opacity:0}}
-  .warn{font-size:14px;color:#DC2626;font-weight:700;margin-bottom:10px;min-height:20px}
+  .warn{font-size:14px;color:#DC2626;font-weight:700;margin-bottom:10px;min-height:20px;contain:content}
   .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;direction:ltr}
   .k{background:#fff;border:1.5px solid var(--line);border-radius:16px;padding:20px 0;font-size:27px;font-weight:800;min-height:66px;transition:transform .12s,background .15s}
   .k:active{transform:scale(.94);background:var(--panel)}
@@ -158,7 +158,7 @@
   .pinbox{width:100%;max-width:380px;text-align:center}
   .pinbox h2{font-size:27px;font-weight:800;margin-bottom:8px}
   .pinbox p{font-size:15px;color:var(--muted);margin-bottom:22px}
-  .pindots{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:8px}
+  .pindots{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:8px;contain:content}
   .pindot{width:16px;height:16px;border-radius:50%;border:2.5px solid var(--line);transition:background .15s,border-color .15s}
   .pindot.filled{background:var(--navy);border-color:var(--navy)}
 
@@ -517,6 +517,17 @@ function renderLayer(){
   bindLayer();
   if(S.view==='ok')startTimer(12);else clearInterval(tmr);
   resetAdminIdle();
+  if(el.firstElementChild)stopEntranceAnim(el.firstElementChild);
+}
+/* تُطفئ حركة ظهور الطبقة العلوية (fade) نهائياً بعد تشغيلها مرة واحدة —
+   احتياط إضافي في حال أعاد أي متصفح تشغيل حركة CSS على عنصر أب بسبب
+   تحديث نص داخلي (خانة الأرقام/نقاط PIN)، رغم أن العنصر نفسه لا يُعاد
+   إنشاؤه إطلاقاً بعد هذا التعديل. */
+function stopEntranceAnim(el){
+  el.addEventListener('animationend',function handler(){
+    el.style.animation='none';
+    el.removeEventListener('animationend',handler);
+  },{once:true});
 }
 function render(){renderMain();renderLayer()}
 function startTimer(s){
