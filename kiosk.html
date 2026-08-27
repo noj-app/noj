@@ -121,7 +121,7 @@
   .car{width:3px;height:30px;background:var(--navy);margin-right:2px;animation:blink 1s step-end infinite}
   @keyframes blink{50%{opacity:0}}
   .warn{font-size:14px;color:#DC2626;font-weight:700;margin-bottom:10px;min-height:20px}
-  .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+  .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;direction:ltr}
   .k{background:#fff;border:1.5px solid var(--line);border-radius:16px;padding:20px 0;font-size:27px;font-weight:800;min-height:66px;transition:transform .12s,background .15s}
   .k:active{transform:scale(.94);background:var(--panel)}
   .k.go{background:var(--navy);color:#fff;border-color:var(--navy);font-size:19px}
@@ -465,13 +465,26 @@ function keypad(){
    '<div class="kp"><h2>أدخل رقم جوالك</h2>'+
    '<p>لتصلك فاتورتك وخدماتك في تطبيق NOJ</p>'+
    '<div class="disp"><span class="cc">+966</span>'+
-   '<span class="dg">'+(disp||'<span class="plc">5X XXX XXXX</span>')+'<span class="car"></span></span></div>'+
-   '<div class="warn">'+(bad?'رقم الجوال السعودي يبدأ بالرقم 5':'')+'</div>'+
+   '<span class="dg"><span id="phDg">'+(disp||'<span class="plc">5X XXX XXXX</span>')+'</span><span class="car"></span></span></div>'+
+   '<div class="warn" id="phWarn">'+(bad?'رقم الجوال السعودي يبدأ بالرقم 5':'')+'</div>'+
    '<div class="keys">'+keys.map(function(k){return '<button class="k" data-k="'+k+'">'+k+'</button>'}).join('')+
    '<button class="k cl" data-k="del">حذف</button>'+
    '<button class="k" data-k="0">0</button>'+
    '<button class="k go" id="confirm"'+(d.length<9||bad?' disabled':'')+'>تأكيد</button>'+
    '</div></div></div>';
+}
+/* يُحدَّث فقط عرض الأرقام/رسالة التحقق/حالة زر التأكيد عند كل ضغطة، بلا
+   إعادة بناء الحاوية أو إعادة ربط المستمعات — لتفادي إعادة تشغيل حركة
+   الظهور ووميض الشاشة مع كل رقم. */
+function updateKeypadDisplay(){
+  var d=S.phone,disp=fmt(d);
+  var bad=d.length>0&&d[0]!=='5';
+  var dg=document.getElementById('phDg');
+  if(dg)dg.innerHTML=disp||'<span class="plc">5X XXX XXXX</span>';
+  var warn=document.getElementById('phWarn');
+  if(warn)warn.textContent=bad?'رقم الجوال السعودي يبدأ بالرقم 5':'';
+  var cf=document.getElementById('confirm');
+  if(cf)cf.disabled=(d.length<9||bad);
 }
 
 /* ================= SUCCESS ================= */
@@ -543,7 +556,7 @@ function bindLayer(){
       var k=b.getAttribute('data-k');
       if(k==='del')S.phone=S.phone.slice(0,-1);
       else if(S.phone.length<9)S.phone+=k;
-      renderLayer();
+      updateKeypadDisplay();
     }});
   var cf=document.getElementById('confirm');
   if(cf)cf.onclick=function(){
@@ -598,12 +611,24 @@ function adminPin(){
    '<button class="close" id="pinCancel">'+ic('close',16,'#8A93AD')+' إلغاء</button>'+
    '<div class="pinbox"><h2>إعدادات الجهاز</h2>'+
    '<p>أدخل رمز الدخول (4 أرقام)</p>'+
-   '<div class="pindots">'+dots+'</div>'+
-   '<div class="warn">'+(S.pinErr||'')+'</div>'+
+   '<div class="pindots" id="pinDots">'+dots+'</div>'+
+   '<div class="warn" id="pinWarn">'+(S.pinErr||'')+'</div>'+
    '<div class="keys">'+keys.map(function(k){return '<button class="k" data-pk="'+k+'">'+k+'</button>'}).join('')+
    '<button class="k cl" data-pk="del">حذف</button>'+
    '<button class="k" data-pk="0">0</button>'+
    '</div></div></div>';
+}
+/* يُحدَّث فقط النقاط المعبّأة ورسالة الخطأ عند كل ضغطة، بلا إعادة بناء
+   الحاوية أو إعادة ربط المستمعات — لتفادي وميض الشاشة مع كل رقم. */
+function updatePinDots(){
+  var dotsEl=document.getElementById('pinDots');
+  if(dotsEl){
+    var filled=S.pin.length,dots='';
+    for(var i=0;i<4;i++)dots+='<div class="pindot'+(i<filled?' filled':'')+'"></div>';
+    dotsEl.innerHTML=dots;
+  }
+  var warn=document.getElementById('pinWarn');
+  if(warn)warn.textContent=S.pinErr||'';
 }
 function bindPin(){
   var cancel=document.getElementById('pinCancel');
@@ -611,14 +636,14 @@ function bindPin(){
   [].forEach.call(document.querySelectorAll('[data-pk]'),function(b){
     b.onclick=function(){
       var k=b.getAttribute('data-pk');
-      if(k==='del'){S.pin=S.pin.slice(0,-1);S.pinErr='';renderLayer();return}
+      if(k==='del'){S.pin=S.pin.slice(0,-1);S.pinErr='';updatePinDots();return}
       if(S.pin.length<4)S.pin+=k;
       if(S.pin.length===4){
         if(S.pin===ADMIN_PIN){openAdminSettings()}
-        else{S.pinErr='رمز غير صحيح، حاول مرة أخرى';S.pin='';renderLayer()}
+        else{S.pinErr='رمز غير صحيح، حاول مرة أخرى';S.pin='';updatePinDots()}
         return;
       }
-      renderLayer();
+      updatePinDots();
     };
   });
 }
