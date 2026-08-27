@@ -26,6 +26,7 @@
   /* ===== HEADER ===== */
   .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:22px 30px 6px;flex-shrink:0}
   .noj{display:flex;align-items:center;gap:11px;direction:ltr;flex-shrink:0}
+  .noj,.noj *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   .noj-m{width:46px;height:46px;border-radius:13px;border:3.5px solid var(--navy);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;flex-shrink:0}
   .noj-t b{display:block;font-size:31px;font-weight:800;letter-spacing:-.5px;line-height:1}
   .noj-t small{display:block;font-size:9.5px;letter-spacing:1.9px;color:var(--navy);margin-top:4px;font-weight:600}
@@ -558,17 +559,29 @@ function bindLayer(){
    تلقائي للشاشة الرئيسية بعد 60 ثانية بلا أي تفاعل. */
 var longPressTimer=null;
 function bindLogoLongPress(el){
-  var start=function(){
+  var start=function(e){
+    if(e.cancelable)e.preventDefault();
     clearTimeout(longPressTimer);
     longPressTimer=setTimeout(openPinScreen,5000);
   };
   var cancel=function(){clearTimeout(longPressTimer)};
-  el.addEventListener('mousedown',start);
-  el.addEventListener('touchstart',start,{passive:true});
-  el.addEventListener('mouseup',cancel);
-  el.addEventListener('mouseleave',cancel);
-  el.addEventListener('touchend',cancel);
-  el.addEventListener('touchcancel',cancel);
+  /* Pointer Events توحّد الفأرة/اللمس/القلم في مسار واحد — تغطي أجهزة
+     التابلت الحديثة كافة؛ مسار الفأرة/اللمس المنفصل أدناه احتياطي فقط
+     للمتصفحات القديمة التي لا تدعم Pointer Events. */
+  if(window.PointerEvent){
+    el.addEventListener('pointerdown',start);
+    el.addEventListener('pointerup',cancel);
+    el.addEventListener('pointercancel',cancel);
+    el.addEventListener('pointerleave',cancel);
+  }else{
+    el.addEventListener('mousedown',start);
+    el.addEventListener('touchstart',start,{passive:false});
+    el.addEventListener('mouseup',cancel);
+    el.addEventListener('mouseleave',cancel);
+    el.addEventListener('touchend',cancel);
+    el.addEventListener('touchcancel',cancel);
+  }
+  el.addEventListener('contextmenu',function(e){e.preventDefault()});
 }
 function openPinScreen(){
   if(S.view!=='main')return;
