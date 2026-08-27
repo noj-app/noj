@@ -713,6 +713,22 @@ function updateConnBadge(){
     el.textContent=DRAFT.posConnected?'● متصل':'○ غير متصل';
   }
 }
+/* يُحدَّث فقط الزر النشط (وحقول العناصر النائبة عند تغيّر القطاع)، بلا
+   إعادة بناء شاشة الإعدادات كاملةً — لتفادي وميضها مع كل ضغطة. */
+function updateSectorButtons(){
+  [].forEach.call(document.querySelectorAll('#adminSw button'),function(b){
+    b.className=(b.getAttribute('data-t')===DRAFT.sector)?'on':'';
+  });
+  var fName=document.getElementById('fBizName');
+  if(fName)fName.placeholder=T[DRAFT.sector].biz;
+  var fSlogan=document.getElementById('fBizSlogan');
+  if(fSlogan)fSlogan.placeholder=T[DRAFT.sector].slogan;
+}
+function updateModeButtons(){
+  [].forEach.call(document.querySelectorAll('#adminMode button'),function(b){
+    b.className=(b.getAttribute('data-m')===DRAFT.mode)?'on':'';
+  });
+}
 function bindAdmin(){
   var exit1=document.getElementById('adminExit');
   if(exit1)exit1.onclick=closeAdmin;
@@ -720,10 +736,10 @@ function bindAdmin(){
   if(exit2)exit2.onclick=closeAdmin;
 
   [].forEach.call(document.querySelectorAll('#adminSw button'),function(b){
-    b.onclick=function(){DRAFT.sector=b.getAttribute('data-t');renderLayer()};
+    b.onclick=function(){DRAFT.sector=b.getAttribute('data-t');updateSectorButtons()};
   });
   [].forEach.call(document.querySelectorAll('#adminMode button'),function(b){
-    b.onclick=function(){DRAFT.mode=b.getAttribute('data-m');renderLayer()};
+    b.onclick=function(){DRAFT.mode=b.getAttribute('data-m');updateModeButtons()};
   });
 
   var fName=document.getElementById('fBizName');
