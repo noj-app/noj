@@ -60,6 +60,13 @@
   .st-big{font-size:60px;font-weight:800;color:var(--blue);text-align:center;line-height:1;direction:ltr}
   .st-sub{font-size:14px;font-weight:600;color:var(--muted);text-align:center;margin-top:8px}
   .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;color:var(--muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .loy-loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 0}
+  .loy-spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:loyspin .8s linear infinite}
+  @keyframes loyspin{to{transform:rotate(360deg)}}
+  .loy-loading small{color:var(--muted);font-size:13px;font-weight:600}
+  .loy-msg{text-align:center;padding:10px 0}
+  .loy-msg b{display:block;font-size:15px;font-weight:800;color:var(--ink);margin-bottom:6px}
+  .loy-msg small{display:block;font-size:12.5px;color:var(--muted);line-height:1.6}
 
   .queue-box{text-align:center}
   .q-top{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px}
@@ -293,7 +300,7 @@ var T={
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cup',50,'#C99A2E',2.1)+'</div>',
   ticket:12, ahead:4, aheadWord:'طلبات',
   queueLabel:'رقمك في الانتظار',
-  topCard:{kind:'points',label:'نقاط ولاء',value:'258',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
   small1:{icon:'bell',title:'تابع دورك لحظة<br>بلحظة',note:'واستلم إشعارك<br>مباشرة',badge:12},
   small2:{icon:'cal',title:'حجز موعدك القادم<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز موعدك أو طلبك<br>المسبق بسهولة'},
   footer:[
@@ -318,7 +325,7 @@ var T={
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cutlery',46,'#7C5CE6',2)+'</div>',
   ticket:47, ahead:5, aheadWord:'طاولات',
   queueLabel:'رقمك في الانتظار',
-  topCard:{kind:'points',label:'نقاط ولاء',value:'340',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
   small1:{icon:'bell',title:'تابع دورك لحظة<br>بلحظة',note:'واستلم إشعارك<br>مباشرة',badge:47},
   small2:{icon:'cal',title:'حجز طاولتك القادمة<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز طاولتك أو طلبك<br>المسبق بسهولة'},
   footer:[
@@ -382,6 +389,51 @@ function currentBiz(){
 var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:''};
 function C(){return T[S.t]}
 
+/* ================= CUSTOMER IDENTIFICATION (بطاقة الولاء) =================
+   الشاشة عامة يقف أمامها أي شخص، فلا يجوز عرض رصيد نقاط أي عميل قبل أن
+   يُعرِّف نفسه فعلياً (لمس NFC أو إدخال رقم جواله وتأكيده). حالة العرض:
+   - guest       : لا هوية معروفة بعد (الحالة الابتدائية دائماً).
+   - identifying : جارٍ التحقق بعد لمسة/تأكيد العميل.
+   - identified  : تم العثور على حساب — CUST.points يحمل الرصيد الفعلي.
+   - notfound    : لا حساب مرتبط بهذا الرقم/الجهاز. */
+var CUST={status:'guest',points:null};
+function resetCustomerState(){
+  CUST.status='guest';CUST.points=null;
+  updateLoyaltyCard();
+}
+/* دالة معزولة هي المصدر الوحيد لأي رقم نقاط ولاء في الواجهة — ممنوع وضع
+   أي رقم ثابت آخر خارجها. نقطة الربط المستقبلية الحقيقية: استبدل جسم
+   هذه الدالة باستعلام فعلي بمجرد ربط الجهاز بقاعدة بيانات (مثلاً
+   Supabase: select loyalty_points from profiles where phone = phone).
+   تُعيد رقم النقاط عند وجود حساب، أو null عند عدم وجوده. لا تُستدعى
+   إطلاقاً قبل أن يبدأ العميل عملية التعرّف بنفسه. */
+function getLoyaltyPoints(phone){
+  // TODO: نقطة الربط الحقيقي المستقبلي — استبدل السطرين التاليين
+  // باستعلام حقيقي على قاعدة البيانات باستخدام phone.
+  if(SETTINGS.mode==='demo'){
+    // رقم تجريبي ثابت لأغراض العرض في "الوضع التجريبي" فقط، ولا يُعاد
+    // أبداً قبل التعرّف (لا يُقرأ هذا الفرع إلا من داخل identifyCustomer).
+    return 258;
+  }
+  return null; // الوضع المباشر: لا اتصال حقيقي بعد، فلا حساب معروف
+}
+/* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تعرض
+   "جارٍ التحقق" فوراً، ثم تُحدِّث بطاقة الولاء بالنتيجة بعد مهلة قصيرة
+   تحاكي زمن استعلام حقيقي، ثم تستدعي cb للمتابعة (إرسال الفاتورة). لا
+   تفعل شيئاً للقوالب التي لا تملك بطاقة ولاء أصلاً (كالعيادة الطبية). */
+function identifyCustomer(phone,cb){
+  if(C().topCard.kind!=='points'){if(cb)cb();return}
+  CUST.status='identifying';CUST.points=null;
+  updateLoyaltyCard();
+  setTimeout(function(){
+    var pts=getLoyaltyPoints(phone);
+    if(pts===null){CUST.status='notfound'}
+    else{CUST.status='identified';CUST.points=pts}
+    updateLoyaltyCard();
+    setTimeout(function(){if(cb)cb()},900);
+  },700);
+}
+
 /* ================= BLOCKS ================= */
 function header(){
   var biz=currentBiz();
@@ -404,12 +456,7 @@ function leftCol(){
      '<div class="st-big">'+t.subValue+'</div>'+
     '</div>';
   }else{
-    out+='<div class="box">'+
-     '<div class="st-h">'+t.label+'</div>'+
-     '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
-     '<div><div class="st-v gold">'+t.value+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
-     '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>'+
-    '</div>';
+    out+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(t)+'</div>';
   }
   out+='<div class="box queue-box">'+
    '<div class="st-h">'+c.queueLabel+'</div>'+
@@ -418,6 +465,39 @@ function leftCol(){
    '<div class="st-sub">أمامك '+c.ahead+' '+c.aheadWord+'</div>'+
   '</div></div>';
   return out;
+}
+/* محتوى بطاقة الولاء بحسب حالة تعرّف العميل الحالية (CUST.status) — لا
+   تُقرأ منها أي بيانات عميل إلا في حالة identified. */
+function loyaltyCardInner(t){
+  if(CUST.status==='identifying'){
+    return '<div class="st-h">'+t.label+'</div>'+
+     '<div class="loy-loading"><div class="loy-spin"></div><small>جارٍ التحقق من حسابك...</small></div>';
+  }
+  if(CUST.status==='notfound'){
+    return '<div class="st-h">'+t.label+'</div>'+
+     '<div class="loy-msg"><b>لا يوجد حساب مرتبط بهذا الرقم</b>'+
+     '<small>سجّل الآن عبر تطبيق NOJ لبدء جمع النقاط</small></div>';
+  }
+  if(CUST.status==='identified'){
+    return '<div class="st-h">'+t.label+'</div>'+
+     '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
+     '<div><div class="st-v gold">'+CUST.points+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
+     '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
+  }
+  // guest (الحالة الابتدائية دائماً)
+  return '<div class="st-h">'+t.label+'</div>'+
+   '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
+   '<div><div class="st-v gold">— —</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
+   '<div class="st-link">'+ic('phone',18,'#8A93AD')+' اربط جوالك لعرض رصيدك</div>';
+}
+/* تُحدَّث بطاقة الولاء وحدها عند تغيّر CUST.status، بلا إعادة بناء
+   الشاشة (نفس نهج الإصلاحات السابقة لتفادي الوميض). لا شيء يحدث للقوالب
+   بلا بطاقة ولاء (كالعيادة الطبية، حيث topCard.kind==='unit'). */
+function updateLoyaltyCard(){
+  var el=document.getElementById('loyaltyCard');
+  var t=C().topCard;
+  if(!el||t.kind!=='points')return;
+  el.innerHTML=loyaltyCardInner(t);
 }
 
 function centerCol(){
@@ -551,7 +631,7 @@ function startTimer(s){
     secs--;
     var e=document.getElementById('timer');
     if(e)e.textContent='العودة للشاشة الرئيسية خلال '+secs+' ثانية';
-    if(secs<=0){clearInterval(tmr);S.view='main';S.phone='';renderLayer()}
+    if(secs<=0){clearInterval(tmr);S.view='main';S.phone='';resetCustomerState();renderLayer()}
   },1000);
 }
 /* يحاكي إرسال الفاتورة إلى الخادم — يحمل حقل category ليصنَّف الإنفاق
@@ -568,7 +648,10 @@ function bindMain(){
   var op=document.getElementById('openPad');
   if(op)op.onclick=function(){S.view='pad';S.phone='';renderLayer()};
   var nfc=document.querySelector('.nfc');
-  if(nfc)nfc.onclick=function(){S.phone='';sendInvoice();S.view='ok';renderLayer()};
+  if(nfc)nfc.onclick=function(){
+    S.phone='';
+    identifyCustomer(null,function(){sendInvoice();S.view='ok';renderLayer()});
+  };
   var logo=document.getElementById('nojLogo');
   if(logo)bindLogoLongPress(logo);
 }
@@ -584,7 +667,14 @@ function bindLayer(){
     }});
   var cf=document.getElementById('confirm');
   if(cf)cf.onclick=function(){
-    if(S.phone.length===9&&S.phone[0]==='5'){sendInvoice();S.view='ok';renderLayer()}};
+    if(S.phone.length===9&&S.phone[0]==='5'){
+      var phone=S.phone;
+      /* يُغلَق لوحة الأرقام فوراً لتظهر الشاشة الرئيسية وبطاقة الولاء
+         خلفها أثناء التعرّف (نفس ما يحدث في مسار NFC)، بدل بقاء المستخدم
+         حابساً أمام لوحة أرقام لا تعكس تقدّم التحقق. */
+      S.view='main';renderLayer();
+      identifyCustomer(phone,function(){sendInvoice();S.view='ok';renderLayer()});
+    }};
   bindPin();
   bindAdmin();
 }
