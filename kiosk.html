@@ -100,12 +100,6 @@
   .rb b{display:block;font-size:19.5px;font-weight:800;line-height:1.45;margin-bottom:8px}
   .rb small{display:block;font-size:14px;color:var(--muted);line-height:1.65}
   .rb .brandblue{color:var(--blue);font-weight:800}
-  .rb2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .rb2 .rb{padding:18px 12px}
-  .rb2 .rb b{font-size:16px;margin-bottom:10px}
-  .rb2 .rb small{font-size:12.5px}
-  .mini-ph{width:56px;height:80px;border-radius:12px;border:3px solid var(--navy);margin:0 auto 10px;display:flex;align-items:center;justify-content:center;position:relative;background:#fff}
-  .badge{position:absolute;top:-8px;left:-8px;min-width:26px;height:26px;border-radius:99px;background:var(--blue);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 6px;direction:ltr}
 
   /* footer */
   .ft{display:flex;align-items:center;justify-content:space-around;gap:10px;padding:14px 26px 18px;border-top:1px solid var(--line);margin-top:14px;flex-shrink:0;flex-wrap:wrap}
@@ -207,7 +201,6 @@
   @media(max-width:1100px){
     .bd{grid-template-columns:1fr 1.3fr;gap:14px}
     .col.right{grid-column:1 / -1}
-    .rb2{grid-template-columns:1fr 1fr}
     .tagline p{font-size:20px}
     .biz-t b{font-size:20px}
   }
@@ -277,7 +270,6 @@ var T={
   // left top card
   topCard:{kind:'unit',label:'نوع العيادة',icon:'tooth',value:'أسنان',subLabel:'رقم العيادة',subValue:'3'},
   // right small cards
-  small1:{icon:'bell',title:'راقب دورك<br>من التطبيق',note:'نعلمك بدورك لحظة<br>استدعائك',badge:23},
   small2:{icon:'cal',title:'حجز موعدك القادم<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من التطبيق'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
@@ -301,7 +293,6 @@ var T={
   ticket:12, ahead:4, aheadWord:'طلبات',
   queueLabel:'رقمك في الانتظار',
   topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small1:{icon:'bell',title:'تابع دورك لحظة<br>بلحظة',note:'واستلم إشعارك<br>مباشرة',badge:12},
   small2:{icon:'cal',title:'حجز موعدك القادم<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز موعدك أو طلبك<br>المسبق بسهولة'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
@@ -326,7 +317,6 @@ var T={
   ticket:47, ahead:5, aheadWord:'طاولات',
   queueLabel:'رقمك في الانتظار',
   topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small1:{icon:'bell',title:'تابع دورك لحظة<br>بلحظة',note:'واستلم إشعارك<br>مباشرة',badge:47},
   small2:{icon:'cal',title:'حجز طاولتك القادمة<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز طاولتك أو طلبك<br>المسبق بسهولة'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
@@ -389,24 +379,30 @@ function currentBiz(){
 var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:''};
 function C(){return T[S.t]}
 
-/* ================= CUSTOMER IDENTIFICATION (بطاقة الولاء) =================
-   الشاشة عامة يقف أمامها أي شخص، فلا يجوز عرض رصيد نقاط أي عميل قبل أن
-   يُعرِّف نفسه فعلياً (لمس NFC أو إدخال رقم جواله وتأكيده). حالة العرض:
-   - guest       : لا هوية معروفة بعد (الحالة الابتدائية دائماً).
+/* ================= CUSTOMER IDENTIFICATION (بطاقة الولاء والدور) =========
+   الشاشة عامة يقف أمامها أي شخص، فلا يجوز عرض أي بيانات خاصة بالعميل
+   (رصيد نقاط، رقم دور، نوع/رقم عيادة) قبل أن يُعرِّف نفسه فعلياً (لمس
+   NFC أو إدخال رقم جواله وتأكيده). حالة العرض واحدة للقوالب الثلاثة
+   بلا استثناء:
+   - guest       : لا هوية معروفة بعد (الحالة الابتدائية دائماً) — تُعرض
+                   بطاقات تعريفية بالخدمة فقط، بلا أي بيانات.
    - identifying : جارٍ التحقق بعد لمسة/تأكيد العميل.
-   - identified  : تم العثور على حساب — CUST.points يحمل الرصيد الفعلي.
-   - notfound    : لا حساب مرتبط بهذا الرقم/الجهاز. */
-var CUST={status:'guest',points:null};
+   - identified  : تم العثور على بيانات العميل — CUST.points (نقاط
+                   الولاء، للمقهى/المطعم) و/أو CUST.queue (رقم الدور،
+                   وللمركز الصحي أيضاً نوع/رقم العيادة) تحمل القيم الفعلية.
+   - notfound    : لا بيانات مرتبطة بهذا الرقم. */
+var CUST={status:'guest',points:null,queue:null};
 function resetCustomerState(){
-  CUST.status='guest';CUST.points=null;
-  updateLoyaltyCard();
+  CUST.status='guest';CUST.points=null;CUST.queue=null;
+  updateLoyaltyCard();updateQueueCard();
 }
 /* دالة معزولة هي المصدر الوحيد لأي رقم نقاط ولاء في الواجهة — ممنوع وضع
    أي رقم ثابت آخر خارجها. نقطة الربط المستقبلية الحقيقية: استبدل جسم
    هذه الدالة باستعلام فعلي بمجرد ربط الجهاز بقاعدة بيانات (مثلاً
    Supabase: select loyalty_points from profiles where phone = phone).
    تُعيد رقم النقاط عند وجود حساب، أو null عند عدم وجوده. لا تُستدعى
-   إطلاقاً قبل أن يبدأ العميل عملية التعرّف بنفسه. */
+   إطلاقاً قبل أن يبدأ العميل عملية التعرّف بنفسه. تُستخدَم فقط للقوالب
+   ذات topCard.kind==='points' (المقهى والمطعم). */
 function getLoyaltyPoints(phone){
   // TODO: نقطة الربط الحقيقي المستقبلي — استبدل السطرين التاليين
   // باستعلام حقيقي على قاعدة البيانات باستخدام phone.
@@ -417,20 +413,58 @@ function getLoyaltyPoints(phone){
   }
   return null; // الوضع المباشر: لا اتصال حقيقي بعد، فلا حساب معروف
 }
+/* دالة معزولة مماثلة هي المصدر الوحيد لأي رقم دور/عدد منتظرين/بيانات
+   عيادة في الواجهة — ممنوع وضع أي رقم ثابت آخر خارجها. نقطة الربط
+   المستقبلية الحقيقية: استبدل جسم هذه الدالة باستعلام فعلي على نظام
+   الطابور الحقيقي بمجرد ربط الجهاز (مثلاً عبر جدول تذاكر/حجوزات في
+   Supabase مرتبط برقم الجوال). تُعيد كائناً {ticket, ahead, aheadWord}
+   لكل القوالب، مع {clinicType, clinicNum} إضافياً للقالب الصحي، أو null
+   إن لم يوجد دور مرتبط بهذا الرقم. لا تُستدعى إطلاقاً قبل بدء التعرّف. */
+function getQueueInfo(phone){
+  // TODO: نقطة الربط الحقيقي المستقبلي — استبدل ما يلي باستعلام حقيقي
+  // على نظام الطابور الفعلي باستخدام phone.
+  if(SETTINGS.mode==='demo'){
+    // بيانات تجريبية ثابتة لأغراض العرض في "الوضع التجريبي" فقط، ولا
+    // تُعاد أبداً قبل التعرّف (لا يُقرأ هذا الفرع إلا من داخل identifyCustomer).
+    var c=C(),info={ticket:c.ticket,ahead:c.ahead,aheadWord:c.aheadWord};
+    if(c.topCard.kind==='unit'){info.clinicType=c.topCard.value;info.clinicNum=c.topCard.subValue}
+    return info;
+  }
+  return null; // الوضع المباشر: لا اتصال حقيقي بعد، فلا دور معروف
+}
 /* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تعرض
-   "جارٍ التحقق" فوراً، ثم تُحدِّث بطاقة الولاء بالنتيجة بعد مهلة قصيرة
-   تحاكي زمن استعلام حقيقي، ثم تستدعي cb للمتابعة (إرسال الفاتورة). لا
-   تفعل شيئاً للقوالب التي لا تملك بطاقة ولاء أصلاً (كالعيادة الطبية). */
+   "جارٍ التحقق" فوراً في بطاقتي الولاء والدور معاً، ثم تُحدِّثهما
+   بالنتيجة بعد مهلة قصيرة تحاكي زمن استعلام حقيقي، ثم تستدعي cb
+   للمتابعة (إرسال الفاتورة). تُطبَّق على القوالب الثلاثة بلا استثناء:
+   القوالب ذات topCard.kind==='points' يحدِّد getLoyaltyPoints حالة
+   identified/notfound (وجود حساب ولاء)، وباقي القوالب (kind==='unit')
+   يحدِّدها وجود بيانات دور فعلية من getQueueInfo. حارسان مهمّان:
+   - تُتجاهَل أي محاولة تعرّف جديدة أثناء وجود محاولة قيد التنفيذ بالفعل
+     (مثال: لمس NFC ثم فتح لوحة الأرقام وتأكيد رقم قبل انتهاء الأولى) —
+     بلا هذا الحارس يمكن أن تتداخل محاولتان فتُرسَل فاتورتان.
+   - إن غادر المستخدم شاشة main قبل اكتمال التحقق (فتح لوحة الأرقام أو
+     الإعدادات مثلاً)، تُعاد الحالة إلى guest بصمت بدل انتزاعه من الشاشة
+     التي انتقل إليها لعرض شاشة النجاح فجأة، ولمنع بقاء بيانات قديمة
+     ظاهرة حين يعود لاحقاً إلى الشاشة الرئيسية. */
 function identifyCustomer(phone,cb){
-  if(C().topCard.kind!=='points'){if(cb)cb();return}
-  CUST.status='identifying';CUST.points=null;
-  updateLoyaltyCard();
+  if(CUST.status==='identifying')return;
+  CUST.status='identifying';CUST.points=null;CUST.queue=null;
+  updateLoyaltyCard();updateQueueCard();
   setTimeout(function(){
-    var pts=getLoyaltyPoints(phone);
-    if(pts===null){CUST.status='notfound'}
-    else{CUST.status='identified';CUST.points=pts}
-    updateLoyaltyCard();
-    setTimeout(function(){if(cb)cb()},900);
+    var q=getQueueInfo(phone);
+    CUST.queue=q;
+    if(C().topCard.kind==='points'){
+      var pts=getLoyaltyPoints(phone);
+      if(pts===null){CUST.status='notfound'}
+      else{CUST.status='identified';CUST.points=pts}
+    }else{
+      CUST.status=q?'identified':'notfound';
+    }
+    updateLoyaltyCard();updateQueueCard();
+    setTimeout(function(){
+      if(S.view!=='main'){resetCustomerState();return}
+      if(cb)cb();
+    },900);
   },700);
 }
 
@@ -445,59 +479,84 @@ function header(){
 }
 
 function leftCol(){
-  var c=C(),t=c.topCard,out='<div class="col">';
-  if(t.kind==='unit'){
-    out+='<div class="box">'+
-     '<div class="st-h">'+t.label+'</div>'+
-     '<div class="st-row"><div class="st-i" style="background:var(--blue-soft)">'+ic(t.icon,30,'#2D7BF4',1.7)+'</div>'+
-     '<div class="st-v">'+t.value+'</div></div>'+
-     '<div class="st-sep"></div>'+
-     '<div class="st-lbl">'+t.subLabel+'</div>'+
-     '<div class="st-big">'+t.subValue+'</div>'+
-    '</div>';
-  }else{
-    out+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(t)+'</div>';
-  }
-  out+='<div class="box queue-box">'+
-   '<div class="st-h">'+c.queueLabel+'</div>'+
-   '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
-   '<div class="q-num">'+c.ticket+'</div></div>'+
-   '<div class="st-sub">أمامك '+c.ahead+' '+c.aheadWord+'</div>'+
-  '</div></div>';
-  return out;
+  var c=C(),t=c.topCard;
+  return '<div class="col">'+
+   '<div class="box" id="loyaltyCard">'+loyaltyCardInner(t)+'</div>'+
+   '<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>'+
+  '</div>';
 }
-/* محتوى بطاقة الولاء بحسب حالة تعرّف العميل الحالية (CUST.status) — لا
-   تُقرأ منها أي بيانات عميل إلا في حالة identified. */
+/* رسالة تعريفية عامة بالخدمة (بلا أي بيانات عميل) — تُستخدَم في حالتي
+   guest وnotfound لبطاقتي الولاء والدور معاً. */
+function promoMsg(title,sub){
+  return '<div class="loy-msg"><b>'+title+'</b><small>'+sub+'</small></div>';
+}
+/* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم) أو نوع/رقم العيادة
+   (المركز الصحي)، بحسب حالة تعرّف العميل الحالية (CUST.status). في
+   guest/identifying تُعرض رسالة عامة موحّدة لا تكشف أي بيانات عميل بصرف
+   النظر عن القطاع؛ لا تُقرأ بيانات العميل الفعلية إلا في identified. */
 function loyaltyCardInner(t){
   if(CUST.status==='identifying'){
     return '<div class="st-h">'+t.label+'</div>'+
      '<div class="loy-loading"><div class="loy-spin"></div><small>جارٍ التحقق من حسابك...</small></div>';
   }
   if(CUST.status==='notfound'){
+    if(t.kind==='unit'){
+      return '<div class="st-h">'+t.label+'</div>'+
+       promoMsg('تعذّر العثور على حجز مرتبط بهذا الرقم','يرجى مراجعة موظف الاستقبال');
+    }
     return '<div class="st-h">'+t.label+'</div>'+
-     '<div class="loy-msg"><b>لا يوجد حساب مرتبط بهذا الرقم</b>'+
-     '<small>سجّل الآن عبر تطبيق NOJ لبدء جمع النقاط</small></div>';
+     promoMsg('لا يوجد حساب مرتبط بهذا الرقم','سجّل الآن عبر تطبيق NOJ لبدء جمع النقاط');
   }
   if(CUST.status==='identified'){
+    if(t.kind==='unit'){
+      var q=CUST.queue||{};
+      return '<div class="st-h">'+t.label+'</div>'+
+       '<div class="st-row"><div class="st-i" style="background:var(--blue-soft)">'+ic(t.icon,30,'#2D7BF4',1.7)+'</div>'+
+       '<div class="st-v">'+q.clinicType+'</div></div>'+
+       '<div class="st-sep"></div>'+
+       '<div class="st-lbl">'+t.subLabel+'</div>'+
+       '<div class="st-big">'+q.clinicNum+'</div>';
+    }
     return '<div class="st-h">'+t.label+'</div>'+
      '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
      '<div><div class="st-v gold">'+CUST.points+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
      '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
   }
-  // guest (الحالة الابتدائية دائماً)
+  // guest (الحالة الابتدائية دائماً) — رسالة عامة موحّدة للقوالب الثلاثة
   return '<div class="st-h">'+t.label+'</div>'+
-   '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
-   '<div><div class="st-v gold">— —</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
-   '<div class="st-link">'+ic('phone',18,'#8A93AD')+' اربط جوالك لعرض رصيدك</div>';
+   promoMsg('احصل على نقاط ولاء','تابع نقاطك من تطبيق NOJ');
 }
-/* تُحدَّث بطاقة الولاء وحدها عند تغيّر CUST.status، بلا إعادة بناء
-   الشاشة (نفس نهج الإصلاحات السابقة لتفادي الوميض). لا شيء يحدث للقوالب
-   بلا بطاقة ولاء (كالعيادة الطبية، حيث topCard.kind==='unit'). */
+/* بطاقة الصندوق الثاني: رقم الدور وعدد المنتظرين (القوالب الثلاثة بلا
+   استثناء). نفس منطق الحالة أعلاه — بلا أي رقم دور قبل identified. */
+function queueCardInner(c){
+  if(CUST.status==='identifying'){
+    return '<div class="st-h">'+c.queueLabel+'</div>'+
+     '<div class="loy-loading"><div class="loy-spin"></div><small>جارٍ التحقق من حسابك...</small></div>';
+  }
+  if(CUST.status==='identified'&&CUST.queue){
+    var q=CUST.queue;
+    return '<div class="st-h">'+c.queueLabel+'</div>'+
+     '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
+     '<div class="q-num">'+q.ticket+'</div></div>'+
+     '<div class="st-sub">أمامك '+q.ahead+' '+q.aheadWord+'</div>';
+  }
+  if(CUST.status==='notfound'){
+    return '<div class="st-h">'+c.queueLabel+'</div>'+
+     promoMsg('تعذّر العثور على دورك','يرجى مراجعة الموظف للمساعدة');
+  }
+  // guest (الحالة الابتدائية دائماً)
+  return '<div class="st-h">'+c.queueLabel+'</div>'+
+   promoMsg('تابع دورك لحظة بلحظة','من تطبيق NOJ');
+}
+/* تُحدَّث بطاقتا الولاء والدور وحدهما عند تغيّر CUST.status، بلا إعادة
+   بناء الشاشة (نفس نهج الإصلاحات السابقة لتفادي الوميض). */
 function updateLoyaltyCard(){
   var el=document.getElementById('loyaltyCard');
-  var t=C().topCard;
-  if(!el||t.kind!=='points')return;
-  el.innerHTML=loyaltyCardInner(t);
+  if(el)el.innerHTML=loyaltyCardInner(C().topCard);
+}
+function updateQueueCard(){
+  var el=document.getElementById('queueCard');
+  if(el)el.innerHTML=queueCardInner(C());
 }
 
 function centerCol(){
@@ -517,12 +576,9 @@ function rightCol(){
    '<div class="rb"><div class="rb-i">'+ic('receipt',26,'#2D7BF4')+'</div>'+
    '<b>استقبل فاتورتك<br>الإلكترونية بالتطبيق</b>'+
    '<small>تصلك مباشرة بعد الدفع في تطبيق<br><span class="brandblue">NOJ</span></small></div>'+
-   '<div class="rb2">'+
-     '<div class="rb"><div class="mini-ph">'+ic('bell',22,'#2D7BF4')+'<span class="badge">'+c.small1.badge+'</span></div>'+
-     '<b>'+c.small1.title+'</b><small>'+c.small1.note+'</small></div>'+
-     '<div class="rb"><div class="mini-ph">'+ic('calchk',22,'#2D7BF4')+'</div>'+
-     '<b>'+c.small2.title+'</b><small>'+c.small2.note+'</small></div>'+
-   '</div></div>';
+   '<div class="rb"><div class="rb-i">'+ic('calchk',26,'#2D7BF4')+'</div>'+
+   '<b>'+c.small2.title+'</b><small>'+c.small2.note+'</small></div>'+
+  '</div>';
 }
 
 function footer(){
@@ -578,6 +634,11 @@ function updateKeypadDisplay(){
 function success(){
   var c=C();
   var linked=S.phone?('+966 '+fmt(S.phone)):'تطبيق NOJ';
+  /* رقم الدور المعروض هنا يأتي من CUST.queue (نفس مصدر بطاقة الدور على
+     الشاشة الرئيسية، عبر getQueueInfo) لا من c.ticket مباشرة؛ الرجوع
+     لـ c.ticket لا يحدث إلا في الوضع المباشر حيث لا يوجد اتصال حقيقي
+     بعد (CUST.queue فارغة عندها) كقيمة احتياطية مؤقتة فقط. */
+  var ticket=(CUST.queue&&CUST.queue.ticket!=null)?CUST.queue.ticket:c.ticket;
   return '<div class="ok"><div class="ok-in">'+
    '<div class="ok-c">'+ic('check',54,'#22A87A',3)+'</div>'+
    '<h2>تم الربط بنجاح</h2>'+
@@ -586,7 +647,7 @@ function success(){
      return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
      '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
    }).join('')+'</div>'+
-   '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+c.ticket+'</b></div>'+
+   '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>'+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
 }
@@ -602,7 +663,7 @@ function renderLayer(){
   if(!el)return;
   el.innerHTML=S.view==='pad'?keypad():S.view==='ok'?success():S.view==='pin'?adminPin():S.view==='settings'?settingsScreen():'';
   bindLayer();
-  if(S.view==='ok')startTimer(12);else clearInterval(tmr);
+  if(S.view==='ok')startTimer(10);else clearInterval(tmr);
   resetAdminIdle();
   var overlay=el.firstElementChild;
   if(overlay&&overlay.classList.contains('ov'))playEntrance(overlay);
@@ -639,7 +700,8 @@ function startTimer(s){
    تمثيل للحمولة (payload) التي سترسلها نقطة البيع الحقيقية مستقبلاً. */
 function sendInvoice(){
   var c=C(),biz=currentBiz();
-  var payload={category:c.category,merchant:biz.name,ticket:c.ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
+  var ticket=(CUST.queue&&CUST.queue.ticket!=null)?CUST.queue.ticket:c.ticket;
+  var payload={category:c.category,merchant:biz.name,ticket:ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
   console.log('NOJ kiosk → إرسال الفاتورة (محاكاة):',payload);
   return payload;
 }
