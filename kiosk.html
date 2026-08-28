@@ -110,7 +110,8 @@
 
   /* ===== KEYPAD OVERLAY ===== */
   #layer{position:static;flex:0 0 auto}
-  .ov{position:absolute;inset:0;background:rgba(255,255,255,.97);z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;animation:fade .25s ease both}
+  .ov{position:absolute;inset:0;background:rgba(255,255,255,.97);z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;opacity:0;transition:opacity .25s ease}
+  .ov.show{opacity:1}
   .kp{width:100%;max-width:470px;text-align:center}
   .kp h2{font-size:29px;font-weight:800;margin-bottom:8px}
   .kp p{font-size:16.5px;color:var(--muted);margin-bottom:22px}
@@ -517,17 +518,23 @@ function renderLayer(){
   bindLayer();
   if(S.view==='ok')startTimer(12);else clearInterval(tmr);
   resetAdminIdle();
-  if(el.firstElementChild)stopEntranceAnim(el.firstElementChild);
+  var overlay=el.firstElementChild;
+  if(overlay&&overlay.classList.contains('ov'))playEntrance(overlay);
 }
-/* تُطفئ حركة ظهور الطبقة العلوية (fade) نهائياً بعد تشغيلها مرة واحدة —
-   احتياط إضافي في حال أعاد أي متصفح تشغيل حركة CSS على عنصر أب بسبب
-   تحديث نص داخلي (خانة الأرقام/نقاط PIN)، رغم أن العنصر نفسه لا يُعاد
-   إنشاؤه إطلاقاً بعد هذا التعديل. */
-function stopEntranceAnim(el){
-  el.addEventListener('animationend',function handler(){
-    el.style.animation='none';
-    el.removeEventListener('animationend',handler);
-  },{once:true});
+/* تُشغِّل ظهور الطبقة العلوية عبر transition:opacity بدل @keyframes —
+   الـ transition لا يمكن أن "يُعاد تشغيله" من أي تحديث نصي لاحق داخل
+   الطبقة (خانة الأرقام/نقاط PIN/حقول الإعدادات) لأنه يعمل فقط عند تغيّر
+   قيمة opacity نفسها، وهذا لا يتكرر بعد الظهور الأول؛ بخلاف حركات
+   @keyframes التي قد يُعيد بعض المتصفحات تشغيلها عند إعادة حساب النمط
+   لعنصر أب رغم عدم إعادة إنشاء العقدة. requestAnimationFrame مزدوج
+   يضمن رسم opacity:0 أولاً قبل تفعيل الانتقال إلى opacity:1.
+   لا تُلمَس شاشة النجاح (.ok) لأنها ليست جزءاً من المشكلة المُبلَّغ عنها. */
+function playEntrance(el){
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      el.classList.add('show');
+    });
+  });
 }
 function render(){renderMain();renderLayer()}
 function startTimer(s){
