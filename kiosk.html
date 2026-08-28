@@ -420,8 +420,17 @@ function getLoyaltyPoints(phone){
 /* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تعرض
    "جارٍ التحقق" فوراً، ثم تُحدِّث بطاقة الولاء بالنتيجة بعد مهلة قصيرة
    تحاكي زمن استعلام حقيقي، ثم تستدعي cb للمتابعة (إرسال الفاتورة). لا
-   تفعل شيئاً للقوالب التي لا تملك بطاقة ولاء أصلاً (كالعيادة الطبية). */
+   تفعل شيئاً للقوالب التي لا تملك بطاقة ولاء أصلاً (كالعيادة الطبية).
+   حارسان مهمّان:
+   - تُتجاهَل أي محاولة تعرّف جديدة أثناء وجود محاولة قيد التنفيذ بالفعل
+     (مثال: لمس NFC ثم فتح لوحة الأرقام وتأكيد رقم قبل انتهاء الأولى) —
+     بلا هذا الحارس يمكن أن تتداخل محاولتان فتُرسَل فاتورتان.
+   - إن غادر المستخدم شاشة main قبل اكتمال التحقق (فتح لوحة الأرقام أو
+     الإعدادات مثلاً)، تُعاد الحالة إلى guest بصمت بدل انتزاعه من الشاشة
+     التي انتقل إليها لعرض شاشة النجاح فجأة، ولمنع بقاء رصيد قديم ظاهراً
+     حين يعود لاحقاً إلى الشاشة الرئيسية. */
 function identifyCustomer(phone,cb){
+  if(CUST.status==='identifying')return;
   if(C().topCard.kind!=='points'){if(cb)cb();return}
   CUST.status='identifying';CUST.points=null;
   updateLoyaltyCard();
@@ -430,7 +439,10 @@ function identifyCustomer(phone,cb){
     if(pts===null){CUST.status='notfound'}
     else{CUST.status='identified';CUST.points=pts}
     updateLoyaltyCard();
-    setTimeout(function(){if(cb)cb()},900);
+    setTimeout(function(){
+      if(S.view!=='main'){resetCustomerState();return}
+      if(cb)cb();
+    },900);
   },700);
 }
 
