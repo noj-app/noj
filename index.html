@@ -494,7 +494,7 @@ const Store={
   clearAll:function(){Object.keys(K).forEach(function(k){Store.remove(K[k])})}
 };
 
-const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'مواصلات':{c:'#F59E0B',i:'car'},'أخرى':{c:'#64748B',i:'dots'}};
+const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'مواصلات':{c:'#F59E0B',i:'car'},'صحة':{c:'#0F6E6E',i:'hospital'},'أخرى':{c:'#64748B',i:'dots'}};
 // Invoices, category totals, and rewards all come from Supabase now (see
 // loadUserData below) — these start empty and are populated right after
 // login, instead of holding mock fixtures.
@@ -590,7 +590,11 @@ async function loginAndLoad(phone){
 function donut(size,mid,big){
   let acc=0;
   const st=CATS.map(function(d){var f=acc;acc+=d.v;return CAT[d.n].c+' '+f+'% '+acc+'%'}).join(',');
-  return '<div class="donut'+(big?' lg':'')+'" style="width:'+size+'px;height:'+size+'px;background:conic-gradient('+st+')">'+(mid?'<div class="donut-mid"><b>'+mid.b+'</b><small>'+mid.s+'</small></div>':'')+'</div>';
+  // conic-gradient() with zero color stops (no spending data yet) is invalid
+  // and silently ignored by browsers, leaving an invisible/blank circle --
+  // fall back to a flat neutral ring instead.
+  const bg=st?('conic-gradient('+st+')'):'var(--line)';
+  return '<div class="donut'+(big?' lg':'')+'" style="width:'+size+'px;height:'+size+'px;background:'+bg+'">'+(mid?'<div class="donut-mid"><b>'+mid.b+'</b><small>'+mid.s+'</small></div>':'')+'</div>';
 }
 
 function home(){
@@ -868,11 +872,15 @@ function renderAuth(){
 function startTimer(){
   A.secs=30;
   clearInterval(A.timer);
+  var updateResend=function(){
+    var r=document.getElementById('resend');
+    if(r)r.innerHTML=A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>';
+  };
+  updateResend();
   A.timer=setInterval(function(){
     A.secs--;
     if(A.secs<=0){clearInterval(A.timer);A.secs=0}
-    var r=document.getElementById('resend');
-    if(r)r.innerHTML=A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>';
+    updateResend();
   },1000);
 }
 
