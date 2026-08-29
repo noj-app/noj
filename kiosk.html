@@ -47,7 +47,7 @@
   .bd::-webkit-scrollbar{width:0}
   .col{display:flex;flex-direction:column;gap:14px;min-width:0}
 
-  .box{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:20px;min-width:0}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px 18px;text-align:center;min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center}
 
   /* left stat cards */
   .st-h{font-size:15.5px;font-weight:700;color:var(--muted);text-align:center;margin-bottom:12px}
@@ -64,9 +64,9 @@
   .loy-spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:loyspin .8s linear infinite}
   @keyframes loyspin{to{transform:rotate(360deg)}}
   .loy-loading small{color:var(--muted);font-size:13px;font-weight:600}
-  .loy-msg{text-align:center;padding:10px 0}
-  .loy-msg b{display:block;font-size:15px;font-weight:800;color:var(--ink);margin-bottom:6px}
-  .loy-msg small{display:block;font-size:12.5px;color:var(--muted);line-height:1.6}
+  .loy-msg{text-align:center}
+  .loy-msg b{display:block;font-size:19.5px;font-weight:800;line-height:1.45;margin-bottom:8px}
+  .loy-msg small{display:block;font-size:14px;color:var(--muted);line-height:1.65}
 
   .queue-box{text-align:center}
   .q-top{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px}
@@ -95,11 +95,11 @@
   .pbtn:active{transform:scale(.98)}
 
   /* right column */
-  .rb{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px 18px;text-align:center}
+  .rb{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px 18px;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center}
   .rb-i{width:54px;height:54px;border-radius:15px;background:var(--blue-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
   .rb b{display:block;font-size:19.5px;font-weight:800;line-height:1.45;margin-bottom:8px}
   .rb small{display:block;font-size:14px;color:var(--muted);line-height:1.65}
-  .rb .brandblue{color:var(--blue);font-weight:800}
+  .brandblue{color:var(--blue);font-weight:800}
 
   /* footer */
   .ft{display:flex;align-items:center;justify-content:space-around;gap:10px;padding:14px 26px 18px;border-top:1px solid var(--line);margin-top:14px;flex-shrink:0;flex-wrap:wrap}
@@ -278,7 +278,7 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق NOJ'},
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'bell',c:'#C99A2E',b:'رقم دورك',s:'ستصلك تنبيهات قبل دورك'},
     {i:'cal',c:'#0F6E6E',b:'موعدك القادم',s:'احجزه من التطبيق مباشرة'}
   ]
@@ -302,7 +302,7 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق NOJ'},
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'gift',c:'#C99A2E',b:'+18 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
   ]
@@ -326,7 +326,7 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق NOJ'},
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'gift',c:'#C99A2E',b:'+22 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
   ]
@@ -485,10 +485,16 @@ function leftCol(){
    '<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>'+
   '</div>';
 }
-/* رسالة تعريفية عامة بالخدمة (بلا أي بيانات عميل) — تُستخدَم في حالتي
-   guest وnotfound لبطاقتي الولاء والدور معاً. */
-function promoMsg(title,sub){
-  return '<div class="loy-msg"><b>'+title+'</b><small>'+sub+'</small></div>';
+/* لون اسم NOJ الأزرق الموحّد في أي نص "من تطبيق NOJ" — نفس الأسلوب
+   المستخدَم أصلاً في بطاقة "حجز موعدك القادم من تطبيق NOJ". */
+var NOJ_BLUE='<span class="brandblue">NOJ</span>';
+/* رسالة تعريفية عامة بالخدمة (بلا أي بيانات عميل)، مع أيقونة بنفس أسلوب
+   أيقونات العمود الأيسر (`.rb-i`: نفس المقاس والمربع المدوّر ونظام
+   الألوان الخفيفة) — تُستخدَم في حالتي guest وnotfound لبطاقتي الولاء
+   والدور معاً، ليتوازن العمودان بصرياً حتى في الحالات بلا بيانات. */
+function promoMsg(icon,title,sub){
+  return '<div class="rb-i">'+ic(icon,26,'#2D7BF4')+'</div>'+
+   '<div class="loy-msg"><b>'+title+'</b><small>'+sub+'</small></div>';
 }
 /* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم) أو نوع/رقم العيادة
    (المركز الصحي)، بحسب حالة تعرّف العميل الحالية (CUST.status). في
@@ -502,10 +508,10 @@ function loyaltyCardInner(t){
   if(CUST.status==='notfound'){
     if(t.kind==='unit'){
       return '<div class="st-h">'+t.label+'</div>'+
-       promoMsg('تعذّر العثور على حجز مرتبط بهذا الرقم','يرجى مراجعة موظف الاستقبال');
+       promoMsg(t.icon,'تعذّر العثور على حجز مرتبط بهذا الرقم','يرجى مراجعة موظف الاستقبال');
     }
     return '<div class="st-h">'+t.label+'</div>'+
-     promoMsg('لا يوجد حساب مرتبط بهذا الرقم','سجّل الآن عبر تطبيق NOJ لبدء جمع النقاط');
+     promoMsg('gift','لا يوجد حساب مرتبط بهذا الرقم','سجّل الآن عبر تطبيق NOJ لبدء جمع النقاط');
   }
   if(CUST.status==='identified'){
     if(t.kind==='unit'){
@@ -524,7 +530,7 @@ function loyaltyCardInner(t){
   }
   // guest (الحالة الابتدائية دائماً) — رسالة عامة موحّدة للقوالب الثلاثة
   return '<div class="st-h">'+t.label+'</div>'+
-   promoMsg('احصل على نقاط ولاء','تابع نقاطك من تطبيق NOJ');
+   promoMsg(t.kind==='unit'?t.icon:'gift','احصل على نقاط ولاء','تابع نقاطك من تطبيق '+NOJ_BLUE);
 }
 /* بطاقة الصندوق الثاني: رقم الدور وعدد المنتظرين (القوالب الثلاثة بلا
    استثناء). نفس منطق الحالة أعلاه — بلا أي رقم دور قبل identified. */
@@ -542,11 +548,11 @@ function queueCardInner(c){
   }
   if(CUST.status==='notfound'){
     return '<div class="st-h">'+c.queueLabel+'</div>'+
-     promoMsg('تعذّر العثور على دورك','يرجى مراجعة الموظف للمساعدة');
+     promoMsg('bell','تعذّر العثور على دورك','يرجى مراجعة الموظف للمساعدة');
   }
   // guest (الحالة الابتدائية دائماً)
   return '<div class="st-h">'+c.queueLabel+'</div>'+
-   promoMsg('تابع دورك لحظة بلحظة','من تطبيق NOJ');
+   promoMsg('bell','تابع دورك لحظة بلحظة','من تطبيق '+NOJ_BLUE);
 }
 /* تُحدَّث بطاقتا الولاء والدور وحدهما عند تغيّر CUST.status، بلا إعادة
    بناء الشاشة (نفس نهج الإصلاحات السابقة لتفادي الوميض). */
@@ -606,7 +612,7 @@ function keypad(){
   return '<div class="ov" id="ovBox">'+
    '<button class="close" id="closePad">'+ic('close',16,'#8A93AD')+' إغلاق</button>'+
    '<div class="kp"><h2>أدخل رقم جوالك</h2>'+
-   '<p>لتصلك فاتورتك وخدماتك في تطبيق NOJ</p>'+
+   '<p>لتصلك فاتورتك وخدماتك في تطبيق '+NOJ_BLUE+'</p>'+
    '<div class="disp"><span class="cc">+966</span>'+
    '<span class="dg"><span id="phDg">'+(disp||'<span class="plc">5X XXX XXXX</span>')+'</span><span class="car"></span></span></div>'+
    '<div class="warn" id="phWarn">'+(bad?'رقم الجوال السعودي يبدأ بالرقم 5':'')+'</div>'+
@@ -633,7 +639,7 @@ function updateKeypadDisplay(){
 /* ================= SUCCESS ================= */
 function success(){
   var c=C();
-  var linked=S.phone?('+966 '+fmt(S.phone)):'تطبيق NOJ';
+  var linked=S.phone?('+966 '+fmt(S.phone)):('تطبيق '+NOJ_BLUE);
   /* رقم الدور المعروض هنا يأتي من CUST.queue (نفس مصدر بطاقة الدور على
      الشاشة الرئيسية، عبر getQueueInfo) لا من c.ticket مباشرة؛ الرجوع
      لـ c.ticket لا يحدث إلا في الوضع المباشر حيث لا يوجد اتصال حقيقي
