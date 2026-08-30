@@ -270,7 +270,7 @@ var T={
   // left top card
   topCard:{kind:'unit',label:'نوع العيادة',icon:'tooth',value:'أسنان',subLabel:'رقم العيادة',subValue:'3'},
   // right small cards
-  small2:{icon:'cal',title:'حجز موعدك القادم<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من التطبيق'},
+  small2:{icon:'cal',title:'حجز موعدك القادم',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات المواعيد',s:'لا تفوّت موعدك'},
@@ -293,7 +293,7 @@ var T={
   ticket:12, ahead:4, aheadWord:'طلبات',
   queueLabel:'رقمك في الانتظار',
   topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small2:{icon:'cal',title:'حجز موعدك القادم<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز موعدك أو طلبك<br>المسبق بسهولة'},
+  small2:{icon:'cal',title:'حجز موعدك القادم',note:'احجز موعدك أو طلبك المسبق<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
@@ -317,7 +317,7 @@ var T={
   ticket:47, ahead:5, aheadWord:'طاولات',
   queueLabel:'رقمك في الانتظار',
   topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small2:{icon:'cal',title:'حجز طاولتك القادمة<br>من تطبيق <span class="brandblue">NOJ</span>',note:'احجز طاولتك أو طلبك<br>المسبق بسهولة'},
+  small2:{icon:'cal',title:'حجز طاولتك القادمة',note:'احجز طاولتك أو طلبك المسبق<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
@@ -498,8 +498,10 @@ function promoMsg(icon,title,sub){
 }
 /* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم) أو نوع/رقم العيادة
    (المركز الصحي)، بحسب حالة تعرّف العميل الحالية (CUST.status). في
-   guest/identifying تُعرض رسالة عامة موحّدة لا تكشف أي بيانات عميل بصرف
-   النظر عن القطاع؛ لا تُقرأ بيانات العميل الفعلية إلا في identified. */
+   guest/identifying/notfound تُعرض رسالة عامة لا تكشف أي بيانات عميل —
+   نصها يختلف بحسب t.kind (تشويق لبرنامج ولاء فعلي للقوالب النقطية، أو
+   لتوثيق التقارير/المواعيد للقالب الصحي الذي لا يملك برنامج ولاء إطلاقاً)؛
+   لا تُقرأ بيانات العميل الفعلية إلا في identified. */
 function loyaltyCardInner(t){
   if(CUST.status==='identifying'){
     return '<div class="st-h">'+t.label+'</div>'+
@@ -528,9 +530,16 @@ function loyaltyCardInner(t){
      '<div><div class="st-v gold">'+CUST.points+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
      '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
   }
-  // guest (الحالة الابتدائية دائماً) — رسالة عامة موحّدة للقوالب الثلاثة
+  // guest (الحالة الابتدائية دائماً) — رسالة تختلف بحسب طبيعة القطاع: القوالب
+  // النقطية (مقهى/مطعم) تُشوّق لبرنامج ولاء فعلي؛ القالب الصحي لا يملك أي
+  // برنامج ولاء أو نقاط إطلاقاً، فتُستبدَل ببطاقة تناسب طبيعته (تقارير
+  // ومواعيد) بدل عرض تشويق لولاء غير موجود.
+  if(t.kind==='unit'){
+    return '<div class="st-h">'+t.label+'</div>'+
+     promoMsg(t.icon,'استقبل تقاريرك ومواعيدك','كل زياراتك موثقة في تطبيق '+NOJ_BLUE);
+  }
   return '<div class="st-h">'+t.label+'</div>'+
-   promoMsg(t.kind==='unit'?t.icon:'gift','احصل على نقاط ولاء','تابع نقاطك من تطبيق '+NOJ_BLUE);
+   promoMsg('gift','احصل على نقاط ولاء','تابع نقاطك من تطبيق '+NOJ_BLUE);
 }
 /* بطاقة الصندوق الثاني: رقم الدور وعدد المنتظرين (القوالب الثلاثة بلا
    استثناء). نفس منطق الحالة أعلاه — بلا أي رقم دور قبل identified. */
