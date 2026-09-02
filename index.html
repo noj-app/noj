@@ -509,7 +509,7 @@ function getSb(){
 function sleep(ms){return new Promise(function(resolve){setTimeout(resolve,ms)})}
 
 const STORAGE_PREFIX='noj_';
-const K={SESSION:'session',PHONE:'phone',POINTS:'points',NOTIF:'notif_switches'};
+const K={SESSION:'session',PHONE:'phone',NOTIF:'notif_switches'};
 const Store={
   available:(function(){try{var t='__noj_probe__';localStorage.setItem(t,'1');localStorage.removeItem(t);return true}catch(e){return false}})(),
   get:function(key,fallback){if(!Store.available)return fallback;try{var raw=localStorage.getItem(STORAGE_PREFIX+key);return raw===null?fallback:JSON.parse(raw)}catch(e){return fallback}},
@@ -527,17 +527,15 @@ let CATS=[];
 const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510},{m:'يونيو',t:1980},{m:'يوليو',t:2540},{m:'أغسطس',t:2850}];
 const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 35%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
 // Loyalty points belong to merchants, not to NOJ itself — there is no
-// platform-wide points pool. Each entry is one merchant relationship:
-// {merchantId, name, type, points, tier, rewards:[{id,t,c}]}. S.pts is
-// derived from this (see computeTotalPoints) purely as a guiding total for
-// the home screen; it is never the authoritative balance for redemption.
+// platform-wide points pool, and no screen ever sums balances across
+// merchants into one number. Each entry is one merchant relationship:
+// {merchantId, name, type, points, tier, rewards:[{id,t,c}]}.
 let MERCHANT_LOYALTY=[];
 const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'alerts',l:'التنبيهات',i:'bell'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
 let QUEUE={ticket:null,label:''};
-let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,pts:0,query:'',sw:{notif:true,spend:true,offers:false}};
-const INITIAL_POINTS=S.pts;
+let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,query:'',sw:{notif:true,spend:true,offers:false}};
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
 
@@ -556,14 +554,6 @@ function computeCats(){
   CATS=Object.keys(CAT).filter(function(k){return totals[k]>0}).map(function(k){
     return {n:k,v:total>0?Math.round(totals[k]/total*100):0,a:Math.round(totals[k])};
   });
-}
-
-function computeTotalPoints(){
-  // Guiding total only (home screen teaser) — never used to authorize a
-  // redemption. Each merchant's own balance in MERCHANT_LOYALTY is what
-  // actually gates its rewards.
-  S.pts=MERCHANT_LOYALTY.reduce(function(s,m){return s+m.points},0);
-  Store.set(K.POINTS,S.pts);
 }
 
 async function loadUserData(profileId){
@@ -596,7 +586,6 @@ async function loadUserData(profileId){
     (rewardsByMerchant[row.merchant_id]=rewardsByMerchant[row.merchant_id]||[]).push({id:row.id,t:row.title,c:row.cost_points});
   });
   MERCHANT_LOYALTY.forEach(function(m){m.rewards=rewardsByMerchant[m.merchantId]||[]});
-  computeTotalPoints();
 
   if(ticketRes.data&&ticketRes.data[0]){
     var t=ticketRes.data[0];
@@ -686,18 +675,22 @@ function home(){
   '<div class="sec"><div class="sec-head"><h2>الولاء</h2><button data-go="loyalty">عرض الكل</button></div>'+loyTeaser()+'</div>';
 }
 
-// Home screen: a guiding TOTAL only — never a spendable balance (there is
-// no NOJ-wide points pool). Tapping it opens the real per-merchant
-// breakdown via the existing [data-go] click binding.
+// Home screen: NEVER a pooled/spendable number (there is no NOJ-wide
+// points pool). The headline is a plain COUNT of merchants you hold a
+// balance with, and the caption names your top real per-merchant balances
+// — every number shown stays attributed to one specific merchant. Tapping
+// it opens the real per-merchant breakdown via the existing [data-go]
+// click binding.
 function loyTeaser(){
-  var merchantCount=MERCHANT_LOYALTY.length;
-  var sub=merchantCount>0
-    ?'موزّعة على '+merchantCount+' '+(merchantCount===1?'متجر':'متاجر')
-    :'لا يوجد رصيد لدى أي تاجر بعد';
+  var withBalance=MERCHANT_LOYALTY.filter(function(m){return m.points>0});
+  var top=withBalance.slice().sort(function(a,b){return b.points-a.points}).slice(0,3);
+  var sub=top.length
+    ?top.map(function(m){return m.name+' '+m.points.toLocaleString('en-US')}).join(' · ')
+    :'لم تجمع نقاطاً لدى أي تاجر بعد';
   return '<button class="box" data-go="loyalty" style="width:100%;text-align:right;display:block">'+
     '<div class="loy">'+
     '<div class="loy-ico">'+ic('gift',30,'#22A87A')+'</div>'+
-    '<div class="loy-mid"><small>مجموع نقاطك</small><b data-target="'+S.pts+'">'+S.pts.toLocaleString('en-US')+'</b>'+
+    '<div class="loy-mid"><small>عدد المتاجر التي لديك رصيد فيها</small><b data-target="'+withBalance.length+'">'+withBalance.length.toLocaleString('en-US')+'</b>'+
     '<p>'+sub+'</p></div>'+
     '<div class="loy-right">'+ic('chevron',18,'#8A93AD')+'</div>'+
   '</div></button>';
@@ -799,13 +792,14 @@ function alerts(){
 
 function reports(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var loyMerchantCount=MERCHANT_LOYALTY.filter(function(m){return m.points>0}).length;
   return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2><button data-go="home">الرئيسية</button></div>'+
   '<div class="box"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
   '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
   '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
   '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/(INVOICES.length||1))+' ريال</span></div>'+
   '<div class="mrow"><span>أعلى فئة</span><span>مطاعم (35%)</span></div>'+
-  '<div class="mrow"><span>نقاط الولاء</span><span>'+S.pts.toLocaleString('en-US')+'</span></div>'+
+  '<div class="mrow"><span>متاجر لديك رصيد نقاط فيها</span><span>'+loyMerchantCount+'</span></div>'+
   '<div class="dash"></div><div class="mrow"><span>وقت الانتظار الموفَّر</span><span>~2.5 ساعة</span></div></div>'+
   '<div class="box" style="margin-top:14px"><div class="box-head"><h3>أكثر المتاجر زيارة</h3></div>'+
   INVOICES.slice(0,4).map(function(i,n){return '<div class="mrow"><span>'+(n+1)+'. '+i.m+'</span><span>'+i.a.toFixed(2)+' ريال</span></div>'}).join('')+'</div>';
@@ -825,13 +819,14 @@ function more(){
 function clearConfirmSheet(){
   return '<div class="ov" id="ovClear"><div class="sheet" id="sheetClear">'+
     '<div class="sheet-head"><h3>مسح جميع البيانات؟</h3><button id="clsClear">'+ic('x',18,'#12235C')+'</button></div>'+
-    '<div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم حذف جلسة الدخول ونقاط الولاء وتفضيلات الإشعارات المحفوظة على هذا الجهاز، وسيُطلب منك تسجيل الدخول من جديد. لا يمكن التراجع عن هذا الإجراء.</div>'+
+    '<div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم حذف جلسة الدخول وتفضيلات الإشعارات المحفوظة على هذا الجهاز، وسيُطلب منك تسجيل الدخول من جديد. لا يمكن التراجع عن هذا الإجراء.</div>'+
     '<button class="logout" id="confirmClear" style="margin-top:16px;margin-bottom:76px">مسح نهائي</button>'+
   '</div></div>';
 }
 
 function profile(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var loyMerchantCount=MERCHANT_LOYALTY.filter(function(m){return m.points>0}).length;
   var opts=[{k:'notif',i:'bell',c:'#F59E0B',t:'تنبيهات الدور',s:'إشعار عند اقتراب دورك'},
             {k:'spend',i:'up',c:'#7C5CE6',t:'تنبيهات الإنفاق',s:'تنبيه عند تجاوز الميزانية'},
             {k:'offers',i:'gift',c:'#22A87A',t:'العروض والمكافآت',s:'استقبال العروض المخصصة'}];
@@ -844,7 +839,7 @@ function profile(){
   '<small>ahmed@noj.app</small><small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
   '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى ال'+(PROFILE.tier||'برونزي')+'</span></div></div>'+
   '<div class="stats3">'+
-    '<div class="st"><b>'+S.pts.toLocaleString('en-US')+'</b><small>نقاط الولاء</small></div>'+
+    '<div class="st"><b>'+loyMerchantCount+'</b><small>متاجر برصيد نقاط</small></div>'+
     '<div class="st"><b>'+INVOICES.length+'</b><small>فواتير الشهر</small></div>'+
     '<div class="st"><b>'+total.toLocaleString('en-US')+'</b><small>إنفاق الشهر</small></div>'+
   '</div>'+
@@ -889,8 +884,6 @@ var A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
 var DEMO_CODE='1234';
 
 function hydrateFromStorage(){
-  var savedPts=Store.get(K.POINTS,null);
-  if(typeof savedPts==='number'&&!isNaN(savedPts))S.pts=savedPts;
   var savedSw=Store.get(K.NOTIF,null);
   if(savedSw&&typeof savedSw==='object'){
     if(typeof savedSw.notif==='boolean')S.sw.notif=savedSw.notif;
@@ -1134,7 +1127,6 @@ function bind(){
         if(sb) await sb.auth.signOut();
       }catch(e){console.error('NOJ signOut error:',e)}
       Store.clearAll();
-      S.pts=INITIAL_POINTS;
       S.sw={notif:INITIAL_SW.notif,spend:INITIAL_SW.spend,offers:INITIAL_SW.offers};
       S.showClear=false;
       logoutFlow();
@@ -1174,7 +1166,6 @@ function bind(){
       // only THIS merchant's balance changes — every other merchant's row
       // in MERCHANT_LOYALTY is untouched, so their rewards stay unaffected.
       m.points=Number(res.data.points);
-      computeTotalPoints();
       render();
       toast('تم استبدال: '+r.t+' 🎉');
     }catch(e){
