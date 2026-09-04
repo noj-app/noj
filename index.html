@@ -323,6 +323,7 @@
   #view > *:nth-child(4){animation-delay:.17s}
   #view > *:nth-child(5){animation-delay:.22s}
   #view > *:nth-child(6){animation-delay:.27s}
+  #view > *:nth-child(7){animation-delay:.32s}
 
   .tiles .tile{animation:popIn .4s cubic-bezier(.22,.9,.3,1) both}
   .tiles .tile:nth-child(1){animation-delay:.10s}
@@ -526,16 +527,36 @@ let INVOICES=[];
 let CATS=[];
 const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510},{m:'يونيو',t:1980},{m:'يوليو',t:2540},{m:'أغسطس',t:2850}];
 const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 35%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
+// Still Mock, kept out of the bottom nav now but reachable via the bell
+// icon — home() also shows a 2-item preview of this same array.
+const ALERTS=[{i:'clock',c:'#7C5CE6',t:'اقترب دورك في مطعم مذاق',s:'بقي شخصان قبلك — قبل 4 دقائق'},
+       {i:'receipt',c:'#3B82F6',t:'وصلت فاتورتك الرقمية',s:'مطعم مذاق · 120.50 ريال — اليوم'},
+       {i:'gift',c:'#22A87A',t:'حصلت على 45 نقطة ولاء',s:'من مشترياتك اليوم'},
+       {i:'up',c:'#F59E0B',t:'تنبيه إنفاق',s:'تجاوزت 80% من ميزانية المطاعم — أمس'}];
 // Loyalty points belong to merchants, not to NOJ itself — there is no
 // platform-wide points pool, and no screen ever sums balances across
 // merchants into one number. Each entry is one merchant relationship:
 // {merchantId, name, type, points, tier, rewards:[{id,t,c}]}.
 let MERCHANT_LOYALTY=[];
-const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'alerts',l:'التنبيهات',i:'bell'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
+// One entry per merchant the customer has ANY relationship with (an
+// invoice, a loyalty balance, or both) — built in loadUserData() from
+// INVOICES + MERCHANT_LOYALTY + a dedicated merchants lookup. Shape:
+// {merchantId, name, branch, type, bookingEnabled, queueEnabled,
+//  invoiceCount, loy: <the matching MERCHANT_LOYALTY entry, or null>}.
+// `loy` is the SAME object reference as in MERCHANT_LOYALTY (not a copy),
+// so redeeming a reward from the merchant detail page updates both places
+// at once, same as redeeming from the الولاء page.
+let USER_MERCHANTS=[];
+// Aggregate (no-identity) waiting counts per merchant, fetched on demand
+// when opening a merchant's detail page: {[merchantId]: [{unit_name,
+// waiting_count}]}. Undefined while loading, [] once loaded with nothing
+// waiting.
+let MERCHANT_QUEUE_STATS={};
+const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاجري',i:'store'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
-let QUEUE={ticket:null,label:''};
-let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,query:'',sw:{notif:true,spend:true,offers:false}};
+let QUEUE={ticket:null,label:'',merchantId:null};
+let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',sw:{notif:true,spend:true,offers:false}};
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
 
@@ -559,8 +580,8 @@ function computeCats(){
 async function loadUserData(profileId){
   var sb=await getSb();
   var results=await Promise.all([
-    sb.from('invoices').select('id, amount, category, items, created_at, merchants(name, branch)').eq('user_id',profileId).order('created_at',{ascending:false}),
-    sb.from('queue_tickets').select('ticket_number, unit_name, position, est_minutes, merchants(name)').eq('user_id',profileId).eq('status','waiting').order('created_at',{ascending:false}).limit(1),
+    sb.from('invoices').select('id, amount, category, items, created_at, merchant_id, merchants(name, branch)').eq('user_id',profileId).order('created_at',{ascending:false}),
+    sb.from('queue_tickets').select('ticket_number, unit_name, position, est_minutes, merchant_id, merchants(name)').eq('user_id',profileId).eq('status','waiting').order('created_at',{ascending:false}).limit(1),
     sb.from('rewards').select('id, title, cost_points, merchant_id, merchants(name)').eq('active',true),
     sb.from('merchant_loyalty').select('merchant_id, points, tier, merchants(name, type)').eq('user_id',profileId)
   ]);
@@ -569,7 +590,7 @@ async function loadUserData(profileId){
 
   INVOICES=(invRes.data||[]).map(function(row){
     var mName=row.merchants?row.merchants.name+(row.merchants.branch?' - '+row.merchants.branch:''):'متجر';
-    return {id:row.id,m:mName,d:formatDate(row.created_at),a:Number(row.amount),c:row.category,
+    return {id:row.id,m:mName,d:formatDate(row.created_at),a:Number(row.amount),c:row.category,merchantId:row.merchant_id,
       items:(row.items||[]).map(function(it){return {n:it.n,p:it.p}})};
   });
   computeCats();
@@ -589,9 +610,36 @@ async function loadUserData(profileId){
 
   if(ticketRes.data&&ticketRes.data[0]){
     var t=ticketRes.data[0];
-    QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:'')};
+    QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:''),merchantId:t.merchant_id};
     S.q={ahead:t.position,min:t.est_minutes,now:t.position<=0};
   }
+
+  await loadUserMerchants(profileId);
+}
+
+// "متاجري": every merchant the customer has ANY relationship with (an
+// invoice, a loyalty balance, or both), enriched with the merchant-level
+// feature flags (booking_enabled/queue_enabled) that decide which sections
+// its detail page is allowed to show at all.
+async function loadUserMerchants(profileId){
+  var loyByMerchant={};
+  MERCHANT_LOYALTY.forEach(function(m){loyByMerchant[m.merchantId]=m});
+  var invoiceCounts={};
+  INVOICES.forEach(function(inv){if(inv.merchantId)invoiceCounts[inv.merchantId]=(invoiceCounts[inv.merchantId]||0)+1});
+
+  var merchantIds=Object.keys(invoiceCounts).concat(Object.keys(loyByMerchant));
+  merchantIds=merchantIds.filter(function(id,idx){return id&&merchantIds.indexOf(id)===idx});
+  if(!merchantIds.length){USER_MERCHANTS=[];return}
+
+  var sb=await getSb();
+  var merchRes=await sb.from('merchants').select('id, name, branch, type, booking_enabled, queue_enabled').in('id',merchantIds);
+  if(merchRes.error) throw merchRes.error;
+
+  USER_MERCHANTS=(merchRes.data||[]).map(function(row){
+    return {merchantId:row.id,name:row.name,branch:row.branch,type:row.type,
+      bookingEnabled:!!row.booking_enabled,queueEnabled:!!row.queue_enabled,
+      invoiceCount:invoiceCounts[row.id]||0,loy:loyByMerchant[row.id]||null};
+  });
 }
 
 async function loginAndLoad(phone){
@@ -672,6 +720,10 @@ function home(){
       '<small style="color:var(--text);font-weight:700">'+last.m+'</small>'+
       '<small class="amt">'+last.a.toFixed(2)+' ريال</small><small>'+last.d+'</small></div></div></div>'+
   '</div>'+
+  '<div class="sec"><div class="sec-head"><h2>التنبيهات</h2><button data-go="alerts">عرض الكل</button></div>'+
+    '<div class="list">'+ALERTS.slice(0,2).map(function(a){return '<button class="row" data-go="alerts"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
+      '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>'}).join('')+
+    '</div></div>'+
   '<div class="sec"><div class="sec-head"><h2>الولاء</h2><button data-go="loyalty">عرض الكل</button></div>'+loyTeaser()+'</div>';
 }
 
@@ -741,6 +793,19 @@ function queue(){
   '<div class="note">بناءً على بيانات الازدحام السابقة، أهدأ وقت لزيارة هذا الفرع اليوم هو <b>3:00 - 4:30 عصرًا</b>.</div>';
 }
 
+// Shared invoice-detail modal (.ov/.sheet) — used by invoices() and by
+// merchantDetail()'s "فواتيري هنا" section, so both open the exact same
+// modal instead of duplicating this markup.
+function invoiceModal(sel){
+  if(!sel)return '';
+  return '<div class="ov" id="ov"><div class="sheet" id="sheet">'+
+    '<div class="sheet-head"><h3>تفاصيل الفاتورة</h3><button id="cls">'+ic('x',18,'#12235C')+'</button></div>'+
+    '<div><b style="font-size:14px">'+sel.m+'</b><div style="font-size:12px;color:var(--muted);margin-top:3px">'+sel.d+'</div></div>'+
+    '<div class="dash"></div>'+
+    sel.items.map(function(t){return '<div class="mrow"><span>'+t.n+'</span><span>'+t.p+' ريال</span></div>'}).join('')+
+    '<div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div></div></div>';
+}
+
 function invoices(){
   var f=INVOICES.filter(function(i){return i.m.indexOf(S.query)>-1||i.c.indexOf(S.query)>-1});
   var sel=INVOICES.filter(function(i){return i.id===S.sel})[0];
@@ -749,14 +814,8 @@ function invoices(){
       '<div class="row-ico" style="background:'+m.c+'18">'+ic(m.i,22,m.c)+'</div>'+
       '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+i.c+'</span></div>'+
       '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>';
-  var modal=sel?'<div class="ov" id="ov"><div class="sheet" id="sheet">'+
-    '<div class="sheet-head"><h3>تفاصيل الفاتورة</h3><button id="cls">'+ic('x',18,'#12235C')+'</button></div>'+
-    '<div><b style="font-size:14px">'+sel.m+'</b><div style="font-size:12px;color:var(--muted);margin-top:3px">'+sel.d+'</div></div>'+
-    '<div class="dash"></div>'+
-    sel.items.map(function(t){return '<div class="mrow"><span>'+t.n+'</span><span>'+t.p+' ريال</span></div>'}).join('')+
-    '<div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div></div></div>':'';
   return '<div class="sec-head" style="margin-top:20px"><h2>الفواتير الذكية</h2><button data-go="home">الرئيسية</button></div>'+
-    '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="q" placeholder="ابحث عن متجر أو فئة..." value="'+S.query+'"></div>'+grid+modal;
+    '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="q" placeholder="ابحث عن متجر أو فئة..." value="'+S.query+'"></div>'+grid+invoiceModal(sel);
 }
 
 function loyalty(){
@@ -764,6 +823,88 @@ function loyalty(){
     ?MERCHANT_LOYALTY.map(merchantLoyCard).join('')
     :'<div class="empty">لا يوجد رصيد نقاط لدى أي تاجر بعد</div>';
   return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+cards;
+}
+
+// "متاجري": every merchant the customer has any relationship with (an
+// invoice, a loyalty balance, or both) — built into USER_MERCHANTS by
+// loadUserMerchants(). Tapping a card opens merchantDetail() for it.
+function merchantsPage(){
+  if(!USER_MERCHANTS.length){
+    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
+      '<div class="empty">لم تتعامل مع أي متجر بعد</div>';
+  }
+  var rows=USER_MERCHANTS.map(function(m){
+    var cat=CAT[m.type]||CAT['أخرى'];
+    var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
+    var bits=[];
+    if(m.loy)bits.push(m.loy.points.toLocaleString('en-US')+' نقطة');
+    bits.push(m.invoiceCount+' '+(m.invoiceCount===1?'فاتورة':'فواتير'));
+    if(hasActiveQueue)bits.push('دور نشط الآن');
+    return '<button class="row" data-open-merchant="'+m.merchantId+'"><div class="row-ico" style="background:'+cat.c+'18">'+ic(cat.i,22,cat.c)+'</div>'+
+      '<div class="row-txt"><b>'+m.name+(m.branch?' - '+m.branch:'')+'</b><small>'+bits.join(' · ')+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>';
+  }).join('');
+  return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
+    '<div class="list">'+rows+'</div>';
+}
+
+// Merchant detail page: shows ONLY the sections that merchant actually
+// activates — a merchant with no loyalty program shows no أ) section at
+// all, one with booking_enabled=false shows no ب) section, etc. Reuses
+// the exact same components already used elsewhere (merchantLoyCard(),
+// invoiceModal(), .list/.row, .box/.mrow) rather than inventing new ones.
+function merchantDetail(){
+  var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  if(!m){
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button data-go="merchants">متاجري</button></div>'+
+      '<div class="empty">هذا المتجر غير متاح</div>';
+  }
+  var cat=CAT[m.type]||CAT['أخرى'];
+  var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
+
+  var header='<div class="box"><div class="loy">'+
+    '<div class="loy-ico">'+ic(cat.i,30,cat.c)+'</div>'+
+    '<div class="loy-mid"><small>'+m.type+'</small><b style="font-size:16px">'+m.name+'</b>'+
+    (m.branch?'<p>'+m.branch+'</p>':'')+'</div>'+
+  '</div></div>';
+
+  var sections='';
+
+  // أ) الولاء — فقط إن كان لهذا التاجر رصيد ولاء لهذا العميل أصلاً
+  if(m.loy)sections+=merchantLoyCard(m.loy);
+
+  // ب) الحجز المسبق — فقط إن كان المتجر يتيحه
+  if(m.bookingEnabled){
+    sections+='<div class="box" style="margin-top:14px"><div class="box-head"><h3>الحجز المسبق</h3></div>'+
+      '<p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">احجز موعدك أو دورك لدى '+m.name+' مسبقاً وتجنّب الانتظار.</p>'+
+      '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
+  }
+
+  // ج) فواتيري — فقط إن وُجدت فواتير فعلية لهذا التاجر
+  var myInvoices=INVOICES.filter(function(i){return i.merchantId===m.merchantId});
+  if(myInvoices.length){
+    sections+='<div class="sec"><div class="sec-head"><h2>فواتيري هنا</h2></div><div class="list">'+
+      myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
+        '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
+        '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
+        '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+
+    '</div></div>';
+  }
+
+  // د) الانتظار — فقط إن كان المتجر يشغّل انتظاراً ذكياً
+  if(m.queueEnabled){
+    var stats=MERCHANT_QUEUE_STATS[m.merchantId];
+    var statsHtml;
+    if(stats===undefined)statsHtml='<p style="font-size:13px;color:var(--muted)">جارٍ تحميل حالة الانتظار...</p>';
+    else if(!stats.length)statsHtml='<p style="font-size:13px;color:var(--muted)">لا يوجد أحد بالانتظار حالياً</p>';
+    else statsHtml=stats.map(function(s){return '<div class="mrow"><span>'+s.unit_name+'</span><span>'+s.waiting_count+' بالانتظار</span></div>'}).join('');
+    sections+='<div class="box" style="margin-top:14px"><div class="box-head"><h3>حالة الانتظار</h3></div>'+statsHtml+
+      (hasActiveQueue?'<div class="dash"></div><div class="mrow"><span>دورك أنت</span><span>#'+QUEUE.ticket+'</span></div>':'')+
+    '</div>';
+  }
+
+  var sel=INVOICES.filter(function(i){return i.id===S.sel&&i.merchantId===m.merchantId})[0];
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="merchants">متاجري</button></div>'+
+    header+sections+invoiceModal(sel);
 }
 
 function spending(){
@@ -781,12 +922,8 @@ function spending(){
 }
 
 function alerts(){
-  var A=[{i:'clock',c:'#7C5CE6',t:'اقترب دورك في مطعم مذاق',s:'بقي شخصان قبلك — قبل 4 دقائق'},
-         {i:'receipt',c:'#3B82F6',t:'وصلت فاتورتك الرقمية',s:'مطعم مذاق · 120.50 ريال — اليوم'},
-         {i:'gift',c:'#22A87A',t:'حصلت على 45 نقطة ولاء',s:'من مشترياتك اليوم'},
-         {i:'up',c:'#F59E0B',t:'تنبيه إنفاق',s:'تجاوزت 80% من ميزانية المطاعم — أمس'}];
   return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="home">الرئيسية</button></div>'+
-  '<div class="list">'+A.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
+  '<div class="list">'+ALERTS.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
   '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>';
 }
 
@@ -856,7 +993,7 @@ function profile(){
   (S.showClear?clearConfirmSheet():'');
 }
 
-var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile};
+var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail};
 
 function toast(m){var e=document.getElementById('toast');document.getElementById('toast-text').textContent=m;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},2400)}
 
@@ -1072,8 +1209,9 @@ function logoutFlow(){
   Store.remove(K.PHONE);
   A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
   PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
-  QUEUE={ticket:null,label:''};
-  INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];
+  QUEUE={ticket:null,label:'',merchantId:null};
+  INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];USER_MERCHANTS=[];MERCHANT_QUEUE_STATS={};
+  S.selMerchant=null;
   var el=document.getElementById('auth');
   el.style.display='';el.style.opacity='';el.style.transform='';
   document.getElementById('app').style.display='none';
@@ -1086,7 +1224,7 @@ function render(){
   document.getElementById('view').innerHTML=(V[S.tab]||home)();
   document.getElementById('profile').className='mark'+(S.tab==='profile'?' on':'');
   document.getElementById('nav').innerHTML=NAV.map(function(n){
-    var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1);
+    var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
     return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'#12235C':'#64748B',on?2.1:1.8)+'<span style="color:'+(on?'#12235C':'#64748B')+'">'+n.l+'</span></button>'}).join('');
   bind();
   var total=CATS.reduce(function(s,c){return s+c.a},0);
@@ -1174,6 +1312,39 @@ function bind(){
       toast('تعذّر إتمام الاستبدال، حاول مرة أخرى');
     }
   }});
+
+  [].forEach.call(document.querySelectorAll('[data-open-merchant]'),function(b){b.onclick=function(){
+    var id=b.getAttribute('data-open-merchant');
+    S.selMerchant=id;
+    S.tab='merchantDetail';
+    render();
+    var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
+    if(m&&m.queueEnabled&&MERCHANT_QUEUE_STATS[id]===undefined){
+      loadMerchantQueueStats(id).then(function(){if(S.selMerchant===id)render()});
+    }
+  }});
+
+  [].forEach.call(document.querySelectorAll('[data-book]'),function(b){b.onclick=function(){
+    var id=b.getAttribute('data-book');
+    var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
+    toast('تم إرسال طلب حجز تجريبي'+(m?' لدى '+m.name:'')+' 📅');
+  }});
+}
+
+// Aggregate (no-identity) waiting counts for one merchant's queue, fetched
+// on demand when its detail page is opened (see the [data-open-merchant]
+// handler above) rather than for every merchant up front.
+async function loadMerchantQueueStats(merchantId){
+  try{
+    var sb=await getSb();
+    if(!sb){MERCHANT_QUEUE_STATS[merchantId]=[];return}
+    var res=await sb.rpc('get_merchant_queue_stats',{p_merchant_id:merchantId});
+    if(res.error) throw res.error;
+    MERCHANT_QUEUE_STATS[merchantId]=res.data||[];
+  }catch(e){
+    console.error('NOJ queue stats error:',e);
+    MERCHANT_QUEUE_STATS[merchantId]=[];
+  }
 }
 
 document.getElementById('app').style.display='none';
