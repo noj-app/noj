@@ -63,9 +63,21 @@
   .spark{position:absolute;left:0;bottom:6px;width:62%;pointer-events:none}
 
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
-  .tile{position:relative;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
+  .tile{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
   .tile span{font-size:10.5px;font-weight:600;line-height:1.35}
-  .tile-badge{position:absolute;top:6px;left:6px;min-width:18px;height:18px;padding:0 5px;border-radius:99px;color:#fff;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;line-height:1}
+
+  /* شبكة أقسام صفحة المتجر (متاجري): حتى 3 مربعات في الصف، تعيد ترتيب
+     أعمدتها لكل صف على حدة حسب عدد عناصره فعليًا — فلا فراغات أيًا كان
+     إجمالي عدد الأقسام المفعّلة (1..6). */
+  .msec-grid{display:grid;gap:10px}
+  .msec-grid+.msec-grid{margin-top:10px}
+  .msec{position:relative;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:16px 8px 12px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
+  .msec-ico{position:relative;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .msec-dot{position:absolute;top:-1px;left:-1px;width:10px;height:10px;border-radius:50%;background:#EF4444;border:2px solid var(--card)}
+  .msec b{font-size:12.5px;font-weight:800}
+  .msec p{font-size:10px;color:var(--muted);line-height:1.45;min-height:2.9em}
+  .msec-pts{font-size:17px;font-weight:800;color:var(--orange);direction:ltr}
+  .msec-arrow{width:26px;height:26px;border-radius:50%;background:var(--line);display:flex;align-items:center;justify-content:center;margin-top:2px;flex-shrink:0}
 
   .sec{margin-top:24px}
   .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
@@ -372,12 +384,17 @@
   .loy-grid .loy-card:nth-child(5){animation-delay:.26s}
   .loy-grid .loy-card:nth-child(6){animation-delay:.31s}
 
+  .msec-grid .msec{animation:fadeUp .34s ease both}
+  .msec-grid .msec:nth-child(1){animation-delay:.06s}
+  .msec-grid .msec:nth-child(2){animation-delay:.11s}
+  .msec-grid .msec:nth-child(3){animation-delay:.16s}
+
   /* press feedback */
-  .tile,.row,.box,.hero-btn,.btn,.rw button,.loy-card,.nav button,.bell,.sec-head button{transition:transform .16s cubic-bezier(.22,.9,.3,1),box-shadow .2s ease,background .2s ease,opacity .2s ease}
-  .tile:active,.row:active,.hero-btn:active,.rw button:active,.loy-card:active,.sec-head button:active{transform:scale(.96)}
+  .tile,.row,.box,.hero-btn,.btn,.rw button,.loy-card,.msec,.nav button,.bell,.sec-head button{transition:transform .16s cubic-bezier(.22,.9,.3,1),box-shadow .2s ease,background .2s ease,opacity .2s ease}
+  .tile:active,.row:active,.hero-btn:active,.rw button:active,.loy-card:active,.msec:active,.sec-head button:active{transform:scale(.96)}
   .btn:active{transform:scale(.97)}
   .bell:active{transform:scale(.9)}
-  .tile:hover,.box:hover,.loy-card:hover{box-shadow:0 6px 18px rgba(18,35,92,.07)}
+  .tile:hover,.box:hover,.loy-card:hover,.msec:hover{box-shadow:0 6px 18px rgba(18,35,92,.07)}
   .row:hover{background:#FAFBFF}
 
   /* hero */
@@ -1040,26 +1057,56 @@ function merchantsPage(){
 function merchantSectionsList(m,myInvoices){
   var sections=[];
   if(m.loy){
-    var avail=(m.loy.rewards||[]).filter(function(r){return m.loy.points>=r.c}).length;
-    sections.push({key:'loyalty',label:'الولاء',icon:'gift',color:'#22A87A',badge:String(avail),badgeColor:'var(--orange)'});
+    sections.push({key:'loyalty',label:'الولاء',icon:'gift',color:'#F59E0B',
+      desc:'تابع رصيد نقاطك واستبدل أحدث المكافآت',pts:m.loy.points});
   }
   if(myInvoices.length){
-    sections.push({key:'invoices',label:'فواتيري',icon:'receipt',color:'#3B82F6'});
+    sections.push({key:'invoices',label:'فواتيري',icon:'receipt',color:'#3B82F6',
+      desc:'راجع كل فواتيرك لدى هذا المتجر'});
   }
   if(m.bookingEnabled){
-    sections.push({key:'booking',label:'مواعيدي',icon:'hospital',color:'#F59E0B'});
+    sections.push({key:'booking',label:'مواعيدي',icon:'hospital',color:'#22A87A',
+      desc:'احجز دورك أو موعدك مسبقاً وتجنّب الانتظار'});
   }
   if(m.queueEnabled){
-    sections.push({key:'queue',label:'الانتظار الذكي',icon:'clock',color:'#7C5CE6',badge:'مباشر',badgeColor:'var(--green)'});
+    sections.push({key:'queue',label:'الانتظار الذكي',icon:'clock',color:'#7C5CE6',
+      desc:'تابع حالة الانتظار المباشرة الآن'});
   }
+  // العروض والتنبيهات: لا مصدر بيانات لهما بعد (لا عمود ولا جدول)، فلا
+  // تُدرجان في sections أبدًا مهما كانت حالة التاجر. عند إضافة بياناتهما
+  // مستقبلاً، لونا وأيقونتا التصميم المعتمد لهما هما:
+  //   العروض: {icon:'percent', color:'#EC4899'} (وردي)
+  //   التنبيهات: {icon:'bell', color:'#3B82F6', alert:true} (أزرق + نقطة
+  //   حمراء صغيرة على الأيقونة عبر msecHtml()'s s.alert فقط عند وجود
+  //   تنبيهات غير مقروءة فعلاً)
   return sections;
 }
 
-// Merchant detail page: شبكة مربّعات — واحد لكل قسم فعّله هذا التاجر
-// فعليًا فقط، تعيد ترتيب أعمدتها تلقائيًا حسب عددها (repeat(count,1fr) يملأ
-// الصف بالضبط أيًا كان العدد، فلا فراغات). الضغط على مربّع ينقل إلى صفحة
-// مستقلة لذلك القسم. حالة خاصة: تاجر فعّل الفواتير فقط -> تُعرض القائمة
-// مباشرة دون شبكة (مربّع واحد لا فائدة من عرضه كقائمة تنقّل).
+function chunk(arr,size){
+  var out=[];
+  for(var i=0;i<arr.length;i+=size)out.push(arr.slice(i,i+size));
+  return out;
+}
+
+// مربّع قسم واحد: دائرة ملوّنة بخلفية فاتحة للأيقونة (+نقطة حمراء صغيرة
+// إن كان القسم يحمل تنبيهات غير مقروءة)، اسم القسم، وصف قصير سطران،
+// رصيد النقاط بخط كبير ذهبي لقسم الولاء فقط، ثم سهم دائري صغير أسفله.
+function msecHtml(s,merchantId){
+  return '<button class="msec" data-open-section="'+s.key+'" data-merchant="'+merchantId+'">'+
+    '<div class="msec-ico" style="background:'+s.color+'18">'+(s.alert?'<span class="msec-dot"></span>':'')+ic(s.icon,22,s.color)+'</div>'+
+    '<b>'+s.label+'</b>'+
+    '<p>'+s.desc+'</p>'+
+    (s.pts!=null?'<div class="msec-pts">'+s.pts.toLocaleString('en-US')+' نقطة</div>':'')+
+    '<div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div>'+
+  '</button>';
+}
+
+// Merchant detail page: شبكة مربّعات (حتى 3 في الصف) — واحد لكل قسم فعّله
+// هذا التاجر فعليًا فقط. تُقسَّم الأقسام لصفوف من 3 كحد أقصى، وكل صف يضبط
+// عدد أعمدته على طوله الفعلي (chunk+repeat(len,1fr)) فيملأ عرضه بالكامل
+// دون أي فراغات مهما كان إجمالي عدد الأقسام. الضغط على مربّع ينقل إلى
+// صفحة مستقلة لذلك القسم. حالة خاصة: تاجر فعّل الفواتير فقط -> تُعرض
+// القائمة مباشرة دون شبكة (مربّع واحد لا فائدة من عرضه كقائمة تنقّل).
 function merchantDetail(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
@@ -1090,12 +1137,10 @@ function merchantDetail(){
       header+list+invoiceModal(sel);
   }
 
-  var grid='<div class="tiles" style="grid-template-columns:repeat('+sections.length+',1fr);margin-top:14px">'+
-    sections.map(function(s){
-      return '<button class="tile" data-open-section="'+s.key+'" data-merchant="'+m.merchantId+'">'+
-        (s.badge?'<span class="tile-badge" style="background:'+s.badgeColor+'">'+s.badge+'</span>':'')+
-        ic(s.icon,26,s.color)+'<span>'+s.label+'</span></button>';
-    }).join('')+'</div>';
+  var grid='<div style="margin-top:14px">'+chunk(sections,3).map(function(row){
+    return '<div class="msec-grid" style="grid-template-columns:repeat('+row.length+',1fr)">'+
+      row.map(function(s){return msecHtml(s,m.merchantId)}).join('')+'</div>';
+  }).join('')+'</div>';
 
   return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="merchants">متاجري</button></div>'+
     header+grid;
