@@ -121,6 +121,16 @@
   .loy-fill{height:100%;border-radius:99px;background:var(--orange)}
   .loy-num{font-size:10px;color:var(--muted);margin-top:5px;direction:ltr;text-align:left}
 
+  /* صفحة الولاء: شبكة بطاقتين في الصف — شعار بالحرف الأول، اسم، رصيد، وشارة المكافآت المتاحة */
+  .loy-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .loy-card{display:block;width:100%;padding:0;text-align:right;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:18px;overflow:hidden;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow)}
+  .loy-card-logo{width:100%;aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:#fff}
+  .loy-card-body{padding:12px}
+  .loy-card-body b{display:block;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .loy-card-pts{font-size:16px;font-weight:800;color:var(--orange);margin-top:4px}
+
+  .stats2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}
+
   .pill-search{position:relative;margin-bottom:14px}
   .pill-search svg{position:absolute;top:50%;right:14px;transform:translateY(-50%)}
   .pill-search input{width:100%;padding:12px 42px 12px 16px;border-radius:14px;border:1px solid var(--line);background:var(--card);font-size:14px;outline:none;color:var(--text)}
@@ -149,6 +159,20 @@
   .rw b{display:block;font-size:14px;font-weight:700;margin-bottom:4px}
   .rw small{font-size:12px;color:var(--muted)}
   .rw button{padding:9px 16px;border-radius:12px;font-size:12px;font-weight:700;flex-shrink:0}
+
+  /* صفحة مكافآت المتجر: أيقونة نوع المكافأة + دائرة نقاط + زر استبدال بعرض كامل */
+  .rwd{padding:16px}
+  .rwd + .rwd{border-top:1px solid var(--line)}
+  .rwd-top{display:flex;align-items:center;gap:12px}
+  .rwd-ico{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .rwd-name{flex:1;min-width:0}
+  .rwd-name b{display:block;font-size:14px;font-weight:700}
+  .rwd-name small{display:block;font-size:11px;color:var(--muted);margin-top:3px}
+  .rwd-pts{width:50px;height:50px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}
+  .rwd-pts b{font-size:14px;font-weight:800;line-height:1}
+  .rwd-pts small{font-size:8px;line-height:1;margin-top:1px}
+  .rwd-btn{margin-top:12px}
+  .rwd.locked{opacity:.6}
 
   .bars{display:flex;align-items:flex-end;gap:10px;height:140px;margin-top:6px}
   .bcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
@@ -331,20 +355,28 @@
   .tiles .tile:nth-child(3){animation-delay:.22s}
   .tiles .tile:nth-child(4){animation-delay:.28s}
 
-  .list .row,.list .rw{animation:fadeUp .34s ease both}
-  .list .row:nth-child(1),.list .rw:nth-child(1){animation-delay:.06s}
-  .list .row:nth-child(2),.list .rw:nth-child(2){animation-delay:.12s}
-  .list .row:nth-child(3),.list .rw:nth-child(3){animation-delay:.18s}
-  .list .row:nth-child(4),.list .rw:nth-child(4){animation-delay:.24s}
-  .list .row:nth-child(5),.list .rw:nth-child(5){animation-delay:.30s}
-  .list .row:nth-child(6),.list .rw:nth-child(6){animation-delay:.36s}
+  .list .row,.list .rw,.list .rwd{animation:fadeUp .34s ease both}
+  .list .row:nth-child(1),.list .rw:nth-child(1),.list .rwd:nth-child(1){animation-delay:.06s}
+  .list .row:nth-child(2),.list .rw:nth-child(2),.list .rwd:nth-child(2){animation-delay:.12s}
+  .list .row:nth-child(3),.list .rw:nth-child(3),.list .rwd:nth-child(3){animation-delay:.18s}
+  .list .row:nth-child(4),.list .rw:nth-child(4),.list .rwd:nth-child(4){animation-delay:.24s}
+  .list .row:nth-child(5),.list .rw:nth-child(5),.list .rwd:nth-child(5){animation-delay:.30s}
+  .list .row:nth-child(6),.list .rw:nth-child(6),.list .rwd:nth-child(6){animation-delay:.36s}
+
+  .loy-grid .loy-card{animation:fadeUp .34s ease both}
+  .loy-grid .loy-card:nth-child(1){animation-delay:.06s}
+  .loy-grid .loy-card:nth-child(2){animation-delay:.11s}
+  .loy-grid .loy-card:nth-child(3){animation-delay:.16s}
+  .loy-grid .loy-card:nth-child(4){animation-delay:.21s}
+  .loy-grid .loy-card:nth-child(5){animation-delay:.26s}
+  .loy-grid .loy-card:nth-child(6){animation-delay:.31s}
 
   /* press feedback */
-  .tile,.row,.box,.hero-btn,.btn,.rw button,.nav button,.bell,.sec-head button{transition:transform .16s cubic-bezier(.22,.9,.3,1),box-shadow .2s ease,background .2s ease,opacity .2s ease}
-  .tile:active,.row:active,.hero-btn:active,.rw button:active,.sec-head button:active{transform:scale(.96)}
+  .tile,.row,.box,.hero-btn,.btn,.rw button,.loy-card,.nav button,.bell,.sec-head button{transition:transform .16s cubic-bezier(.22,.9,.3,1),box-shadow .2s ease,background .2s ease,opacity .2s ease}
+  .tile:active,.row:active,.hero-btn:active,.rw button:active,.loy-card:active,.sec-head button:active{transform:scale(.96)}
   .btn:active{transform:scale(.97)}
   .bell:active{transform:scale(.9)}
-  .tile:hover,.box:hover{box-shadow:0 6px 18px rgba(18,35,92,.07)}
+  .tile:hover,.box:hover,.loy-card:hover{box-shadow:0 6px 18px rgba(18,35,92,.07)}
   .row:hover{background:#FAFBFF}
 
   /* hero */
@@ -481,7 +513,9 @@ const P={
  up:'<path d="M5 15l5-5 4 4 6-6"/><path d="M16 8h4v4"/>',
  down:'<path d="M5 9l5 5 4-4 6 6"/><path d="M16 16h4v-4"/>',
  spark:'<path d="M12 3.5l1.6 4.9L18.5 10l-4.9 1.6L12 16.5l-1.6-4.9L5.5 10l4.9-1.6z"/>',
- arrow:'<path d="M7 17L17 7"/><path d="M9 7h8v8"/>'
+ arrow:'<path d="M7 17L17 7"/><path d="M9 7h8v8"/>',
+ percent:'<circle cx="7.5" cy="7.5" r="2.3"/><circle cx="16.5" cy="16.5" r="2.3"/><path d="M18 6L6 18"/>',
+ lock:'<rect x="5" y="11" width="14" height="9" rx="2.4"/><path d="M8 11V7.5a4 4 0 018 0V11"/>'
 };
 function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.8)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 
@@ -598,7 +632,7 @@ async function loadUserData(profileId){
     sb.from('invoices').select('id, amount, category, items, created_at, merchant_id, merchants(name, branch)').eq('user_id',profileId).order('created_at',{ascending:false}),
     sb.from('queue_tickets').select('ticket_number, unit_name, position, est_minutes, merchant_id, merchants(name)').eq('user_id',profileId).eq('status','waiting').order('created_at',{ascending:false}).limit(1),
     sb.from('rewards').select('id, title, cost_points, merchant_id, merchants(name)').eq('active',true),
-    sb.from('merchant_loyalty').select('merchant_id, points, tier, merchants(name, type, branch)').eq('user_id',profileId)
+    sb.from('merchant_loyalty').select('merchant_id, points, tier, merchants(name, type, branch, logo_color)').eq('user_id',profileId)
   ]);
   var invRes=results[0],ticketRes=results[1],rewardRes=results[2],loyRes=results[3];
   if(invRes.error||ticketRes.error||rewardRes.error||loyRes.error) throw (invRes.error||ticketRes.error||rewardRes.error||loyRes.error);
@@ -616,6 +650,7 @@ async function loadUserData(profileId){
   MERCHANT_LOYALTY=(loyRes.data||[]).map(function(row){
     return {merchantId:row.merchant_id,name:row.merchants?row.merchants.name:'تاجر',
       type:row.merchants?row.merchants.type:'أخرى',branch:row.merchants?row.merchants.branch:null,
+      logoColor:row.merchants?row.merchants.logo_color:null,
       points:Number(row.points),tier:row.tier,rewards:[]};
   });
   var rewardsByMerchant={};
@@ -857,6 +892,24 @@ function invoices(){
 
 // قائمة المتاجر التي لدى العميل رصيد نقاط فيها، مفلترة بحقل البحث — دالة
 // مستقلة حتى يستبدل مستمع البحث محتوى #loyList فقط دون إعادة رسم الشاشة.
+// بطاقة شبكة الولاء: شعار بالحرف الأول على خلفية لون المتجر الفعلي
+// (merchants.logo_color)، أو لون فئته إن لم يكن معرّفاً، ثم الاسم ورصيد
+// النقاط وعدد المكافآت القابلة للاستبدال الآن فعلياً (النقاط كافية).
+function loyaltyCardHtml(m){
+  var cat=CAT[m.type]||CAT['أخرى'];
+  var color=m.logoColor||cat.c;
+  var initial=(m.name||'؟').trim().charAt(0);
+  var availableCount=(m.rewards||[]).filter(function(r){return m.points>=r.c}).length;
+  return '<button class="loy-card" data-open-loyalty="'+m.merchantId+'">'+
+    '<div class="loy-card-logo" style="background:'+color+'">'+initial+'</div>'+
+    '<div class="loy-card-body"><b>'+m.name+'</b>'+
+    '<div class="loy-card-pts">'+m.points.toLocaleString('en-US')+' نقطة</div>'+
+    '<span class="badge" style="background:'+(availableCount?'rgba(34,168,122,.14)':'var(--line)')+';color:'+(availableCount?'var(--green)':'var(--muted)')+'">'+availableCount+' مكافأة متاحة</span>'+
+    '</div></button>';
+}
+
+// قائمة "الولاء" الشبكية مفلترة بحقل البحث — دالة مستقلة حتى يستبدل مستمع
+// البحث محتوى #loyList فقط دون إعادة رسم الشاشة.
 function loyaltyListHtml(){
   var q=normalizeAr(S.loyQuery);
   var list=MERCHANT_LOYALTY.filter(function(m){
@@ -864,7 +917,7 @@ function loyaltyListHtml(){
     return normalizeAr(m.name+' '+(m.branch||'')).indexOf(q)>-1;
   });
   if(!list.length)return '<div class="empty">لا توجد متاجر مطابقة لبحثك</div>';
-  return list.map(merchantLoyCard).join('');
+  return '<div class="loy-grid">'+list.map(loyaltyCardHtml).join('')+'</div>';
 }
 
 function loyalty(){
@@ -875,6 +928,65 @@ function loyalty(){
   return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="loyQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.loyQuery+'"></div>'+
     '<div id="loyList">'+loyaltyListHtml()+'</div>';
+}
+
+// أيقونة المكافأة حسب نوعها المُستنتج من عنوانها (لا عمود نوع مخصص في
+// rewards) — خصم/نسبة، مشروب، أو هدية افتراضياً.
+function rewardIcon(title){
+  var t=title||'';
+  if(t.indexOf('%')>-1||t.indexOf('خصم')>-1)return 'percent';
+  if(t.indexOf('قهوة')>-1||t.indexOf('مشروب')>-1||t.indexOf('عصير')>-1||t.indexOf('كوب')>-1)return 'coffee';
+  return 'gift';
+}
+
+// بطاقة مكافأة واحدة: أيقونة نوعها (أو قفل إن كانت النقاط غير كافية)،
+// الاسم، دائرة النقاط المطلوبة، وزر استبدال — فعّال بالكامل عند توفر
+// الرصيد، وباهت/معطّل مع نص "تحتاج X نقطة إضافية" عند عدم كفايته.
+function rwdRowHtml(m,r){
+  var cat=CAT[m.type]||CAT['أخرى'];
+  var avail=m.points>=r.c;
+  var need=r.c-m.points;
+  return '<div class="rwd'+(avail?'':' locked')+'">'+
+    '<div class="rwd-top">'+
+      '<div class="rwd-ico" style="background:'+(avail?cat.c+'18':'var(--line)')+'">'+ic(avail?rewardIcon(r.t):'lock',22,avail?cat.c:'#8A93AD')+'</div>'+
+      '<div class="rwd-name"><b>'+r.t+'</b>'+(avail?'':'<small>تحتاج '+need+' نقطة إضافية</small>')+'</div>'+
+      '<div class="rwd-pts" style="background:'+(avail?'rgba(245,158,11,.14)':'var(--line)')+';color:'+(avail?'var(--orange)':'var(--muted)')+'"><b>'+r.c+'</b><small>نقطة</small></div>'+
+    '</div>'+
+    '<button class="btn rwd-btn" data-redeem="'+r.id+'" data-redeem-merchant="'+m.merchantId+'" style="background:'+(avail?'var(--navy)':'var(--line)')+';color:'+(avail?'#fff':'var(--muted)')+'"'+(avail?'':' disabled')+'>استبدال</button>'+
+  '</div>';
+}
+
+function rwdListHtml(m){
+  var rewards=m.rewards||[];
+  if(!rewards.length)return '<div class="empty">لا توجد مكافآت متاحة حالياً لدى هذا التاجر</div>';
+  return rewards.map(function(r){return rwdRowHtml(m,r)}).join('');
+}
+
+// صفحة مكافآت المتجر — تُفتح من بطاقة شبكة "الولاء". رأسها: أيقونة الفئة،
+// الاسم، نوع النشاط، ثم رصيد النقاط وعدد الزيارات (من USER_MERCHANTS) في
+// صفّين إحصائيين. استبدال مكافأة هنا يحدّث فقط #rwdList ورقم الرصيد
+// #rwHdrPts (بلا render() كامل) — راجع مستمع [data-redeem] في bind().
+function merchantRewardsPage(){
+  var m=MERCHANT_LOYALTY.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  if(!m){
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button data-go="loyalty">الولاء</button></div>'+
+      '<div class="empty">هذا المتجر غير متاح</div>';
+  }
+  var cat=CAT[m.type]||CAT['أخرى'];
+  var um=USER_MERCHANTS.filter(function(x){return x.merchantId===m.merchantId})[0];
+  var visits=um?um.invoiceCount:0;
+  var header='<div class="box"><div class="loy">'+
+    '<div class="loy-ico" style="background:'+cat.c+'18">'+ic(cat.i,30,cat.c)+'</div>'+
+    '<div class="loy-mid"><small>'+m.type+'</small><b style="font-size:16px">'+m.name+'</b></div>'+
+  '</div>'+
+  '<div class="stats2">'+
+    '<div class="st"><b id="rwHdrPts" style="color:var(--orange)">'+m.points.toLocaleString('en-US')+'</b><small>رصيد النقاط</small></div>'+
+    '<div class="st"><b>'+visits+'</b><small>عدد الزيارات</small></div>'+
+  '</div></div>';
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="loyalty">الولاء</button></div>'+
+    header+
+    '<div class="sec"><div class="sec-head"><h2>المكافآت</h2></div>'+
+    '<div class="list" id="rwdList">'+rwdListHtml(m)+'</div></div>';
 }
 
 // "متاجري": every merchant the customer has any relationship with (an
@@ -1057,7 +1169,7 @@ function profile(){
   (S.showClear?clearConfirmSheet():'');
 }
 
-var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail};
+var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail,merchantRewards:merchantRewardsPage};
 
 function toast(m){var e=document.getElementById('toast');document.getElementById('toast-text').textContent=m;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},2400)}
 
@@ -1396,6 +1508,42 @@ function bind(){
       // in MERCHANT_LOYALTY is untouched, so their rewards stay unaffected.
       m.points=Number(res.data.points);
       render();
+      toast('تم استبدال: '+r.t+' 🎉');
+    }catch(e){
+      console.error('NOJ redeem error:',e);
+      b.disabled=false;
+      toast('تعذّر إتمام الاستبدال، حاول مرة أخرى');
+    }
+  }});
+
+  // فتح صفحة مكافآت متجر من شبكة "الولاء"
+  [].forEach.call(document.querySelectorAll('[data-open-loyalty]'),function(b){b.onclick=function(){
+    S.selMerchant=b.getAttribute('data-open-loyalty');
+    S.tab='merchantRewards';
+    render();
+  }});
+
+  // استبدال مكافأة من صفحة مكافآت المتجر: يحدّث بطاقة المكافأة ورقم
+  // الرصيد فقط (#rwdList/#rwHdrPts) دون render() كامل للصفحة.
+  [].forEach.call(document.querySelectorAll('[data-redeem]'),function(b){b.onclick=async function(){
+    var merchantId=b.getAttribute('data-redeem-merchant');
+    var m=MERCHANT_LOYALTY.filter(function(x){return x.merchantId===merchantId})[0];
+    if(!m)return;
+    var r=(m.rewards||[]).filter(function(x){return String(x.id)===b.getAttribute('data-redeem')})[0];
+    if(!r)return;
+    if(m.points<r.c){toast('نقاطك لدى '+m.name+' غير كافية لاستبدال هذه المكافأة');return}
+    b.disabled=true;
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.rpc('redeem_reward',{p_reward_id:r.id});
+      if(res.error) throw res.error;
+      m.points=Number(res.data.points);
+      var listEl=document.getElementById('rwdList');
+      if(listEl)listEl.innerHTML=rwdListHtml(m);
+      var ptsEl=document.getElementById('rwHdrPts');
+      if(ptsEl)ptsEl.textContent=m.points.toLocaleString('en-US');
+      bind();
       toast('تم استبدال: '+r.t+' 🎉');
     }catch(e){
       console.error('NOJ redeem error:',e);
