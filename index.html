@@ -63,8 +63,9 @@
   .spark{position:absolute;left:0;bottom:6px;width:62%;pointer-events:none}
 
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
-  .tile{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
+  .tile{position:relative;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
   .tile span{font-size:10.5px;font-weight:600;line-height:1.35}
+  .tile-badge{position:absolute;top:6px;left:6px;min-width:18px;height:18px;padding:0 5px;border-radius:99px;color:#fff;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;line-height:1}
 
   .sec{margin-top:24px}
   .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
@@ -590,7 +591,7 @@ const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاج
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
 let QUEUE={ticket:null,label:'',merchantId:null};
-let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',sw:{notif:true,spend:true,offers:false}};
+let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',rewardsBack:'loyalty',sw:{notif:true,spend:true,offers:false}};
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
 
@@ -966,15 +967,23 @@ function rwdListHtml(m){
 // الاسم، نوع النشاط، ثم رصيد النقاط وعدد الزيارات (من USER_MERCHANTS) في
 // صفّين إحصائيين. استبدال مكافأة هنا يحدّث فقط #rwdList ورقم الرصيد
 // #rwHdrPts (بلا render() كامل) — راجع مستمع [data-redeem] في bind().
+// تُفتح إما من شبكة "الولاء" مباشرة (S.rewardsBack='loyalty') أو من مربّع
+// "الولاء" داخل صفحة متجر معيّن في "متاجري" (S.rewardsBack='merchantDetail')
+// — العنوان وزر الرجوع يتبادلان تبعًا لذلك، مطابقين اسم الشاشة التي
+// سيُعاد إليها فعليًا (نفس مبدأ زر الرجوع في بقية شاشات التطبيق).
 function merchantRewardsPage(){
   var m=MERCHANT_LOYALTY.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  var fromMerchantDetail=S.rewardsBack==='merchantDetail';
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button data-go="loyalty">الولاء</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button data-go="'+(fromMerchantDetail?'merchantDetail':'loyalty')+'">'+(fromMerchantDetail?'رجوع':'الولاء')+'</button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var cat=CAT[m.type]||CAT['أخرى'];
   var um=USER_MERCHANTS.filter(function(x){return x.merchantId===m.merchantId})[0];
   var visits=um?um.invoiceCount:0;
+  var title=fromMerchantDetail?'الولاء':m.name;
+  var backTab=fromMerchantDetail?'merchantDetail':'loyalty';
+  var backLabel=fromMerchantDetail?m.name:'الولاء';
   var header='<div class="box"><div class="loy">'+
     '<div class="loy-ico" style="background:'+cat.c+'18">'+ic(cat.i,30,cat.c)+'</div>'+
     '<div class="loy-mid"><small>'+m.type+'</small><b style="font-size:16px">'+m.name+'</b></div>'+
@@ -983,7 +992,7 @@ function merchantRewardsPage(){
     '<div class="st"><b id="rwHdrPts" style="color:var(--orange)">'+m.points.toLocaleString('en-US')+'</b><small>رصيد النقاط</small></div>'+
     '<div class="st"><b>'+visits+'</b><small>عدد الزيارات</small></div>'+
   '</div></div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="loyalty">الولاء</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+title+'</h2><button data-go="'+backTab+'">'+backLabel+'</button></div>'+
     header+
     '<div class="sec"><div class="sec-head"><h2>المكافآت</h2></div>'+
     '<div class="list" id="rwdList">'+rwdListHtml(m)+'</div></div>';
@@ -1023,11 +1032,34 @@ function merchantsPage(){
     '<div id="merchList">'+merchantsListHtml()+'</div>';
 }
 
-// Merchant detail page: shows ONLY the sections that merchant actually
-// activates — a merchant with no loyalty program shows no أ) section at
-// all, one with booking_enabled=false shows no ب) section, etc. Reuses
-// the exact same components already used elsewhere (merchantLoyCard(),
-// invoiceModal(), .list/.row, .box/.mrow) rather than inventing new ones.
+// الأقسام الستة الممكنة لصفحة متجر داخل "متاجري". قسم لم يُفعّله التاجر لا
+// يُدرَج في القائمة إطلاقًا (لا معطّل ولا مقفل — ببساطة غير موجود في
+// الشبكة). "العروض" و"التنبيهات" الخاصة بكل تاجر لا يوجد لهما مصدر بيانات
+// في قاعدة البيانات بعد (لا عمود ولا جدول)، فتبقيان غائبتين دائمًا حتى
+// تُضاف بياناتهما — تمامًا كبقية الميزات غير المفعّلة في هذا التطبيق.
+function merchantSectionsList(m,myInvoices){
+  var sections=[];
+  if(m.loy){
+    var avail=(m.loy.rewards||[]).filter(function(r){return m.loy.points>=r.c}).length;
+    sections.push({key:'loyalty',label:'الولاء',icon:'gift',color:'#22A87A',badge:String(avail),badgeColor:'var(--orange)'});
+  }
+  if(myInvoices.length){
+    sections.push({key:'invoices',label:'فواتيري',icon:'receipt',color:'#3B82F6'});
+  }
+  if(m.bookingEnabled){
+    sections.push({key:'booking',label:'مواعيدي',icon:'hospital',color:'#F59E0B'});
+  }
+  if(m.queueEnabled){
+    sections.push({key:'queue',label:'الانتظار الذكي',icon:'clock',color:'#7C5CE6',badge:'مباشر',badgeColor:'var(--green)'});
+  }
+  return sections;
+}
+
+// Merchant detail page: شبكة مربّعات — واحد لكل قسم فعّله هذا التاجر
+// فعليًا فقط، تعيد ترتيب أعمدتها تلقائيًا حسب عددها (repeat(count,1fr) يملأ
+// الصف بالضبط أيًا كان العدد، فلا فراغات). الضغط على مربّع ينقل إلى صفحة
+// مستقلة لذلك القسم. حالة خاصة: تاجر فعّل الفواتير فقط -> تُعرض القائمة
+// مباشرة دون شبكة (مربّع واحد لا فائدة من عرضه كقائمة تنقّل).
 function merchantDetail(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
@@ -1035,7 +1067,7 @@ function merchantDetail(){
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var cat=CAT[m.type]||CAT['أخرى'];
-  var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
+  var myInvoices=INVOICES.filter(function(i){return i.merchantId===m.merchantId});
 
   var header='<div class="box"><div class="loy">'+
     '<div class="loy-ico">'+ic(cat.i,30,cat.c)+'</div>'+
@@ -1043,44 +1075,80 @@ function merchantDetail(){
     (m.branch?'<p>'+m.branch+'</p>':'')+'</div>'+
   '</div></div>';
 
-  var sections='';
+  var sections=merchantSectionsList(m,myInvoices);
 
-  // أ) الولاء — فقط إن كان لهذا التاجر رصيد ولاء لهذا العميل أصلاً
-  if(m.loy)sections+=merchantLoyCard(m.loy);
-
-  // ب) الحجز المسبق — فقط إن كان المتجر يتيحه
-  if(m.bookingEnabled){
-    sections+='<div class="box" style="margin-top:14px"><div class="box-head"><h3>الحجز المسبق</h3></div>'+
-      '<p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">احجز موعدك أو دورك لدى '+m.name+' مسبقاً وتجنّب الانتظار.</p>'+
-      '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
-  }
-
-  // ج) فواتيري — فقط إن وُجدت فواتير فعلية لهذا التاجر
-  var myInvoices=INVOICES.filter(function(i){return i.merchantId===m.merchantId});
-  if(myInvoices.length){
-    sections+='<div class="sec"><div class="sec-head"><h2>فواتيري هنا</h2></div><div class="list">'+
+  // حالة خاصة: لا شيء مفعّل عدا الفواتير -> عرضها مباشرة دون شبكة مربعات
+  if(sections.length===1&&sections[0].key==='invoices'){
+    var sel=INVOICES.filter(function(i){return i.id===S.sel&&i.merchantId===m.merchantId})[0];
+    var list='<div class="sec"><div class="sec-head"><h2>فواتيري</h2></div><div class="list">'+
       myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
         '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
         '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+
     '</div></div>';
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="merchants">متاجري</button></div>'+
+      header+list+invoiceModal(sel);
   }
 
-  // د) الانتظار — فقط إن كان المتجر يشغّل انتظاراً ذكياً
-  if(m.queueEnabled){
-    var stats=MERCHANT_QUEUE_STATS[m.merchantId];
-    var statsHtml;
-    if(stats===undefined)statsHtml='<p style="font-size:13px;color:var(--muted)">جارٍ تحميل حالة الانتظار...</p>';
-    else if(!stats.length)statsHtml='<p style="font-size:13px;color:var(--muted)">لا يوجد أحد بالانتظار حالياً</p>';
-    else statsHtml=stats.map(function(s){return '<div class="mrow"><span>'+s.unit_name+'</span><span>'+s.waiting_count+' بالانتظار</span></div>'}).join('');
-    sections+='<div class="box" style="margin-top:14px"><div class="box-head"><h3>حالة الانتظار</h3></div>'+statsHtml+
-      (hasActiveQueue?'<div class="dash"></div><div class="mrow"><span>دورك أنت</span><span>#'+QUEUE.ticket+'</span></div>':'')+
-    '</div>';
-  }
+  var grid='<div class="tiles" style="grid-template-columns:repeat('+sections.length+',1fr);margin-top:14px">'+
+    sections.map(function(s){
+      return '<button class="tile" data-open-section="'+s.key+'" data-merchant="'+m.merchantId+'">'+
+        (s.badge?'<span class="tile-badge" style="background:'+s.badgeColor+'">'+s.badge+'</span>':'')+
+        ic(s.icon,26,s.color)+'<span>'+s.label+'</span></button>';
+    }).join('')+'</div>';
 
-  var sel=INVOICES.filter(function(i){return i.id===S.sel&&i.merchantId===m.merchantId})[0];
   return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="merchants">متاجري</button></div>'+
-    header+sections+invoiceModal(sel);
+    header+grid;
+}
+
+// صفحات فرعية مستقلة لكل قسم (تُفتح من مربّع الشبكة أعلاه) — كل واحدة
+// تعرض المحتوى الذي كان مدمجًا سابقًا داخل صفحة المتجر، بلا أي تغيير في
+// تصميمه أو مكوّناته، وزر رجوع يعيد لصفحة المتجر نفسها (نفس S.selMerchant).
+function merchantInvoicesPage(){
+  var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  if(!m){
+    return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button data-go="merchants">متاجري</button></div>'+
+      '<div class="empty">هذا المتجر غير متاح</div>';
+  }
+  var myInvoices=INVOICES.filter(function(i){return i.merchantId===m.merchantId});
+  var sel=INVOICES.filter(function(i){return i.id===S.sel&&i.merchantId===m.merchantId})[0];
+  var list=myInvoices.length
+    ?'<div class="list">'+myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
+        '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
+        '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
+        '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
+    :'<div class="empty">لا توجد فواتير لدى هذا المتجر</div>';
+  return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+    list+invoiceModal(sel);
+}
+
+function merchantBookingPage(){
+  var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  if(!m){
+    return '<div class="sec-head" style="margin-top:20px"><h2>مواعيدي</h2><button data-go="merchants">متاجري</button></div>'+
+      '<div class="empty">هذا المتجر غير متاح</div>';
+  }
+  return '<div class="sec-head" style="margin-top:20px"><h2>مواعيدي</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+    '<div class="box"><p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">احجز موعدك أو دورك لدى '+m.name+' مسبقاً وتجنّب الانتظار.</p>'+
+    '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
+}
+
+function merchantQueuePage(){
+  var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  if(!m){
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchants">متاجري</button></div>'+
+      '<div class="empty">هذا المتجر غير متاح</div>';
+  }
+  var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
+  var stats=MERCHANT_QUEUE_STATS[m.merchantId];
+  var statsHtml;
+  if(stats===undefined)statsHtml='<p style="font-size:13px;color:var(--muted)">جارٍ تحميل حالة الانتظار...</p>';
+  else if(!stats.length)statsHtml='<p style="font-size:13px;color:var(--muted)">لا يوجد أحد بالانتظار حالياً</p>';
+  else statsHtml=stats.map(function(s){return '<div class="mrow"><span>'+s.unit_name+'</span><span>'+s.waiting_count+' بالانتظار</span></div>'}).join('');
+  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+    '<div class="box">'+statsHtml+
+    (hasActiveQueue?'<div class="dash"></div><div class="mrow"><span>دورك أنت</span><span>#'+QUEUE.ticket+'</span></div>':'')+
+  '</div>';
 }
 
 function spending(){
@@ -1169,7 +1237,7 @@ function profile(){
   (S.showClear?clearConfirmSheet():'');
 }
 
-var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail,merchantRewards:merchantRewardsPage};
+var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail,merchantRewards:merchantRewardsPage,merchantInvoices:merchantInvoicesPage,merchantBooking:merchantBookingPage,merchantQueue:merchantQueuePage};
 
 function toast(m){var e=document.getElementById('toast');document.getElementById('toast-text').textContent=m;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},2400)}
 
@@ -1519,8 +1587,28 @@ function bind(){
   // فتح صفحة مكافآت متجر من شبكة "الولاء"
   [].forEach.call(document.querySelectorAll('[data-open-loyalty]'),function(b){b.onclick=function(){
     S.selMerchant=b.getAttribute('data-open-loyalty');
+    S.rewardsBack='loyalty';
     S.tab='merchantRewards';
     render();
+  }});
+
+  // فتح أحد أقسام صفحة المتجر (متاجري) من مربّع الشبكة — كل قسم صفحته
+  // المستقلة الخاصة، وزر رجوعها يعود لنفس صفحة المتجر (S.selMerchant ثابت).
+  [].forEach.call(document.querySelectorAll('[data-open-section]'),function(b){b.onclick=function(){
+    var section=b.getAttribute('data-open-section');
+    var id=b.getAttribute('data-merchant');
+    S.selMerchant=id;
+    if(section==='loyalty'){S.rewardsBack='merchantDetail';S.tab='merchantRewards'}
+    else if(section==='invoices')S.tab='merchantInvoices';
+    else if(section==='booking')S.tab='merchantBooking';
+    else if(section==='queue')S.tab='merchantQueue';
+    render();
+    if(section==='queue'){
+      var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
+      if(m&&m.queueEnabled&&MERCHANT_QUEUE_STATS[id]===undefined){
+        loadMerchantQueueStats(id).then(function(){if(S.selMerchant===id)render()});
+      }
+    }
   }});
 
   // استبدال مكافأة من صفحة مكافآت المتجر: يحدّث بطاقة المكافأة ورقم
