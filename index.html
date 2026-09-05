@@ -556,7 +556,7 @@ const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاج
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
 let QUEUE={ticket:null,label:'',merchantId:null};
-let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',sw:{notif:true,spend:true,offers:false}};
+let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',sw:{notif:true,spend:true,offers:false}};
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
 
@@ -565,6 +565,21 @@ function formatDate(iso){
   var dd=String(d.getDate()).padStart(2,'0');
   var mm=String(d.getMonth()+1).padStart(2,'0');
   return dd+'/'+mm+'/'+d.getFullYear();
+}
+
+// Arabic-aware fuzzy match: strips tashkeel/tatweel and normalizes alef/ya/ta
+// marbuta variants so "الفرع" vs "الفرع" (differently typed) and spacing
+// differences don't block an otherwise-matching search.
+function normalizeAr(s){
+  return (s||'').toString()
+    .replace(/[ً-ٰٟۖ-ۭ]/g,'')
+    .replace(/ـ/g,'')
+    .replace(/[إأآا]/g,'ا')
+    .replace(/ى/g,'ي')
+    .replace(/ة/g,'ه')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
 }
 
 function computeCats(){
@@ -583,7 +598,7 @@ async function loadUserData(profileId){
     sb.from('invoices').select('id, amount, category, items, created_at, merchant_id, merchants(name, branch)').eq('user_id',profileId).order('created_at',{ascending:false}),
     sb.from('queue_tickets').select('ticket_number, unit_name, position, est_minutes, merchant_id, merchants(name)').eq('user_id',profileId).eq('status','waiting').order('created_at',{ascending:false}).limit(1),
     sb.from('rewards').select('id, title, cost_points, merchant_id, merchants(name)').eq('active',true),
-    sb.from('merchant_loyalty').select('merchant_id, points, tier, merchants(name, type)').eq('user_id',profileId)
+    sb.from('merchant_loyalty').select('merchant_id, points, tier, merchants(name, type, branch)').eq('user_id',profileId)
   ]);
   var invRes=results[0],ticketRes=results[1],rewardRes=results[2],loyRes=results[3];
   if(invRes.error||ticketRes.error||rewardRes.error||loyRes.error) throw (invRes.error||ticketRes.error||rewardRes.error||loyRes.error);
@@ -600,7 +615,8 @@ async function loadUserData(profileId){
   // merchant that owns them (rewards.merchant_id), never pooled together.
   MERCHANT_LOYALTY=(loyRes.data||[]).map(function(row){
     return {merchantId:row.merchant_id,name:row.merchants?row.merchants.name:'تاجر',
-      type:row.merchants?row.merchants.type:'أخرى',points:Number(row.points),tier:row.tier,rewards:[]};
+      type:row.merchants?row.merchants.type:'أخرى',branch:row.merchants?row.merchants.branch:null,
+      points:Number(row.points),tier:row.tier,rewards:[]};
   });
   var rewardsByMerchant={};
   (rewardRes.data||[]).forEach(function(row){
@@ -775,8 +791,26 @@ function merchantLoyCard(m){
   '</div>';
 }
 
+// قائمة المنشآت التي تتيح الحجز المسبق (booking_enabled=true)، مفلترة بحقل
+// البحث الخاص بهذه الشاشة — مستخرجة في دالة مستقلة حتى يستطيع مستمع البحث
+// استبدال محتوى #bookList فقط دون إعادة بناء الشاشة كاملة.
+function bookListHtml(){
+  var q=normalizeAr(S.bookQuery);
+  var list=USER_MERCHANTS.filter(function(m){return m.bookingEnabled}).filter(function(m){
+    if(!q)return true;
+    return normalizeAr(m.name+' '+(m.branch||'')).indexOf(q)>-1;
+  });
+  if(!list.length)return '<div class="empty">لا توجد منشآت مطابقة لبحثك</div>';
+  return '<div class="list">'+list.map(function(m){
+    var cat=CAT[m.type]||CAT['أخرى'];
+    return '<button class="row" data-open-merchant="'+m.merchantId+'"><div class="row-ico" style="background:'+cat.c+'18">'+ic(cat.i,22,cat.c)+'</div>'+
+      '<div class="row-txt"><b>'+m.name+(m.branch?' - '+m.branch:'')+'</b><small>'+m.type+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>';
+  }).join('')+'</div>';
+}
+
 function queue(){
   var q=S.q;
+  var bookable=USER_MERCHANTS.filter(function(m){return m.bookingEnabled});
   return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="home">الرئيسية</button></div>'+
   '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
     '<small>'+ic('pin',12,'#fff')+' '+(QUEUE.label||'—')+'</small>'+
@@ -790,7 +824,10 @@ function queue(){
        '<div class="track"><div class="fill" style="width:'+(100-q.ahead*18)+'%"></div></div>')+
     '<button class="btn" id="qbtn">'+ic('refresh',16,'#fff')+' '+(q.now?'بدء محاكاة جديدة':'محاكاة تحديث الدور')+'</button>'+
   '</div></div>'+
-  '<div class="note">بناءً على بيانات الازدحام السابقة، أهدأ وقت لزيارة هذا الفرع اليوم هو <b>3:00 - 4:30 عصرًا</b>.</div>';
+  '<div class="note">بناءً على بيانات الازدحام السابقة، أهدأ وقت لزيارة هذا الفرع اليوم هو <b>3:00 - 4:30 عصرًا</b>.</div>'+
+  (bookable.length?'<div class="sec"><div class="sec-head"><h2>احجز مسبقاً</h2></div>'+
+    '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="bookQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.bookQuery+'"></div>'+
+    '<div id="bookList">'+bookListHtml()+'</div></div>':'');
 }
 
 // Shared invoice-detail modal (.ov/.sheet) — used by invoices() and by
@@ -818,22 +855,41 @@ function invoices(){
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="q" placeholder="ابحث عن متجر أو فئة..." value="'+S.query+'"></div>'+grid+invoiceModal(sel);
 }
 
+// قائمة المتاجر التي لدى العميل رصيد نقاط فيها، مفلترة بحقل البحث — دالة
+// مستقلة حتى يستبدل مستمع البحث محتوى #loyList فقط دون إعادة رسم الشاشة.
+function loyaltyListHtml(){
+  var q=normalizeAr(S.loyQuery);
+  var list=MERCHANT_LOYALTY.filter(function(m){
+    if(!q)return true;
+    return normalizeAr(m.name+' '+(m.branch||'')).indexOf(q)>-1;
+  });
+  if(!list.length)return '<div class="empty">لا توجد متاجر مطابقة لبحثك</div>';
+  return list.map(merchantLoyCard).join('');
+}
+
 function loyalty(){
-  var cards=MERCHANT_LOYALTY.length
-    ?MERCHANT_LOYALTY.map(merchantLoyCard).join('')
-    :'<div class="empty">لا يوجد رصيد نقاط لدى أي تاجر بعد</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+cards;
+  if(!MERCHANT_LOYALTY.length){
+    return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+
+      '<div class="empty">لا يوجد رصيد نقاط لدى أي تاجر بعد</div>';
+  }
+  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+
+    '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="loyQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.loyQuery+'"></div>'+
+    '<div id="loyList">'+loyaltyListHtml()+'</div>';
 }
 
 // "متاجري": every merchant the customer has any relationship with (an
 // invoice, a loyalty balance, or both) — built into USER_MERCHANTS by
 // loadUserMerchants(). Tapping a card opens merchantDetail() for it.
-function merchantsPage(){
-  if(!USER_MERCHANTS.length){
-    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
-      '<div class="empty">لم تتعامل مع أي متجر بعد</div>';
-  }
-  var rows=USER_MERCHANTS.map(function(m){
+// قائمة "متاجري" مفلترة بحقل البحث (الاسم أو الفرع أو نوع النشاط) — دالة
+// مستقلة حتى يستبدل مستمع البحث محتوى #merchList فقط دون إعادة رسم الشاشة.
+function merchantsListHtml(){
+  var q=normalizeAr(S.merchQuery);
+  var list=USER_MERCHANTS.filter(function(m){
+    if(!q)return true;
+    return normalizeAr(m.name+' '+(m.branch||'')+' '+m.type).indexOf(q)>-1;
+  });
+  if(!list.length)return '<div class="empty">لا توجد متاجر مطابقة لبحثك</div>';
+  return '<div class="list">'+list.map(function(m){
     var cat=CAT[m.type]||CAT['أخرى'];
     var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
     var bits=[];
@@ -842,9 +898,17 @@ function merchantsPage(){
     if(hasActiveQueue)bits.push('دور نشط الآن');
     return '<button class="row" data-open-merchant="'+m.merchantId+'"><div class="row-ico" style="background:'+cat.c+'18">'+ic(cat.i,22,cat.c)+'</div>'+
       '<div class="row-txt"><b>'+m.name+(m.branch?' - '+m.branch:'')+'</b><small>'+bits.join(' · ')+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>';
-  }).join('');
+  }).join('')+'</div>';
+}
+
+function merchantsPage(){
+  if(!USER_MERCHANTS.length){
+    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
+      '<div class="empty">لم تتعامل مع أي متجر بعد</div>';
+  }
   return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
-    '<div class="list">'+rows+'</div>';
+    '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="merchQ" placeholder="ابحث بالاسم أو الفرع أو النشاط..." value="'+S.merchQuery+'"></div>'+
+    '<div id="merchList">'+merchantsListHtml()+'</div>';
 }
 
 // Merchant detail page: shows ONLY the sections that merchant actually
@@ -1282,6 +1346,33 @@ function bind(){
   var qi=document.getElementById('q');
   if(qi)qi.oninput=function(e){var p=e.target.selectionStart;S.query=e.target.value;render();
     var n=document.getElementById('q');if(n){n.focus();n.setSelectionRange(p,p)}};
+
+  // البحث في متاجري/الانتظار الذكي/الولاء: يحدّث القائمة المعنية فقط (لا
+  // render() كامل) حتى لا يومض العرض أو تُعاد حركات الدخول مع كل حرف —
+  // حقل الإدخال نفسه لا يُعاد بناؤه أبدًا فلا حاجة لاستعادة موضع المؤشر.
+  var merchQ=document.getElementById('merchQ');
+  if(merchQ)merchQ.oninput=function(e){
+    S.merchQuery=e.target.value;
+    var el=document.getElementById('merchList');
+    if(el)el.innerHTML=merchantsListHtml();
+    bind();
+  };
+
+  var loyQ=document.getElementById('loyQ');
+  if(loyQ)loyQ.oninput=function(e){
+    S.loyQuery=e.target.value;
+    var el=document.getElementById('loyList');
+    if(el)el.innerHTML=loyaltyListHtml();
+    bind();
+  };
+
+  var bookQ=document.getElementById('bookQ');
+  if(bookQ)bookQ.oninput=function(e){
+    S.bookQuery=e.target.value;
+    var el=document.getElementById('bookList');
+    if(el)el.innerHTML=bookListHtml();
+    bind();
+  };
 
   [].forEach.call(document.querySelectorAll('[data-inv]'),function(c){c.onclick=function(){S.sel=c.getAttribute('data-inv');render()}});
   var ov=document.getElementById('ov');
