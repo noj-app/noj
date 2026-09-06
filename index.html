@@ -85,6 +85,7 @@
   .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
   .sec-head h2{font-size:16px;font-weight:800}
   .sec-head button{font-size:12px;color:var(--blue);font-weight:600}
+  .sec-head .back-btn{display:inline-flex;align-items:center;gap:4px;color:var(--navy)}
 
   .list{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:18px;overflow:hidden;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow)}
   .row{display:flex;align-items:center;gap:14px;padding:16px;width:100%;text-align:right}
@@ -519,6 +520,7 @@ const P={
  hospital:'<path d="M5 21V8l7-4 7 4v13"/><path d="M12 10v6M9 13h6"/>',
  fork:'<path d="M7 3v7a2 2 0 004 0V3"/><path d="M9 10v11"/><path d="M17 3c-1.5 1.5-2 3-2 5s.7 3 2 3v10"/>',
  chevron:'<path d="M15 6l-6 6 6 6"/>',
+ chevronBack:'<path d="M9 6l6 6-6 6"/>',
  refresh:'<path d="M4 12a8 8 0 0114-5"/><path d="M20 12a8 8 0 01-14 5"/><path d="M18 3v5h-5"/><path d="M6 21v-5h5"/>',
  pin:'<path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.4"/>',
  star:'<path d="M12 3.5l2.5 5.6 6.1.6-4.6 4.1 1.4 6-5.4-3-5.4 3 1.4-6L3.4 9.7l6.1-.6z"/>',
@@ -787,10 +789,10 @@ function home(){
     '</div><button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+' عرض التحليل</button></div>'+
   '</div>'+
   '<div class="tiles">'+
-    '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span><p>تابع أرقام الانتظار الحالية ودورك إن وجد</p></button>'+
-    '<button class="tile" data-go="invoices">'+ic('receipt',26,'#3B82F6')+'<span>الفاتورة الذكية</span><p>كل فواتيرك الرقمية في مكان واحد</p></button>'+
-    '<button class="tile" data-go="loyalty">'+ic('gift',26,'#22A87A')+'<span>الولاء</span><p>تابع نقاطك واستبدل مكافآتك</p></button>'+
-    '<button class="tile" data-go="spending">'+ic('pie',26,'#F59E0B')+'<span>تحليل المصروفات</span><p>افهم أين تذهب أموالك كل شهر</p></button>'+
+    '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span><p>تابع أرقام الانتظار الحالية ودورك إن وجد</p><div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div></button>'+
+    '<button class="tile" data-go="invoices">'+ic('receipt',26,'#3B82F6')+'<span>الفاتورة الذكية</span><p>كل فواتيرك الرقمية في مكان واحد</p><div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div></button>'+
+    '<button class="tile" data-go="loyalty">'+ic('gift',26,'#22A87A')+'<span>الولاء</span><p>تابع نقاطك واستبدل مكافآتك</p><div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div></button>'+
+    '<button class="tile" data-go="spending">'+ic('pie',26,'#F59E0B')+'<span>تحليل المصروفات</span><p>افهم أين تذهب أموالك كل شهر</p><div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div></button>'+
   '</div>'+
   '<div class="sec"><div class="sec-head"><h2>الانتظار الذكي</h2><button data-go="queue">عرض الكل</button></div>'+
     '<div class="list">'+
@@ -884,7 +886,7 @@ function bookListHtml(){
 function queue(){
   var q=S.q;
   var bookable=USER_MERCHANTS.filter(function(m){return m.bookingEnabled});
-  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
   '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
     '<small>'+ic('pin',12,'#fff')+' '+(QUEUE.label||'—')+'</small>'+
     '<div class="qnum">#'+(QUEUE.ticket!=null?QUEUE.ticket:'—')+'</div>'+
@@ -924,7 +926,7 @@ function invoices(){
       '<div class="row-ico" style="background:'+m.c+'18">'+ic(m.i,22,m.c)+'</div>'+
       '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+i.c+'</span></div>'+
       '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>الفواتير الذكية</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الفواتير الذكية</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="q" placeholder="ابحث عن متجر أو فئة..." value="'+S.query+'"></div>'+grid+invoiceModal(sel);
 }
 
@@ -960,10 +962,10 @@ function loyaltyListHtml(){
 
 function loyalty(){
   if(!MERCHANT_LOYALTY.length){
-    return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
       '<div class="empty">لا يوجد رصيد نقاط لدى أي تاجر بعد</div>';
   }
-  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="loyQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.loyQuery+'"></div>'+
     '<div id="loyList">'+loyaltyListHtml()+'</div>';
 }
@@ -1012,7 +1014,7 @@ function merchantRewardsPage(){
   var m=MERCHANT_LOYALTY.filter(function(x){return x.merchantId===S.selMerchant})[0];
   var fromMerchantDetail=S.rewardsBack==='merchantDetail';
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button data-go="'+(fromMerchantDetail?'merchantDetail':'loyalty')+'">'+(fromMerchantDetail?'رجوع':'الولاء')+'</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button class="back-btn" data-go="'+(fromMerchantDetail?'merchantDetail':'loyalty')+'">'+ic('chevronBack',13,'currentColor')+'<span>'+(fromMerchantDetail?'رجوع':'الولاء')+'</span></button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var cat=CAT[m.type]||CAT['أخرى'];
@@ -1029,7 +1031,7 @@ function merchantRewardsPage(){
     '<div class="st"><b id="rwHdrPts" style="color:var(--orange)">'+m.points.toLocaleString('en-US')+'</b><small>رصيد النقاط</small></div>'+
     '<div class="st"><b>'+visits+'</b><small>عدد الزيارات</small></div>'+
   '</div></div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+title+'</h2><button data-go="'+backTab+'">'+backLabel+'</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+title+'</h2><button class="back-btn" data-go="'+backTab+'">'+ic('chevronBack',13,'currentColor')+'<span>'+backLabel+'</span></button></div>'+
     header+
     '<div class="sec"><div class="sec-head"><h2>المكافآت</h2></div>'+
     '<div class="list" id="rwdList">'+rwdListHtml(m)+'</div></div>';
@@ -1061,10 +1063,10 @@ function merchantsListHtml(){
 
 function merchantsPage(){
   if(!USER_MERCHANTS.length){
-    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
       '<div class="empty">لم تتعامل مع أي متجر بعد</div>';
   }
-  return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="merchQ" placeholder="ابحث بالاسم أو الفرع أو النشاط..." value="'+S.merchQuery+'"></div>'+
     '<div id="merchList">'+merchantsListHtml()+'</div>';
 }
@@ -1141,7 +1143,7 @@ function msecHtml(s,merchantId){
 function merchantDetail(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var cat=CAT[m.type]||CAT['أخرى'];
@@ -1164,7 +1166,7 @@ function merchantDetail(){
         '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+
     '</div></div>';
-    return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
       header+list+invoiceModal(sel);
   }
 
@@ -1173,7 +1175,7 @@ function merchantDetail(){
       row.map(function(s){return msecHtml(s,m.merchantId)}).join('')+'</div>';
   }).join('')+'</div>';
 
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button data-go="merchants">متاجري</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
     header+grid;
 }
 
@@ -1183,7 +1185,7 @@ function merchantDetail(){
 function merchantInvoicesPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var myInvoices=INVOICES.filter(function(i){return i.merchantId===m.merchantId});
@@ -1194,7 +1196,7 @@ function merchantInvoicesPage(){
         '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
     :'<div class="empty">لا توجد فواتير لدى هذا المتجر</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
     list+invoiceModal(sel);
 }
 
@@ -1228,7 +1230,7 @@ function merchantBookingPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   var bc=bookingCopyFor(m?m.type:null);
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
 
@@ -1246,11 +1248,11 @@ function merchantBookingPage(){
       return '<button class="row" data-book-clinic="'+c.clinicId+'" data-clinic-name="'+c.clinicName+'"><div class="row-ico" style="background:#0F6E6E18">'+ic('hospital',22,'#0F6E6E')+'</div>'+
         '<div class="row-txt"><b>'+c.clinicName+'</b>'+(c.doctorName?'<small>'+c.doctorName+'</small>':'')+'</div>'+ic('chevron',18,'#8A93AD')+'</button>';
     }).join('')+'</div>':'';
-    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
       apptsHtml+newBtn+picker;
   }
 
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
     '<div class="box"><p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">'+bc.desc+' لدى '+m.name+'.</p>'+
     '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
 }
@@ -1289,7 +1291,7 @@ function clinicRowHtml(c,isMine){
 function merchantQueuePage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
 
@@ -1303,7 +1305,7 @@ function merchantQueuePage(){
       var rest=clinics.filter(function(c){return c!==mine});
       body=(mine?clinicRowHtml(mine,true):'')+rest.map(function(c){return clinicRowHtml(c,false)}).join('');
     }
-    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+body;
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+body;
   }
 
   var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
@@ -1312,7 +1314,7 @@ function merchantQueuePage(){
   if(stats===undefined)statsHtml='<p style="font-size:13px;color:var(--muted)">جارٍ تحميل حالة الانتظار...</p>';
   else if(!stats.length)statsHtml='<p style="font-size:13px;color:var(--muted)">لا يوجد أحد بالانتظار حالياً</p>';
   else statsHtml=stats.map(function(s){return '<div class="mrow"><span>'+s.unit_name+'</span><span>'+s.waiting_count+' بالانتظار</span></div>'}).join('');
-  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
     '<div class="box">'+statsHtml+
     (hasActiveQueue?'<div class="dash"></div><div class="mrow"><span>دورك أنت</span><span>#'+QUEUE.ticket+'</span></div>':'')+
   '</div>';
@@ -1324,7 +1326,7 @@ function merchantQueuePage(){
 function merchantAlertsPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var myAlerts=ALERTS.filter(function(a){return a.merchantId===m.merchantId});
@@ -1332,13 +1334,13 @@ function merchantAlertsPage(){
     ?'<div class="list">'+myAlerts.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
         '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>'
     :'<div class="empty">لا توجد تنبيهات من هذا المتجر حاليًا</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+list;
+  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+list;
 }
 
 function spending(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
   var max=Math.max.apply(null,TREND.map(function(d){return d.t}));
-  return '<div class="sec-head" style="margin-top:20px"><h2>تحليل المصروفات</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>تحليل المصروفات</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
   '<div class="box"><small style="font-size:12px;color:var(--muted)">إجمالي الإنفاق هذا الشهر</small>'+
   '<div style="font-size:26px;font-weight:800;margin:4px 0 12px;direction:ltr;text-align:right">'+total.toLocaleString('en-US')+' ريال</div>'+
   '<div class="donut-row">'+donut(120,{b:total.toLocaleString('en-US'),s:'ريال'},true)+
@@ -1350,7 +1352,7 @@ function spending(){
 }
 
 function alerts(){
-  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
   '<div class="list">'+ALERTS.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
   '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>';
 }
@@ -1358,7 +1360,7 @@ function alerts(){
 function reports(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
   var loyMerchantCount=MERCHANT_LOYALTY.filter(function(m){return m.points>0}).length;
-  return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
   '<div class="box"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
   '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
   '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
@@ -1375,7 +1377,7 @@ function more(){
          {i:'bars',c:'#7C5CE6',t:'إدارة الالتزامات',s:'قريبًا — المرحلة الثانية'},
          {i:'store',c:'#3B82F6',t:'المتاجر المشتركة',s:'تصفح المتاجر المرتبطة بـ NOJ'},
          {i:'bell',c:'#F59E0B',t:'إعدادات التنبيهات',s:'تحكم في تنبيهات الدور والإنفاق'}];
-  return '<div class="sec-head" style="margin-top:20px"><h2>المزيد</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>المزيد</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
   '<div class="list">'+M.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
   '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div>'+ic('chevron',18,'#8A93AD')+'</div>'}).join('')+'</div>'+
   '<div class="note">NOJ — من الدفع تبدأ علاقتك المالية. هذه نسخة تجريبية توضح المرحلة الأولى من المنصة.</div>';
@@ -1399,7 +1401,7 @@ function profile(){
              {i:'store',c:'#7C5CE6',t:'المتاجر المفضلة',s:'٤ متاجر محفوظة'},
              {i:'pin',c:'#22A87A',t:'العناوين',s:'المنزل، العمل'},
              {i:'grid',c:'#64748B',t:'اللغة والمنطقة',s:'العربية · السعودية'}];
-  return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2><button data-go="home">الرئيسية</button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
   '<div class="prof-hero"><div class="prof-av">'+((PROFILE.name||'ض').charAt(0))+'</div><div class="prof-id"><b>'+(PROFILE.name||'عميل NOJ')+'</b>'+
   '<small>ahmed@noj.app</small><small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
   '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى ال'+(PROFILE.tier||'برونزي')+'</span></div></div>'+
