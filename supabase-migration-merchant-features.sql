@@ -43,16 +43,14 @@ alter table public.merchants add column if not exists booking_enabled boolean no
 alter table public.merchants add column if not exists queue_enabled boolean not null default false;
 
 -- Demo seed: مطعم مذاق already has a seeded queue ticket (#47) in
--- supabase-schema.sql — turn both flags on for it and for the other
--- مطاعم-type merchant, so "متاجري" has a concrete example of a merchant
--- offering booking + a live queue. Every other seeded merchant keeps both
--- flags at their default false — no booking/queue section shown for them,
--- per the "a feature a merchant hasn't activated must not appear at all"
--- requirement.
+-- supabase-schema.sql — turn both flags on for it, so "متاجري" has a
+-- concrete example of a merchant offering booking + a live queue. Every
+-- other seeded merchant keeps both flags at their default false — no
+-- booking/queue section shown for them, per the "a feature a merchant
+-- hasn't activated must not appear at all" requirement.
 update public.merchants set booking_enabled = true, queue_enabled = true
 where id in (
-  '20000000-0000-0000-0000-000000000001', -- مطعم مذاق
-  '20000000-0000-0000-0000-000000000007'  -- برجر بوينت
+  '20000000-0000-0000-0000-000000000001' -- مطعم مذاق
 );
 
 -- ---------------------------------------------------------------------------

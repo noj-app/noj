@@ -571,14 +571,14 @@ const Store={
   clearAll:function(){Object.keys(K).forEach(function(k){Store.remove(K[k])})}
 };
 
-const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'مواصلات':{c:'#F59E0B',i:'car'},'صحة':{c:'#0F6E6E',i:'hospital'},'أخرى':{c:'#64748B',i:'dots'}};
+const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'صحة':{c:'#0F6E6E',i:'hospital'},'أخرى':{c:'#64748B',i:'dots'}};
 // Invoices, category totals, and rewards all come from Supabase now (see
 // loadUserData below) — these start empty and are populated right after
 // login, instead of holding mock fixtures.
 let INVOICES=[];
 let CATS=[];
 const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510},{m:'يونيو',t:1980},{m:'يوليو',t:2540},{m:'أغسطس',t:2850}];
-const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 35%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
+const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 43%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
 // Still Mock, kept out of the bottom nav now but reachable via the bell
 // icon — home() also shows a 2-item preview of this same array.
 // `merchantId` is optional and only set on entries that genuinely belong to
@@ -723,6 +723,10 @@ async function loadUserMerchants(profileId){
       bookingEnabled:!!row.booking_enabled,queueEnabled:!!row.queue_enabled,
       invoiceCount:invoiceCounts[row.id]||0,loy:loyByMerchant[row.id]||null};
   });
+
+  // ترتيب "متاجري": المركز الصحي أولاً دائمًا، ثم بقية المتاجر بترتيبها
+  // الطبيعي (Array#sort ثابت/stable، فلا يُغيّر ترتيب غير الصحي فيما بينه).
+  USER_MERCHANTS.sort(function(a,b){return (a.type==='صحة'?0:1)-(b.type==='صحة'?0:1)});
 }
 
 async function loginAndLoad(phone){
@@ -1357,7 +1361,7 @@ function reports(){
   '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
   '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
   '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/(INVOICES.length||1))+' ريال</span></div>'+
-  '<div class="mrow"><span>أعلى فئة</span><span>مطاعم (35%)</span></div>'+
+  '<div class="mrow"><span>أعلى فئة</span><span>مطاعم (43%)</span></div>'+
   '<div class="mrow"><span>متاجر لديك رصيد نقاط فيها</span><span>'+loyMerchantCount+'</span></div>'+
   '<div class="dash"></div><div class="mrow"><span>وقت الانتظار الموفَّر</span><span>~2.5 ساعة</span></div></div>'+
   '<div class="box" style="margin-top:14px"><div class="box-head"><h3>أكثر المتاجر زيارة</h3></div>'+
