@@ -65,6 +65,8 @@
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
   .tile{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
   .tile span{font-size:10.5px;font-weight:600;line-height:1.35}
+  .tile p{font-size:10px;color:var(--muted);line-height:1.45;min-height:2.6em;margin:0}
+  @media (max-width:380px){.tile p{font-size:9px}}
 
   /* شبكة أقسام صفحة المتجر (متاجري): حتى 3 مربعات في الصف، تعيد ترتيب
      أعمدتها لكل صف على حدة حسب عدد عناصره فعليًا — فلا فراغات أيًا كان
@@ -785,10 +787,10 @@ function home(){
     '</div><button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+' عرض التحليل</button></div>'+
   '</div>'+
   '<div class="tiles">'+
-    '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span></button>'+
-    '<button class="tile" data-go="invoices">'+ic('receipt',26,'#3B82F6')+'<span>الفاتورة الذكية</span></button>'+
-    '<button class="tile" data-go="loyalty">'+ic('gift',26,'#22A87A')+'<span>الولاء</span></button>'+
-    '<button class="tile" data-go="spending">'+ic('pie',26,'#F59E0B')+'<span>تحليل المصروفات</span></button>'+
+    '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span><p>تابع أرقام الانتظار الحالية ودورك إن وجد</p></button>'+
+    '<button class="tile" data-go="invoices">'+ic('receipt',26,'#3B82F6')+'<span>الفاتورة الذكية</span><p>كل فواتيرك الرقمية في مكان واحد</p></button>'+
+    '<button class="tile" data-go="loyalty">'+ic('gift',26,'#22A87A')+'<span>الولاء</span><p>تابع نقاطك واستبدل مكافآتك</p></button>'+
+    '<button class="tile" data-go="spending">'+ic('pie',26,'#F59E0B')+'<span>تحليل المصروفات</span><p>افهم أين تذهب أموالك كل شهر</p></button>'+
   '</div>'+
   '<div class="sec"><div class="sec-head"><h2>الانتظار الذكي</h2><button data-go="queue">عرض الكل</button></div>'+
     '<div class="list">'+
