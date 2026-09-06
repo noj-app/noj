@@ -581,10 +581,17 @@ const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510}
 const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 35%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
 // Still Mock, kept out of the bottom nav now but reachable via the bell
 // icon — home() also shows a 2-item preview of this same array.
+// `merchantId` is optional and only set on entries that genuinely belong to
+// one specific merchant — merchantDetail()'s "التنبيهات" tile activates
+// only when a real (tagged) entry exists for that merchant, so untagged
+// generic alerts never spuriously turn that section on for every merchant
+// whose name happens to appear in an alert's text.
 const ALERTS=[{i:'clock',c:'#7C5CE6',t:'اقترب دورك في مطعم مذاق',s:'بقي شخصان قبلك — قبل 4 دقائق'},
        {i:'receipt',c:'#3B82F6',t:'وصلت فاتورتك الرقمية',s:'مطعم مذاق · 120.50 ريال — اليوم'},
        {i:'gift',c:'#22A87A',t:'حصلت على 45 نقطة ولاء',s:'من مشترياتك اليوم'},
-       {i:'up',c:'#F59E0B',t:'تنبيه إنفاق',s:'تجاوزت 80% من ميزانية المطاعم — أمس'}];
+       {i:'up',c:'#F59E0B',t:'تنبيه إنفاق',s:'تجاوزت 80% من ميزانية المطاعم — أمس'},
+       {i:'clock',c:'#0F6E6E',t:'اقترب دورك في عيادة الجلدية',s:'مركز النور الطبي — بقي شخص واحد قبلك',merchantId:'20000000-0000-0000-0000-00000000000d'},
+       {i:'receipt',c:'#0F6E6E',t:'تذكير بموعدك القادم',s:'مركز النور الطبي — عيادة الأسنان غدًا 10:00 صباحًا',merchantId:'20000000-0000-0000-0000-00000000000d'}];
 // Loyalty points belong to merchants, not to NOJ itself — there is no
 // platform-wide points pool, and no screen ever sums balances across
 // merchants into one number. Each entry is one merchant relationship:
@@ -604,11 +611,18 @@ let USER_MERCHANTS=[];
 // waiting_count}]}. Undefined while loading, [] once loaded with nothing
 // waiting.
 let MERCHANT_QUEUE_STATS={};
+// صحّة فقط: قائمة عيادات المركز مع إحصاء انتظار حي لكل عيادة (من
+// get_merchant_clinics RPC) — {[merchantId]: [{clinicId,clinicName,
+// doctorName,bookingEnabled,nowServing,waitingCount,estMinutes}]}.
+let MERCHANT_CLINICS={};
+// صحّة فقط: مواعيد العميل القادمة لدى هذا المركز — {[merchantId]:
+// [{id,clinicName,doctorName,scheduledAt}]}.
+let MERCHANT_APPOINTMENTS={};
 const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاجري',i:'store'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
-let QUEUE={ticket:null,label:'',merchantId:null};
-let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',rewardsBack:'loyalty',sw:{notif:true,spend:true,offers:false}};
+let QUEUE={ticket:null,label:'',merchantId:null,unitName:null};
+let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',rewardsBack:'loyalty',showApptPicker:false,sw:{notif:true,spend:true,offers:false}};
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
 
@@ -679,7 +693,7 @@ async function loadUserData(profileId){
 
   if(ticketRes.data&&ticketRes.data[0]){
     var t=ticketRes.data[0];
-    QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:''),merchantId:t.merchant_id};
+    QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:''),merchantId:t.merchant_id,unitName:t.unit_name};
     S.q={ahead:t.position,min:t.est_minutes,now:t.position<=0};
   }
 
@@ -1049,11 +1063,20 @@ function merchantsPage(){
     '<div id="merchList">'+merchantsListHtml()+'</div>';
 }
 
+// اسم/وصف قسم الحجز يتغيّران حسب قطاع نشاط التاجر (merchants.type) بدل
+// تسمية ثابتة واحدة — نفس القسم منطقيًا (booking_enabled)، فقط عنوانه
+// يخاطب القطاع فعليًا.
+const BOOKING_COPY={
+  'صحة':{label:'مواعيدي',desc:'احجز أو استعرض مواعيدك القادمة'},
+  'مطاعم':{label:'حجز طاولة',desc:'احجز طاولتك مسبقًا وتجنّب الانتظار'},
+  'مقاهي':{label:'حجز مسبق',desc:'اطلب أو احجز مسبقًا'}
+};
+function bookingCopyFor(type){return BOOKING_COPY[type]||{label:'الحجز المسبق',desc:'احجز موعدك مسبقاً وتجنّب الانتظار'}}
+
 // الأقسام الستة الممكنة لصفحة متجر داخل "متاجري". قسم لم يُفعّله التاجر لا
 // يُدرَج في القائمة إطلاقًا (لا معطّل ولا مقفل — ببساطة غير موجود في
-// الشبكة). "العروض" و"التنبيهات" الخاصة بكل تاجر لا يوجد لهما مصدر بيانات
-// في قاعدة البيانات بعد (لا عمود ولا جدول)، فتبقيان غائبتين دائمًا حتى
-// تُضاف بياناتهما — تمامًا كبقية الميزات غير المفعّلة في هذا التطبيق.
+// الشبكة). "العروض" لا يوجد له مصدر بيانات في قاعدة البيانات بعد (لا
+// عمود ولا جدول)، فيبقى غائبًا دائمًا حتى تُضاف بياناته.
 function merchantSectionsList(m,myInvoices){
   var sections=[];
   if(m.loy){
@@ -1065,20 +1088,22 @@ function merchantSectionsList(m,myInvoices){
       desc:'راجع كل فواتيرك لدى هذا المتجر'});
   }
   if(m.bookingEnabled){
-    sections.push({key:'booking',label:'مواعيدي',icon:'hospital',color:'#22A87A',
-      desc:'احجز دورك أو موعدك مسبقاً وتجنّب الانتظار'});
+    var bc=bookingCopyFor(m.type);
+    sections.push({key:'booking',label:bc.label,icon:'check',color:'#22A87A',desc:bc.desc});
   }
   if(m.queueEnabled){
     sections.push({key:'queue',label:'الانتظار الذكي',icon:'clock',color:'#7C5CE6',
       desc:'تابع حالة الانتظار المباشرة الآن'});
   }
-  // العروض والتنبيهات: لا مصدر بيانات لهما بعد (لا عمود ولا جدول)، فلا
-  // تُدرجان في sections أبدًا مهما كانت حالة التاجر. عند إضافة بياناتهما
-  // مستقبلاً، لونا وأيقونتا التصميم المعتمد لهما هما:
-  //   العروض: {icon:'percent', color:'#EC4899'} (وردي)
-  //   التنبيهات: {icon:'bell', color:'#3B82F6', alert:true} (أزرق + نقطة
-  //   حمراء صغيرة على الأيقونة عبر msecHtml()'s s.alert فقط عند وجود
-  //   تنبيهات غير مقروءة فعلاً)
+  // التنبيهات: تُفعَّل فقط عند وجود تنبيه حقيقي مرتبط تحديدًا بهذا التاجر
+  // (ALERTS[i].merchantId === هذا التاجر) — لا تخمين بمطابقة نصية.
+  if(ALERTS.some(function(a){return a.merchantId===m.merchantId})){
+    sections.push({key:'alerts',label:'التنبيهات',icon:'bell',color:'#3B82F6',alert:true,
+      desc:'آخر التنبيهات والتحديثات من هذا المتجر'});
+  }
+  // العروض: لا مصدر بيانات بعد (لا عمود ولا جدول)، فلا تُدرَج أبدًا مهما
+  // كانت حالة التاجر. عند إضافة بياناتها مستقبلاً، لون/أيقونة التصميم
+  // المعتمد لها: {icon:'percent', color:'#EC4899'} (وردي).
   return sections;
 }
 
@@ -1167,23 +1192,114 @@ function merchantInvoicesPage(){
     list+invoiceModal(sel);
 }
 
+function formatApptDateTime(iso){
+  var d=new Date(iso);
+  var dd=String(d.getDate()).padStart(2,'0');
+  var mm=String(d.getMonth()+1).padStart(2,'0');
+  var h=d.getHours(),mins=String(d.getMinutes()).padStart(2,'0');
+  var ampm=h>=12?'م':'ص';
+  var h12=h%12||12;
+  return dd+'/'+mm+' - '+h12+':'+mins+' '+ampm;
+}
+
+function apptRowHtml(a){
+  return '<div class="rw"><div><b>'+a.clinicName+'</b><small>'+(a.doctorName?a.doctorName+' · ':'')+formatApptDateTime(a.scheduledAt)+'</small></div>'+
+    '<div style="display:flex;gap:8px;flex-shrink:0">'+
+      '<button data-edit-appt="'+a.id+'" style="padding:9px 14px;border-radius:12px;font-size:12px;font-weight:700;background:var(--line);color:var(--text)">تعديل</button>'+
+      '<button data-cancel-appt="'+a.id+'" style="padding:9px 14px;border-radius:12px;font-size:12px;font-weight:700;background:#FEF2F2;color:#DC2626">إلغاء</button>'+
+    '</div></div>';
+}
+
+// صفحة "مواعيدي"/"حجز طاولة"/"حجز مسبق" — للمراكز الصحية (m.type==='صحة')
+// تعرض مواعيد العميل الحقيقية القادمة (من جدول appointments) مع خياري
+// تعديل (توست فقط — لا واجهة إعادة جدولة في هذه النسخة) وإلغاء (فعلي:
+// يحدّث appointments.status ويحذف السطر من #apptList فقط دون render()
+// كامل)، وزر "حجز موعد جديد" يفتح قائمة العيادات التي تقبل الحجز فقط
+// (booking_enabled على مستوى العيادة نفسها) — الحجز نفسه توست تجريبي فقط،
+// كبقية أزرار الحجز في التطبيق. أي تاجر آخر (مطعم/مقهى/إلخ) يبقي على
+// الزر العام البسيط، بعنوانه ووصفه المخصّصين لقطاعه (bookingCopyFor).
 function merchantBookingPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  var bc=bookingCopyFor(m?m.type:null);
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>مواعيدي</h2><button data-go="merchants">متاجري</button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button data-go="merchants">متاجري</button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
-  return '<div class="sec-head" style="margin-top:20px"><h2>مواعيدي</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
-    '<div class="box"><p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">احجز موعدك أو دورك لدى '+m.name+' مسبقاً وتجنّب الانتظار.</p>'+
+
+  if(m.type==='صحة'){
+    var appts=MERCHANT_APPOINTMENTS[m.merchantId];
+    var apptsHtml;
+    if(appts===undefined)apptsHtml='<p style="font-size:13px;color:var(--muted)">جارٍ تحميل مواعيدك...</p>';
+    else if(!appts.length)apptsHtml='<div class="empty">لا توجد مواعيد قادمة لديك حاليًا</div>';
+    else apptsHtml='<div class="list" id="apptList">'+appts.map(apptRowHtml).join('')+'</div>';
+
+    var clinics=MERCHANT_CLINICS[m.merchantId]||[];
+    var bookable=clinics.filter(function(c){return c.bookingEnabled});
+    var newBtn=bookable.length?'<button class="btn" data-toggle-appt-picker="1" style="margin-top:14px">'+ic('clock',16,'#fff')+' حجز موعد جديد</button>':'';
+    var picker=(S.showApptPicker&&bookable.length)?'<div class="list" style="margin-top:10px">'+bookable.map(function(c){
+      return '<button class="row" data-book-clinic="'+c.clinicId+'" data-clinic-name="'+c.clinicName+'"><div class="row-ico" style="background:#0F6E6E18">'+ic('hospital',22,'#0F6E6E')+'</div>'+
+        '<div class="row-txt"><b>'+c.clinicName+'</b>'+(c.doctorName?'<small>'+c.doctorName+'</small>':'')+'</div>'+ic('chevron',18,'#8A93AD')+'</button>';
+    }).join('')+'</div>':'';
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+      apptsHtml+newBtn+picker;
+  }
+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+
+    '<div class="box"><p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">'+bc.desc+' لدى '+m.name+'.</p>'+
     '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
 }
 
+// بطاقة عيادة واحدة في قائمة "الانتظار الذكي" لمركز صحي. عيادة العميل
+// النشطة (لديه رقم فيها فعليًا) تُميَّز ببطاقة .qcard الملوّنة نفسها
+// المستخدمة لتذكرة الانتظار العادية، وتُعرض أولاً في القائمة؛ بقية
+// العيادات ببطاقة .box عادية مع مؤشر ازدحام ملوّن (متاحة/متوسطة/مزدحمة)
+// محسوب من عدد المنتظرين الفعلي.
+function clinicRowHtml(c,isMine){
+  if(isMine){
+    return '<div class="qcard" style="margin-bottom:14px"><div class="qtop">'+
+      '<small>'+ic('pin',12,'#fff')+' '+c.clinicName+(c.doctorName?' - '+c.doctorName:'')+'</small>'+
+      '<div class="qnum">#'+QUEUE.ticket+'</div><div class="qstate">دورك أنت</div></div>'+
+      '<div class="qbody">'+
+      '<div class="qrow"><span>عدد الأشخاص قبلك</span><span>'+S.q.ahead+'</span></div>'+
+      '<div class="qrow"><span>الرقم الحالي بالعيادة</span><span>#'+(c.nowServing!=null?c.nowServing:'—')+'</span></div>'+
+      '<div class="qrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>'+
+      '</div></div>';
+  }
+  var level=c.waitingCount<=2?{l:'متاحة',c:'#22A87A'}:c.waitingCount<=6?{l:'متوسطة',c:'#F59E0B'}:{l:'مزدحمة',c:'#EF4444'};
+  return '<div class="box" style="margin-bottom:12px">'+
+    '<div class="box-head"><h3>'+c.clinicName+'</h3><span class="badge" style="background:'+level.c+'18;color:'+level.c+'">'+level.l+'</span></div>'+
+    (c.doctorName?'<p style="font-size:12px;color:var(--muted);margin-bottom:10px">'+c.doctorName+'</p>':'')+
+    '<div class="mrow"><span>الرقم الحالي</span><span>#'+(c.nowServing!=null?c.nowServing:'—')+'</span></div>'+
+    '<div class="mrow"><span>عدد المنتظرين</span><span>'+c.waitingCount+'</span></div>'+
+    '<div class="mrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>'+
+  '</div>';
+}
+
+// صفحة "الانتظار الذكي" — للمراكز الصحية (m.type==='صحة') تعرض قائمة كل
+// عيادات المركز (من get_merchant_clinics RPC، تشمل كل عيادة حتى لو لم
+// يكن للعميل رقم فيها إطلاقًا)، مع إبراز عيادة العميل الخاصة أولاً إن كان
+// لديه رقم فعليًا فيها. أي تاجر آخر يبقي على العرض المجمَّع البسيط
+// السابق (حسب unit_name فقط، بلا هوية عيادة/طبيب منفصلة).
 function merchantQueuePage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
     return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchants">متاجري</button></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
+
+  if(m.type==='صحة'){
+    var clinics=MERCHANT_CLINICS[m.merchantId];
+    var body;
+    if(clinics===undefined)body='<p style="font-size:13px;color:var(--muted);text-align:center;padding:16px 0">جارٍ تحميل حالة العيادات...</p>';
+    else if(!clinics.length)body='<div class="empty">لا توجد عيادات مسجّلة لدى هذا المركز حاليًا</div>';
+    else{
+      var mine=clinics.filter(function(c){return QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null&&QUEUE.unitName===c.clinicName})[0];
+      var rest=clinics.filter(function(c){return c!==mine});
+      body=(mine?clinicRowHtml(mine,true):'')+rest.map(function(c){return clinicRowHtml(c,false)}).join('');
+    }
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+body;
+  }
+
   var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
   var stats=MERCHANT_QUEUE_STATS[m.merchantId];
   var statsHtml;
@@ -1194,6 +1310,23 @@ function merchantQueuePage(){
     '<div class="box">'+statsHtml+
     (hasActiveQueue?'<div class="dash"></div><div class="mrow"><span>دورك أنت</span><span>#'+QUEUE.ticket+'</span></div>':'')+
   '</div>';
+}
+
+// صفحة تنبيهات متجر واحد — فقط تنبيهات ALERTS المرتبطة تحديدًا بهذا
+// التاجر (merchantId)، بنفس مكوّن .list/.row المستخدم في شاشة التنبيهات
+// العامة (alerts()).
+function merchantAlertsPage(){
+  var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+  if(!m){
+    return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="merchants">متاجري</button></div>'+
+      '<div class="empty">هذا المتجر غير متاح</div>';
+  }
+  var myAlerts=ALERTS.filter(function(a){return a.merchantId===m.merchantId});
+  var list=myAlerts.length
+    ?'<div class="list">'+myAlerts.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
+        '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>'
+    :'<div class="empty">لا توجد تنبيهات من هذا المتجر حاليًا</div>';
+  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button data-go="merchantDetail">'+m.name+'</button></div>'+list;
 }
 
 function spending(){
@@ -1282,7 +1415,7 @@ function profile(){
   (S.showClear?clearConfirmSheet():'');
 }
 
-var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail,merchantRewards:merchantRewardsPage,merchantInvoices:merchantInvoicesPage,merchantBooking:merchantBookingPage,merchantQueue:merchantQueuePage};
+var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail,merchantRewards:merchantRewardsPage,merchantInvoices:merchantInvoicesPage,merchantBooking:merchantBookingPage,merchantQueue:merchantQueuePage,merchantAlerts:merchantAlertsPage};
 
 function toast(m){var e=document.getElementById('toast');document.getElementById('toast-text').textContent=m;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},2400)}
 
@@ -1645,15 +1778,13 @@ function bind(){
     S.selMerchant=id;
     if(section==='loyalty'){S.rewardsBack='merchantDetail';S.tab='merchantRewards'}
     else if(section==='invoices')S.tab='merchantInvoices';
-    else if(section==='booking')S.tab='merchantBooking';
+    else if(section==='booking'){S.tab='merchantBooking';S.showApptPicker=false}
     else if(section==='queue')S.tab='merchantQueue';
+    else if(section==='alerts')S.tab='merchantAlerts';
     render();
-    if(section==='queue'){
-      var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
-      if(m&&m.queueEnabled&&MERCHANT_QUEUE_STATS[id]===undefined){
-        loadMerchantQueueStats(id).then(function(){if(S.selMerchant===id)render()});
-      }
-    }
+    var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
+    if(section==='queue')prefetchMerchantQueueData(m);
+    if(section==='booking'&&m&&m.type==='صحة')prefetchMerchantHealthData(m);
   }});
 
   // استبدال مكافأة من صفحة مكافآت المتجر: يحدّث بطاقة المكافأة ورقم
@@ -1691,9 +1822,7 @@ function bind(){
     S.tab='merchantDetail';
     render();
     var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
-    if(m&&m.queueEnabled&&MERCHANT_QUEUE_STATS[id]===undefined){
-      loadMerchantQueueStats(id).then(function(){if(S.selMerchant===id)render()});
-    }
+    prefetchMerchantQueueData(m);
   }});
 
   [].forEach.call(document.querySelectorAll('[data-book]'),function(b){b.onclick=function(){
@@ -1701,11 +1830,56 @@ function bind(){
     var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
     toast('تم إرسال طلب حجز تجريبي'+(m?' لدى '+m.name:'')+' 📅');
   }});
+
+  // مركز صحي: زر "حجز موعد جديد" يفتح/يطوي قائمة العيادات القابلة للحجز
+  var toggleAppt=document.querySelector('[data-toggle-appt-picker]');
+  if(toggleAppt)toggleAppt.onclick=function(){S.showApptPicker=!S.showApptPicker;render()};
+
+  // اختيار عيادة من القائمة: توست تأكيد تجريبي فقط (كبقية أزرار الحجز في
+  // التطبيق) — لا حجز فعلي، لا حاجة لصف appointments جديد.
+  [].forEach.call(document.querySelectorAll('[data-book-clinic]'),function(b){b.onclick=function(){
+    var name=b.getAttribute('data-clinic-name');
+    S.showApptPicker=false;
+    toast('تم إرسال طلب حجز تجريبي لدى '+name+' 📅');
+    render();
+  }});
+
+  // "تعديل" موعد: لا واجهة إعادة جدولة في هذه النسخة التجريبية — توست فقط
+  [].forEach.call(document.querySelectorAll('[data-edit-appt]'),function(b){b.onclick=function(){
+    toast('تعديل المواعيد غير متاح في هذه النسخة التجريبية');
+  }});
+
+  // "إلغاء" موعد: فعلي — يحدّث appointments.status ثم يحذف السطر من
+  // #apptList فقط (لا render() كامل للصفحة).
+  [].forEach.call(document.querySelectorAll('[data-cancel-appt]'),function(b){b.onclick=async function(){
+    var apptId=b.getAttribute('data-cancel-appt');
+    var mid=S.selMerchant;
+    b.disabled=true;
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.from('appointments').update({status:'cancelled'}).eq('id',apptId);
+      if(res.error) throw res.error;
+      MERCHANT_APPOINTMENTS[mid]=(MERCHANT_APPOINTMENTS[mid]||[]).filter(function(a){return a.id!==apptId});
+      var listEl=document.getElementById('apptList');
+      if(listEl){
+        if(MERCHANT_APPOINTMENTS[mid].length)listEl.innerHTML=MERCHANT_APPOINTMENTS[mid].map(apptRowHtml).join('');
+        else listEl.outerHTML='<div class="empty">لا توجد مواعيد قادمة لديك حاليًا</div>';
+      }
+      bind();
+      toast('تم إلغاء الموعد');
+    }catch(e){
+      console.error('NOJ cancel appointment error:',e);
+      b.disabled=false;
+      toast('تعذّر إلغاء الموعد، حاول مرة أخرى');
+    }
+  }});
 }
 
 // Aggregate (no-identity) waiting counts for one merchant's queue, fetched
-// on demand when its detail page is opened (see the [data-open-merchant]
-// handler above) rather than for every merchant up front.
+// on demand when its detail page is opened rather than for every merchant
+// up front. صحة merchants use the richer per-clinic get_merchant_clinics
+// RPC instead (see prefetchMerchantQueueData below).
 async function loadMerchantQueueStats(merchantId){
   try{
     var sb=await getSb();
@@ -1716,6 +1890,68 @@ async function loadMerchantQueueStats(merchantId){
   }catch(e){
     console.error('NOJ queue stats error:',e);
     MERCHANT_QUEUE_STATS[merchantId]=[];
+  }
+}
+
+// عيادات مركز صحي + إحصاء انتظار حي لكل عيادة (اسم، طبيب، الرقم الحالي،
+// عدد المنتظرين، الوقت المتوقع) — تُجلب مرة واحدة وتُخزَّن مؤقتًا.
+async function loadMerchantClinics(merchantId){
+  try{
+    var sb=await getSb();
+    if(!sb){MERCHANT_CLINICS[merchantId]=[];return}
+    var res=await sb.rpc('get_merchant_clinics',{p_merchant_id:merchantId});
+    if(res.error) throw res.error;
+    MERCHANT_CLINICS[merchantId]=(res.data||[]).map(function(row){
+      return {clinicId:row.clinic_id,clinicName:row.clinic_name,doctorName:row.doctor_name,
+        bookingEnabled:!!row.booking_enabled,nowServing:row.now_serving,
+        waitingCount:Number(row.waiting_count),estMinutes:Number(row.est_minutes)};
+    });
+  }catch(e){
+    console.error('NOJ clinics error:',e);
+    MERCHANT_CLINICS[merchantId]=[];
+  }
+}
+
+// مواعيد العميل القادمة (غير الملغاة) لدى مركز صحي معيّن.
+async function loadMerchantAppointments(merchantId){
+  try{
+    var sb=await getSb();
+    if(!sb){MERCHANT_APPOINTMENTS[merchantId]=[];return}
+    var res=await sb.from('appointments').select('id, scheduled_at, clinics(name, doctor_name)')
+      .eq('merchant_id',merchantId).eq('user_id',PROFILE.id).eq('status','confirmed').order('scheduled_at',{ascending:true});
+    if(res.error) throw res.error;
+    MERCHANT_APPOINTMENTS[merchantId]=(res.data||[]).map(function(row){
+      return {id:row.id,clinicName:row.clinics?row.clinics.name:'عيادة',doctorName:row.clinics?row.clinics.doctor_name:null,scheduledAt:row.scheduled_at};
+    });
+  }catch(e){
+    console.error('NOJ appointments error:',e);
+    MERCHANT_APPOINTMENTS[merchantId]=[];
+  }
+}
+
+// عند فتح صفحة متجر (شبكة الأقسام) أو الضغط على مربّع "الانتظار الذكي":
+// صحّة تجلب عيادات المركز (تفيد كلًا من قسم الانتظار وقسم المواعيد معًا)،
+// وغيرها يبقي على الإحصاء المجمَّع البسيط السابق دون تغيير.
+function prefetchMerchantQueueData(m){
+  if(!m)return;
+  if(m.type==='صحة'){
+    if(MERCHANT_CLINICS[m.merchantId]===undefined){
+      loadMerchantClinics(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render()});
+    }
+  }else if(m.queueEnabled&&MERCHANT_QUEUE_STATS[m.merchantId]===undefined){
+    loadMerchantQueueStats(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render()});
+  }
+}
+
+// عند الضغط على مربّع "مواعيدي" لمركز صحي: يجلب عيادات المركز (لقائمة
+// "حجز موعد جديد") ومواعيد العميل القادمة، كل واحدة إن لم تكن محمّلة بعد.
+function prefetchMerchantHealthData(m){
+  if(!m)return;
+  if(MERCHANT_CLINICS[m.merchantId]===undefined){
+    loadMerchantClinics(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render()});
+  }
+  if(MERCHANT_APPOINTMENTS[m.merchantId]===undefined){
+    loadMerchantAppointments(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render()});
   }
 }
 
