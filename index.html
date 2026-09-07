@@ -38,16 +38,16 @@
 
   .app{max-width:480px;margin:0 auto;background:transparent;min-height:100vh;padding:0 20px calc(140px + env(safe-area-inset-bottom));position:relative}
 
-  .head{display:flex;align-items:center;justify-content:space-between;padding:22px 0 6px}
-  .wordmark{direction:ltr;line-height:1;text-align:center;flex:1}
-  .mark{width:44px;height:44px;border-radius:12px;border:3px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;direction:ltr;flex-shrink:0;color:var(--navy);padding:0;transition:transform .16s cubic-bezier(.22,.9,.3,1),background .2s}
-  .mark:active{transform:scale(.9)}
-  .mark.on{background:var(--navy);color:#fff}
+  .head{position:relative;display:flex;align-items:center;justify-content:space-between;padding:22px 0 6px}
+  .wordmark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:max-content;direction:ltr;line-height:1;text-align:center}
+  .head-left{display:flex;align-items:center;gap:8px}
+  .mark{width:44px;height:44px;border-radius:12px;border:3px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;direction:ltr;flex-shrink:0;color:var(--navy);padding:0}
   .back-circle{width:44px;height:44px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--glass-shadow-sm);transition:transform .16s cubic-bezier(.22,.9,.3,1)}
   .back-circle:active{transform:scale(.9)}
   .wordmark b{font-size:30px;font-weight:800;letter-spacing:-.5px}
   .tagline{display:block;font-size:9px;letter-spacing:2.4px;color:var(--navy);margin-top:2px;direction:ltr}
-  .bell{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0}
+  @media (max-width:370px){.tagline{font-size:7px;letter-spacing:1.2px}}
+  .bell{position:relative}
   .bell i{position:absolute;top:8px;left:9px;width:7px;height:7px;border-radius:50%;background:#EF4444;border:2px solid var(--bg)}
 
   .greet{margin-top:14px}
@@ -494,13 +494,18 @@
 
 <div class="app" id="app">
   <div class="head">
-    <button class="mark" id="profile">N</button>
-    <button class="back-circle" id="headerBack" style="display:none"></button>
-    <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
-    <button class="bell" id="bell">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 004 0"/></svg>
-      <i></i>
+    <button class="back-circle" id="profileBtn">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
     </button>
+    <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
+    <div class="head-left">
+      <button class="bell back-circle" id="bell">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 004 0"/></svg>
+        <i></i>
+      </button>
+      <button class="mark" id="logoMark">N</button>
+      <button class="back-circle" id="headerBack" style="display:none"></button>
+    </div>
   </div>
   <div id="view"></div>
 </div>
@@ -1670,8 +1675,7 @@ function logoutFlow(){
 function render(){
   document.getElementById('view').innerHTML=(V[S.tab]||home)();
   var isPrimary=PRIMARY_TABS.indexOf(S.tab)>-1;
-  document.getElementById('profile').className='mark'+(S.tab==='profile'?' on':'');
-  document.getElementById('profile').style.display=isPrimary?'':'none';
+  document.getElementById('logoMark').style.display=isPrimary?'':'none';
   var headerBack=document.getElementById('headerBack');
   headerBack.style.display=isPrimary?'none':'';
   if(isPrimary){
@@ -1695,7 +1699,7 @@ function bind(){
   [].forEach.call(document.querySelectorAll('[data-tab]'),function(b){b.onclick=function(){S.tab=b.getAttribute('data-tab');render()}});
   [].forEach.call(document.querySelectorAll('[data-go]'),function(b){b.onclick=function(){S.tab=b.getAttribute('data-go');render()}});
   document.getElementById('bell').onclick=function(){S.tab='alerts';render()};
-  document.getElementById('profile').onclick=function(){S.tab='profile';render()};
+  document.getElementById('profileBtn').onclick=function(){S.tab='profile';render()};
 
   [].forEach.call(document.querySelectorAll('[data-sw]'),function(el){
     el.onclick=function(){
