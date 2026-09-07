@@ -43,6 +43,8 @@
   .mark{width:44px;height:44px;border-radius:12px;border:3px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;direction:ltr;flex-shrink:0;color:var(--navy);padding:0;transition:transform .16s cubic-bezier(.22,.9,.3,1),background .2s}
   .mark:active{transform:scale(.9)}
   .mark.on{background:var(--navy);color:#fff}
+  .back-circle{width:44px;height:44px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--glass-shadow-sm);transition:transform .16s cubic-bezier(.22,.9,.3,1)}
+  .back-circle:active{transform:scale(.9)}
   .wordmark b{font-size:30px;font-weight:800;letter-spacing:-.5px}
   .tagline{display:block;font-size:9px;letter-spacing:2.4px;color:var(--navy);margin-top:2px;direction:ltr}
   .bell{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative;flex-shrink:0}
@@ -85,7 +87,6 @@
   .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
   .sec-head h2{font-size:16px;font-weight:800}
   .sec-head button{font-size:12px;color:var(--blue);font-weight:600}
-  .sec-head .back-btn{display:inline-flex;align-items:center;gap:4px;color:var(--navy)}
 
   .list{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:18px;overflow:hidden;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow)}
   .row{display:flex;align-items:center;gap:14px;padding:16px;width:100%;text-align:right}
@@ -494,6 +495,7 @@
 <div class="app" id="app">
   <div class="head">
     <button class="mark" id="profile">N</button>
+    <button class="back-circle" id="headerBack" style="display:none"></button>
     <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
     <button class="bell" id="bell">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 004 0"/></svg>
@@ -886,7 +888,7 @@ function bookListHtml(){
 function queue(){
   var q=S.q;
   var bookable=USER_MERCHANTS.filter(function(m){return m.bookingEnabled});
-  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+
   '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
     '<small>'+ic('pin',12,'#fff')+' '+(QUEUE.label||'—')+'</small>'+
     '<div class="qnum">#'+(QUEUE.ticket!=null?QUEUE.ticket:'—')+'</div>'+
@@ -926,7 +928,7 @@ function invoices(){
       '<div class="row-ico" style="background:'+m.c+'18">'+ic(m.i,22,m.c)+'</div>'+
       '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+i.c+'</span></div>'+
       '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>الفواتير الذكية</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الفواتير الذكية</h2></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="q" placeholder="ابحث عن متجر أو فئة..." value="'+S.query+'"></div>'+grid+invoiceModal(sel);
 }
 
@@ -962,10 +964,10 @@ function loyaltyListHtml(){
 
 function loyalty(){
   if(!MERCHANT_LOYALTY.length){
-    return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2></div>'+
       '<div class="empty">لا يوجد رصيد نقاط لدى أي تاجر بعد</div>';
   }
-  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الولاء</h2></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="loyQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.loyQuery+'"></div>'+
     '<div id="loyList">'+loyaltyListHtml()+'</div>';
 }
@@ -1014,15 +1016,13 @@ function merchantRewardsPage(){
   var m=MERCHANT_LOYALTY.filter(function(x){return x.merchantId===S.selMerchant})[0];
   var fromMerchantDetail=S.rewardsBack==='merchantDetail';
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button class="back-btn" data-go="'+(fromMerchantDetail?'merchantDetail':'loyalty')+'">'+ic('chevronBack',13,'currentColor')+'<span>'+(fromMerchantDetail?'رجوع':'الولاء')+'</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var cat=CAT[m.type]||CAT['أخرى'];
   var um=USER_MERCHANTS.filter(function(x){return x.merchantId===m.merchantId})[0];
   var visits=um?um.invoiceCount:0;
   var title=fromMerchantDetail?'الولاء':m.name;
-  var backTab=fromMerchantDetail?'merchantDetail':'loyalty';
-  var backLabel=fromMerchantDetail?m.name:'الولاء';
   var header='<div class="box"><div class="loy">'+
     '<div class="loy-ico" style="background:'+cat.c+'18">'+ic(cat.i,30,cat.c)+'</div>'+
     '<div class="loy-mid"><small>'+m.type+'</small><b style="font-size:16px">'+m.name+'</b></div>'+
@@ -1031,7 +1031,7 @@ function merchantRewardsPage(){
     '<div class="st"><b id="rwHdrPts" style="color:var(--orange)">'+m.points.toLocaleString('en-US')+'</b><small>رصيد النقاط</small></div>'+
     '<div class="st"><b>'+visits+'</b><small>عدد الزيارات</small></div>'+
   '</div></div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+title+'</h2><button class="back-btn" data-go="'+backTab+'">'+ic('chevronBack',13,'currentColor')+'<span>'+backLabel+'</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+title+'</h2></div>'+
     header+
     '<div class="sec"><div class="sec-head"><h2>المكافآت</h2></div>'+
     '<div class="list" id="rwdList">'+rwdListHtml(m)+'</div></div>';
@@ -1063,10 +1063,10 @@ function merchantsListHtml(){
 
 function merchantsPage(){
   if(!USER_MERCHANTS.length){
-    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2></div>'+
       '<div class="empty">لم تتعامل مع أي متجر بعد</div>';
   }
-  return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>متاجري</h2></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="merchQ" placeholder="ابحث بالاسم أو الفرع أو النشاط..." value="'+S.merchQuery+'"></div>'+
     '<div id="merchList">'+merchantsListHtml()+'</div>';
 }
@@ -1143,7 +1143,7 @@ function msecHtml(s,merchantId){
 function merchantDetail(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>المتجر</h2></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var cat=CAT[m.type]||CAT['أخرى'];
@@ -1166,7 +1166,7 @@ function merchantDetail(){
         '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+
     '</div></div>';
-    return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2></div>'+
       header+list+invoiceModal(sel);
   }
 
@@ -1175,7 +1175,7 @@ function merchantDetail(){
       row.map(function(s){return msecHtml(s,m.merchantId)}).join('')+'</div>';
   }).join('')+'</div>';
 
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2></div>'+
     header+grid;
 }
 
@@ -1185,7 +1185,7 @@ function merchantDetail(){
 function merchantInvoicesPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var myInvoices=INVOICES.filter(function(i){return i.merchantId===m.merchantId});
@@ -1196,7 +1196,7 @@ function merchantInvoicesPage(){
         '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
     :'<div class="empty">لا توجد فواتير لدى هذا المتجر</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2></div>'+
     list+invoiceModal(sel);
 }
 
@@ -1230,7 +1230,7 @@ function merchantBookingPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   var bc=bookingCopyFor(m?m.type:null);
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
 
@@ -1248,11 +1248,11 @@ function merchantBookingPage(){
       return '<button class="row" data-book-clinic="'+c.clinicId+'" data-clinic-name="'+c.clinicName+'"><div class="row-ico" style="background:#0F6E6E18">'+ic('hospital',22,'#0F6E6E')+'</div>'+
         '<div class="row-txt"><b>'+c.clinicName+'</b>'+(c.doctorName?'<small>'+c.doctorName+'</small>':'')+'</div>'+ic('chevron',18,'#8A93AD')+'</button>';
     }).join('')+'</div>':'';
-    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2></div>'+
       apptsHtml+newBtn+picker;
   }
 
-  return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2></div>'+
     '<div class="box"><p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">'+bc.desc+' لدى '+m.name+'.</p>'+
     '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
 }
@@ -1291,7 +1291,7 @@ function clinicRowHtml(c,isMine){
 function merchantQueuePage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
 
@@ -1305,7 +1305,7 @@ function merchantQueuePage(){
       var rest=clinics.filter(function(c){return c!==mine});
       body=(mine?clinicRowHtml(mine,true):'')+rest.map(function(c){return clinicRowHtml(c,false)}).join('');
     }
-    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+body;
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+body;
   }
 
   var hasActiveQueue=QUEUE.merchantId===m.merchantId&&QUEUE.ticket!=null;
@@ -1314,7 +1314,7 @@ function merchantQueuePage(){
   if(stats===undefined)statsHtml='<p style="font-size:13px;color:var(--muted)">جارٍ تحميل حالة الانتظار...</p>';
   else if(!stats.length)statsHtml='<p style="font-size:13px;color:var(--muted)">لا يوجد أحد بالانتظار حالياً</p>';
   else statsHtml=stats.map(function(s){return '<div class="mrow"><span>'+s.unit_name+'</span><span>'+s.waiting_count+' بالانتظار</span></div>'}).join('');
-  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+
     '<div class="box">'+statsHtml+
     (hasActiveQueue?'<div class="dash"></div><div class="mrow"><span>دورك أنت</span><span>#'+QUEUE.ticket+'</span></div>':'')+
   '</div>';
@@ -1326,7 +1326,7 @@ function merchantQueuePage(){
 function merchantAlertsPage(){
   var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
   if(!m){
-    return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button class="back-btn" data-go="merchants">'+ic('chevronBack',13,'currentColor')+'<span>متاجري</span></button></div>'+
+    return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2></div>'+
       '<div class="empty">هذا المتجر غير متاح</div>';
   }
   var myAlerts=ALERTS.filter(function(a){return a.merchantId===m.merchantId});
@@ -1334,13 +1334,13 @@ function merchantAlertsPage(){
     ?'<div class="list">'+myAlerts.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
         '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>'
     :'<div class="empty">لا توجد تنبيهات من هذا المتجر حاليًا</div>';
-  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button class="back-btn" data-go="merchantDetail">'+ic('chevronBack',13,'currentColor')+'<span>'+m.name+'</span></button></div>'+list;
+  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2></div>'+list;
 }
 
 function spending(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
   var max=Math.max.apply(null,TREND.map(function(d){return d.t}));
-  return '<div class="sec-head" style="margin-top:20px"><h2>تحليل المصروفات</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>تحليل المصروفات</h2></div>'+
   '<div class="box"><small style="font-size:12px;color:var(--muted)">إجمالي الإنفاق هذا الشهر</small>'+
   '<div style="font-size:26px;font-weight:800;margin:4px 0 12px;direction:ltr;text-align:right">'+total.toLocaleString('en-US')+' ريال</div>'+
   '<div class="donut-row">'+donut(120,{b:total.toLocaleString('en-US'),s:'ريال'},true)+
@@ -1352,7 +1352,7 @@ function spending(){
 }
 
 function alerts(){
-  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2></div>'+
   '<div class="list">'+ALERTS.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
   '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>';
 }
@@ -1360,7 +1360,7 @@ function alerts(){
 function reports(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
   var loyMerchantCount=MERCHANT_LOYALTY.filter(function(m){return m.points>0}).length;
-  return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2></div>'+
   '<div class="box"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
   '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
   '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
@@ -1377,7 +1377,7 @@ function more(){
          {i:'bars',c:'#7C5CE6',t:'إدارة الالتزامات',s:'قريبًا — المرحلة الثانية'},
          {i:'store',c:'#3B82F6',t:'المتاجر المشتركة',s:'تصفح المتاجر المرتبطة بـ NOJ'},
          {i:'bell',c:'#F59E0B',t:'إعدادات التنبيهات',s:'تحكم في تنبيهات الدور والإنفاق'}];
-  return '<div class="sec-head" style="margin-top:20px"><h2>المزيد</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>المزيد</h2></div>'+
   '<div class="list">'+M.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
   '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div>'+ic('chevron',18,'#8A93AD')+'</div>'}).join('')+'</div>'+
   '<div class="note">NOJ — من الدفع تبدأ علاقتك المالية. هذه نسخة تجريبية توضح المرحلة الأولى من المنصة.</div>';
@@ -1401,7 +1401,7 @@ function profile(){
              {i:'store',c:'#7C5CE6',t:'المتاجر المفضلة',s:'٤ متاجر محفوظة'},
              {i:'pin',c:'#22A87A',t:'العناوين',s:'المنزل، العمل'},
              {i:'grid',c:'#64748B',t:'اللغة والمنطقة',s:'العربية · السعودية'}];
-  return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2><button class="back-btn" data-go="home">'+ic('chevronBack',13,'currentColor')+'<span>الرئيسية</span></button></div>'+
+  return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2></div>'+
   '<div class="prof-hero"><div class="prof-av">'+((PROFILE.name||'ض').charAt(0))+'</div><div class="prof-id"><b>'+(PROFILE.name||'عميل NOJ')+'</b>'+
   '<small>ahmed@noj.app</small><small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
   '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى ال'+(PROFILE.tier||'برونزي')+'</span></div></div>'+
@@ -1424,6 +1424,23 @@ function profile(){
 }
 
 var V={home:home,queue:queue,invoices:invoices,loyalty:loyalty,spending:spending,alerts:alerts,reports:reports,more:more,profile:profile,merchants:merchantsPage,merchantDetail:merchantDetail,merchantRewards:merchantRewardsPage,merchantInvoices:merchantInvoicesPage,merchantBooking:merchantBookingPage,merchantQueue:merchantQueuePage,merchantAlerts:merchantAlertsPage};
+
+// تبويبات شريط التنقل السفلي الخمسة (نفس معرّفات NAV) — الصفحات الوحيدة
+// التي يظهر فيها مربّع الشعار "N"؛ أي تبويب آخر صفحة فرعية يحل زر
+// الرجوع الدائري محل "N" فيها بدلًا منه (نفس الموضع أعلى يمين الشاشة).
+var PRIMARY_TABS=['home','merchants','loyalty','reports','more'];
+
+// وجهة زر الرجوع الدائري لكل صفحة فرعية — تطابق تمامًا الوجهة التي كان
+// يؤدي إليها رابط الرجوع النصي القديم في رأس كل صفحة قبل توحيدها هنا.
+function backTargetFor(tab){
+  if(tab==='merchantRewards')return S.rewardsBack==='merchantDetail'?'merchantDetail':'loyalty';
+  if(tab==='merchantInvoices'||tab==='merchantBooking'||tab==='merchantQueue'||tab==='merchantAlerts'){
+    var found=USER_MERCHANTS.some(function(x){return x.merchantId===S.selMerchant});
+    return found?'merchantDetail':'merchants';
+  }
+  if(tab==='merchantDetail')return 'merchants';
+  return 'home';
+}
 
 function toast(m){var e=document.getElementById('toast');document.getElementById('toast-text').textContent=m;e.classList.add('on');setTimeout(function(){e.classList.remove('on')},2400)}
 
@@ -1652,7 +1669,17 @@ function logoutFlow(){
 /* ================= APP RENDER ================= */
 function render(){
   document.getElementById('view').innerHTML=(V[S.tab]||home)();
+  var isPrimary=PRIMARY_TABS.indexOf(S.tab)>-1;
   document.getElementById('profile').className='mark'+(S.tab==='profile'?' on':'');
+  document.getElementById('profile').style.display=isPrimary?'':'none';
+  var headerBack=document.getElementById('headerBack');
+  headerBack.style.display=isPrimary?'none':'';
+  if(isPrimary){
+    headerBack.removeAttribute('data-go');
+  }else{
+    headerBack.innerHTML=ic('chevronBack',18,'#12235C',2.1);
+    headerBack.setAttribute('data-go',backTargetFor(S.tab));
+  }
   document.getElementById('nav').innerHTML=NAV.map(function(n){
     var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
     return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'#12235C':'#64748B',on?2.1:1.8)+'<span style="color:'+(on?'#12235C':'#64748B')+'">'+n.l+'</span></button>'}).join('');
