@@ -497,6 +497,7 @@
     <button class="back-circle" id="profileBtn">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
     </button>
+    <button class="back-circle" id="headerBack" style="display:none"></button>
     <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
     <div class="head-left">
       <button class="bell back-circle" id="bell">
@@ -504,7 +505,6 @@
         <i></i>
       </button>
       <button class="mark" id="logoMark">N</button>
-      <button class="back-circle" id="headerBack" style="display:none"></button>
     </div>
   </div>
   <div id="view"></div>
@@ -1675,7 +1675,7 @@ function logoutFlow(){
 function render(){
   document.getElementById('view').innerHTML=(V[S.tab]||home)();
   var isPrimary=PRIMARY_TABS.indexOf(S.tab)>-1;
-  document.getElementById('logoMark').style.display=isPrimary?'':'none';
+  document.getElementById('profileBtn').style.display=isPrimary?'':'none';
   var headerBack=document.getElementById('headerBack');
   headerBack.style.display=isPrimary?'none':'';
   if(isPrimary){
