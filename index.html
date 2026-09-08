@@ -63,12 +63,15 @@
      الرقم أو ضاق عرض الشاشة؛ طبقة النص (z-index:2) فوق الرسم (z-index:1)
      دائمًا بلا حاجة لهذا الضمان أصلاً، لكنه يبقي الخط بعيدًا بصريًا أيضًا. */
   .hero-top{position:relative;overflow:hidden;min-height:96px}
-  .hero-grid{position:absolute;left:0;bottom:0;width:58%;height:86px;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 1px,transparent 1px 34px);pointer-events:none;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 55%);mask-image:linear-gradient(to left,transparent 0%,#000 55%)}
-  .spark{position:absolute;left:0;bottom:0;width:58%;height:86px;pointer-events:none;z-index:1;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 45%);mask-image:linear-gradient(to left,transparent 0%,#000 45%)}
+  /* الخط ونقطته ينتهيان عند 80% من عرض صندوقهما الخاص (لا 99%)، فتبقى
+     النقطة داخل منطقة العتامة الكاملة للـmask بهامش أمان مريح، بدل أن
+     تُطمَس معه قرب حافة البطاقة. */
+  .hero-grid{position:absolute;left:0;bottom:0;width:55%;height:70px;pointer-events:none;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 25%);mask-image:linear-gradient(to left,transparent 0%,#000 25%)}
+  .spark{position:absolute;left:0;bottom:0;width:55%;height:70px;pointer-events:none;z-index:1;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 15%);mask-image:linear-gradient(to left,transparent 0%,#000 15%)}
   .hero-text{position:relative;z-index:2}
   .hero-label{font-size:13px;opacity:.7}
-  .hero-amount{font-size:36px;font-weight:800;margin-top:8px;direction:ltr;text-align:right}
-  .hero-amount s{text-decoration:none;font-size:15px;opacity:.7;font-weight:600;margin-right:4px}
+  .hero-amount{font-size:clamp(28px,8vw,32px);font-weight:800;line-height:1.1;letter-spacing:-0.02em;margin-top:8px;direction:ltr;text-align:right}
+  .hero-amount s{text-decoration:none;font-size:14px;opacity:.7;font-weight:600;margin-right:4px;vertical-align:baseline}
   .hero-sub{font-size:13px;opacity:.7;margin-top:8px}
   .hero-delta{font-size:13px;font-weight:600;margin-top:6px}
   .hero-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:13px;border-radius:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);margin-top:16px;position:relative;z-index:1}
@@ -863,9 +866,12 @@ function loyaltySkeleton(){
 // يُعتمد على اللون وحده أبدًا: اتجاه السهم والنص يحملان المعنى نفسه،
 // لوضوح الرسالة لمستخدمي عمى الألوان أيضًا.
 function heroDeltaHtml(pct){
-  if(pct===0)return '<div class="hero-delta" style="color:#94A3B8">— بدون تغيير عن الشهر الماضي</div>';
-  if(pct<0)return '<div class="hero-delta" style="color:#22C55E">↓ أقل من الشهر الماضي '+Math.abs(pct)+'%</div>';
-  return '<div class="hero-delta" style="color:#F59E0B">↑ أعلى من الشهر الماضي '+pct+'%</div>';
+  // dir="rtl" صريح على السطر + عزل النسبة داخل <bdi dir="ltr"> يمنعان
+  // خوارزمية bidi من إعادة ترتيب موضع الرقم أو السهم بصريًا عند اختلاطهما
+  // بنص عربي — النسبة تبقى في مكانها الطبيعي بعد النص دائمًا.
+  if(pct===0)return '<div class="hero-delta" dir="rtl" style="color:#94A3B8">— بدون تغيير عن الشهر الماضي</div>';
+  if(pct<0)return '<div class="hero-delta" dir="rtl" style="color:#22C55E">↓ أقل من الشهر الماضي <bdi dir="ltr">'+Math.abs(pct)+'%</bdi></div>';
+  return '<div class="hero-delta" dir="rtl" style="color:#F59E0B">↑ أعلى من الشهر الماضي <bdi dir="ltr">'+pct+'%</bdi></div>';
 }
 
 function home(){
@@ -882,10 +888,12 @@ function home(){
   '<div class="greet"><h1>مرحباً '+firstName+' 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
   '<div class="hero">'+
     '<div class="hero-top">'+
-      '<div class="hero-grid"></div>'+
+      '<svg class="hero-grid" viewBox="0 0 200 70" preserveAspectRatio="none">'+
+        [20,60,100,140,180].map(function(x){return '<line x1="'+x+'" y1="0" x2="'+x+'" y2="70" stroke="rgba(255,255,255,.05)" stroke-width="1" stroke-dasharray="3 4"/>'}).join('')+
+      '</svg>'+
       '<svg class="spark" viewBox="0 0 200 70" preserveAspectRatio="none">'+
-        '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24 S 186 12, 198 10" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round"/>'+
-        '<circle cx="198" cy="10" r="5" fill="#fff"/></svg>'+
+        '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24" fill="none" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>'+
+        '<circle cx="160" cy="24" r="6.5" fill="#fff"/></svg>'+
       '<div class="hero-text">'+
         '<div class="hero-label">إجمالي المصروفات</div>'+
         '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
@@ -893,7 +901,7 @@ function home(){
         heroDeltaHtml(spendPctChange)+
       '</div>'+
     '</div>'+
-    '<button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+'<span>عرض التحليل</span>'+ic('chevron',14,'#fff')+'</button>'+
+    '<button class="hero-btn" data-go="spending">'+ic('chart',18,'#fff',2)+'<span>عرض التحليل</span>'+ic('chevron',14,'#fff')+'</button>'+
   '</div>'+
   '<div class="tiles">'+
     '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span><p>تابع أرقام الانتظار الحالية ودورك إن وجد</p><div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div></button>'+
