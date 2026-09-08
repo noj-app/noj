@@ -40,7 +40,7 @@
 
   .head{position:relative;display:flex;align-items:center;justify-content:space-between;padding:22px 0 6px}
   .wordmark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:max-content;direction:ltr;line-height:1;text-align:center}
-  .head-left{display:flex;align-items:center;gap:8px}
+  .head-right{display:flex;align-items:center;gap:8px}
   .mark{width:44px;height:44px;border-radius:12px;border:3px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;direction:ltr;flex-shrink:0;color:var(--navy);padding:0}
   .back-circle{width:44px;height:44px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--glass-shadow-sm);transition:transform .16s cubic-bezier(.22,.9,.3,1)}
   .back-circle:active{transform:scale(.9)}
@@ -54,15 +54,20 @@
   .greet h1{font-size:26px;font-weight:800}
   .greet p{font-size:14px;color:var(--muted);margin-top:4px}
 
-  .hero{margin-top:16px;border-radius:20px;padding:20px;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;position:relative;overflow:hidden}
-  .hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:relative;z-index:1}
-  .hero-label{font-size:13px;opacity:.75}
-  .hero-amount{font-size:30px;font-weight:800;margin-top:6px;direction:ltr;text-align:right}
-  .hero-amount s{text-decoration:none;font-size:14px;opacity:.7;font-weight:600;margin-right:4px}
-  .hero-sub{font-size:13px;opacity:.75;margin-top:6px}
-  .hero-delta{font-size:12px;margin-top:6px;color:#6EE7B7}
-  .hero-btn{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);white-space:nowrap}
-  .spark{position:absolute;left:0;bottom:6px;width:62%;pointer-events:none}
+  .hero{margin-top:16px;border-radius:24px;padding:20px;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;position:relative;overflow:hidden}
+  .hero::before{content:"";position:absolute;top:-55px;left:-55px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.24),transparent 70%);pointer-events:none}
+  /* الرسم البياني وخطوط الشبكة يرتكزان على .hero-top (كتلة النص) لا على
+     البطاقة كلها، فيبقيان خلف المبلغ دائمًا مهما تغيّر ارتفاع الزر أسفلها. */
+  .hero-top{position:relative;min-height:96px}
+  .hero-grid{position:absolute;left:0;bottom:0;width:62%;height:76px;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 1px,transparent 1px 34px);pointer-events:none}
+  .spark{position:absolute;left:0;bottom:0;width:62%;pointer-events:none}
+  .hero-text{position:relative;z-index:1}
+  .hero-label{font-size:13px;opacity:.7}
+  .hero-amount{font-size:36px;font-weight:800;margin-top:8px;direction:ltr;text-align:right}
+  .hero-amount s{text-decoration:none;font-size:15px;opacity:.7;font-weight:600;margin-right:4px}
+  .hero-sub{font-size:13px;opacity:.7;margin-top:8px}
+  .hero-delta{font-size:13px;font-weight:600;margin-top:6px;color:#6EE7B7}
+  .hero-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:13px;border-radius:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);margin-top:16px;position:relative;z-index:1}
 
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
   .tile{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
@@ -508,18 +513,18 @@
 
 <div class="app" id="app">
   <div class="head">
-    <button class="back-circle" id="profileBtn">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
-    </button>
-    <button class="back-circle" id="headerBack" style="display:none"></button>
-    <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
-    <div class="head-left">
+    <div class="head-right">
+      <button class="back-circle" id="profileBtn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+      </button>
+      <button class="back-circle" id="headerBack" style="display:none"></button>
       <button class="bell back-circle" id="bell">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 20a2 2 0 004 0"/></svg>
         <i></i>
       </button>
-      <button class="mark" id="logoMark">N</button>
     </div>
+    <div class="wordmark"><b>NOJ</b><span class="tagline">No Ordinary Journey</span></div>
+    <button class="mark" id="logoMark">N</button>
   </div>
   <div id="view"></div>
 </div>
@@ -855,15 +860,19 @@ function home(){
   return ''+
   '<div class="greet"><h1>مرحباً '+firstName+' 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
   '<div class="hero">'+
-    '<svg class="spark" viewBox="0 0 200 70" height="70" preserveAspectRatio="none">'+
-      '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24 S 186 12, 198 10" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round"/>'+
-      '<circle cx="198" cy="10" r="5" fill="#fff"/></svg>'+
-    '<div class="hero-top"><div>'+
-      '<div class="hero-label">إجمالي المصروفات</div>'+
-      '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
-      '<div class="hero-sub">هذا الشهر</div>'+
-      '<div class="hero-delta">↑ 12% عن الشهر الماضي</div>'+
-    '</div><button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+' عرض التحليل</button></div>'+
+    '<div class="hero-top">'+
+      '<div class="hero-grid"></div>'+
+      '<svg class="spark" viewBox="0 0 200 70" preserveAspectRatio="none">'+
+        '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24 S 186 12, 198 10" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round"/>'+
+        '<circle cx="198" cy="10" r="5" fill="#fff"/></svg>'+
+      '<div class="hero-text">'+
+        '<div class="hero-label">إجمالي المصروفات</div>'+
+        '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
+        '<div class="hero-sub">هذا الشهر</div>'+
+        '<div class="hero-delta">↑ 12% عن الشهر الماضي</div>'+
+      '</div>'+
+    '</div>'+
+    '<button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+'<span>عرض التحليل</span>'+ic('chevron',14,'#fff')+'</button>'+
   '</div>'+
   '<div class="tiles">'+
     '<button class="tile" data-go="queue">'+ic('clock',26,'#7C5CE6')+'<span>الانتظار الذكي</span><p>تابع أرقام الانتظار الحالية ودورك إن وجد</p><div class="msec-arrow">'+ic('chevron',14,'#8A93AD')+'</div></button>'+
