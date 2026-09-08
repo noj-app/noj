@@ -57,16 +57,20 @@
   .hero{margin-top:16px;border-radius:24px;padding:20px;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;position:relative;overflow:hidden}
   .hero::before{content:"";position:absolute;top:-55px;left:-55px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.24),transparent 70%);pointer-events:none}
   /* الرسم البياني وخطوط الشبكة يرتكزان على .hero-top (كتلة النص) لا على
-     البطاقة كلها، فيبقيان خلف المبلغ دائمًا مهما تغيّر ارتفاع الزر أسفلها. */
-  .hero-top{position:relative;min-height:96px}
-  .hero-grid{position:absolute;left:0;bottom:0;width:62%;height:76px;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 1px,transparent 1px 34px);pointer-events:none}
-  .spark{position:absolute;left:0;bottom:0;width:62%;pointer-events:none}
-  .hero-text{position:relative;z-index:1}
+     البطاقة كلها، فيبقيان خلف المبلغ دائمًا مهما تغيّر ارتفاع الزر أسفلها.
+     overflow:hidden على الحاوية + عرض محصور (~58%) + mask-image تتلاشى
+     نحو جهة الرقم (يمين البطاقة) تمنع تداخل طرف الخط مع الرقم مهما طال
+     الرقم أو ضاق عرض الشاشة؛ طبقة النص (z-index:2) فوق الرسم (z-index:1)
+     دائمًا بلا حاجة لهذا الضمان أصلاً، لكنه يبقي الخط بعيدًا بصريًا أيضًا. */
+  .hero-top{position:relative;overflow:hidden;min-height:96px}
+  .hero-grid{position:absolute;left:0;bottom:0;width:58%;height:86px;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 1px,transparent 1px 34px);pointer-events:none;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 55%);mask-image:linear-gradient(to left,transparent 0%,#000 55%)}
+  .spark{position:absolute;left:0;bottom:0;width:58%;height:86px;pointer-events:none;z-index:1;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 45%);mask-image:linear-gradient(to left,transparent 0%,#000 45%)}
+  .hero-text{position:relative;z-index:2}
   .hero-label{font-size:13px;opacity:.7}
   .hero-amount{font-size:36px;font-weight:800;margin-top:8px;direction:ltr;text-align:right}
   .hero-amount s{text-decoration:none;font-size:15px;opacity:.7;font-weight:600;margin-right:4px}
   .hero-sub{font-size:13px;opacity:.7;margin-top:8px}
-  .hero-delta{font-size:13px;font-weight:600;margin-top:6px;color:#6EE7B7}
+  .hero-delta{font-size:13px;font-weight:600;margin-top:6px}
   .hero-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:13px;border-radius:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);margin-top:16px;position:relative;z-index:1}
 
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
@@ -852,9 +856,26 @@ function loyaltySkeleton(){
     '<div class="loy-grid">'+loySkCard()+loySkCard()+loySkCard()+loySkCard()+'</div>';
 }
 
+// اتجاه ولون ونص التغيّر الشهري لبطاقة "إجمالي المصروفات" — هذه مصروفات
+// لا أرباح، فالمنطق معكوس عمدًا عن أي مؤشر مالي "صاعد=جيد" معتاد:
+// نقص الإنفاق إيجابي (أخضر، سهم لأسفل)، وزيادته تنبيه (كهرماني لا أحمر،
+// فزيادة الإنفاق ليست بالضرورة خطأ، والأحمر يوحي بخسارة/خطأ فعلي). لا
+// يُعتمد على اللون وحده أبدًا: اتجاه السهم والنص يحملان المعنى نفسه،
+// لوضوح الرسالة لمستخدمي عمى الألوان أيضًا.
+function heroDeltaHtml(pct){
+  if(pct===0)return '<div class="hero-delta" style="color:#94A3B8">— بدون تغيير عن الشهر الماضي</div>';
+  if(pct<0)return '<div class="hero-delta" style="color:#22C55E">↓ أقل من الشهر الماضي '+Math.abs(pct)+'%</div>';
+  return '<div class="hero-delta" style="color:#F59E0B">↑ أعلى من الشهر الماضي '+pct+'%</div>';
+}
+
 function home(){
   if(S.dataLoading)return homeSkeleton();
   var total=CATS.reduce(function(s,c){return s+c.a},0);
+  // TODO: نسبة تغيّر حقيقية عن الشهر الماضي تتطلب تخزين إجمالي الشهر
+  // السابق فعليًا (لا يوجد حاليًا في المخطط) — قيمة تجريبية ثابتة مؤقتًا؛
+  // heroDeltaHtml أعلاه يطبّق المنطق الصحيح الكامل (زيادة/نقصان/بلا تغيير)
+  // بصرف النظر عن مصدر الرقم.
+  var spendPctChange=12;
   var last=INVOICES[0]||{m:'—',a:0,d:'—'};
   var firstName=(PROFILE.name||'').split(' ')[0]||'بك';
   return ''+
@@ -869,7 +890,7 @@ function home(){
         '<div class="hero-label">إجمالي المصروفات</div>'+
         '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
         '<div class="hero-sub">هذا الشهر</div>'+
-        '<div class="hero-delta">↑ 12% عن الشهر الماضي</div>'+
+        heroDeltaHtml(spendPctChange)+
       '</div>'+
     '</div>'+
     '<button class="hero-btn" data-go="spending">'+ic('bars',14,'#fff')+'<span>عرض التحليل</span>'+ic('chevron',14,'#fff')+'</button>'+
