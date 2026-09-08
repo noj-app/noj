@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
 <title>NOJ — No Ordinary Journey</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#12235C">
@@ -200,9 +200,15 @@
   .ins svg{flex-shrink:0;margin-top:2px}
 
   .ov{position:fixed;inset:0;z-index:60;background:rgba(10,20,50,.45);display:flex;align-items:flex-end;justify-content:center}
-  .sheet{width:100%;max-width:480px;background:var(--glass-sheet-bg);border:1px solid var(--glass-border);border-bottom:none;border-radius:22px 22px 0 0;padding:22px;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow)}
-  .sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  /* عمود مرن بثلاثة أجزاء: رأس ثابت (sheet-head)، جسم قابل للتمرير
+     (sheet-body) إن طال المحتوى، وتذييل ثابت مرئيًا دائمًا (sheet-foot) —
+     يحمل الإجمالي أو زر التأكيد. max-height تمنع النافذة من تجاوز الشاشة
+     أصلاً؛ overflow-y:auto على الجسم وحده هو ما يسمح بالتمرير الداخلي. */
+  .sheet{width:100%;max-width:480px;max-height:min(85vh,640px);display:flex;flex-direction:column;background:var(--glass-sheet-bg);border:1px solid var(--glass-border);border-bottom:none;border-radius:22px 22px 0 0;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow)}
+  .sheet-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:22px 22px 16px}
   .sheet-head h3{font-size:17px;font-weight:800}
+  .sheet-body{flex:1;min-height:0;overflow-y:auto;padding:0 22px}
+  .sheet-foot{flex-shrink:0;padding:16px 22px calc(22px + env(safe-area-inset-bottom))}
   .mrow{display:flex;justify-content:space-between;font-size:14px;padding:7px 0}
   .mrow span:first-child{color:var(--muted)}
   .mrow span:last-child{font-weight:600}
@@ -983,10 +989,13 @@ function invoiceModal(sel){
   if(!sel)return '';
   return '<div class="ov" id="ov"><div class="sheet" id="sheet">'+
     '<div class="sheet-head"><h3>تفاصيل الفاتورة</h3><button id="cls">'+ic('x',18,'#12235C')+'</button></div>'+
-    '<div><b style="font-size:14px">'+sel.m+'</b><div style="font-size:12px;color:var(--muted);margin-top:3px">'+sel.d+'</div></div>'+
-    '<div class="dash"></div>'+
-    sel.items.map(function(t){return '<div class="mrow"><span>'+t.n+'</span><span>'+t.p+' ريال</span></div>'}).join('')+
-    '<div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div></div></div>';
+    '<div class="sheet-body">'+
+      '<div><b style="font-size:14px">'+sel.m+'</b><div style="font-size:12px;color:var(--muted);margin-top:3px">'+sel.d+'</div></div>'+
+      '<div class="dash"></div>'+
+      sel.items.map(function(t){return '<div class="mrow"><span>'+t.n+'</span><span>'+t.p+' ريال</span></div>'}).join('')+
+    '</div>'+
+    '<div class="sheet-foot"><div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div></div>'+
+  '</div></div>';
 }
 
 function invoices(){
@@ -1118,8 +1127,8 @@ function redeemConfirmSheet(m){
   if(!r)return '';
   return '<div class="ov" id="ovRedeem"><div class="sheet" id="sheetRedeem">'+
     '<div class="sheet-head"><h3>استبدال المكافأة؟</h3><button id="clsRedeem">'+ic('x',18,'#12235C')+'</button></div>'+
-    '<div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم خصم <b style="color:var(--text)">'+r.c.toLocaleString('en-US')+' نقطة</b> من رصيدك لدى '+m.name+' مقابل "'+r.t+'". لا يمكن التراجع عن هذا الإجراء.</div>'+
-    '<button class="btn" id="confirmRedeemBtn" style="margin-top:16px;margin-bottom:76px">تأكيد الاستبدال</button>'+
+    '<div class="sheet-body"><div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم خصم <b style="color:var(--text)">'+r.c.toLocaleString('en-US')+' نقطة</b> من رصيدك لدى '+m.name+' مقابل "'+r.t+'". لا يمكن التراجع عن هذا الإجراء.</div></div>'+
+    '<div class="sheet-foot"><button class="btn" id="confirmRedeemBtn">تأكيد الاستبدال</button></div>'+
   '</div></div>';
 }
 
@@ -1473,8 +1482,8 @@ function more(){
 function clearConfirmSheet(){
   return '<div class="ov" id="ovClear"><div class="sheet" id="sheetClear">'+
     '<div class="sheet-head"><h3>مسح جميع البيانات؟</h3><button id="clsClear">'+ic('x',18,'#12235C')+'</button></div>'+
-    '<div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم حذف جلسة الدخول وتفضيلات الإشعارات المحفوظة على هذا الجهاز، وسيُطلب منك تسجيل الدخول من جديد. لا يمكن التراجع عن هذا الإجراء.</div>'+
-    '<button class="logout" id="confirmClear" style="margin-top:16px;margin-bottom:76px">مسح نهائي</button>'+
+    '<div class="sheet-body"><div style="font-size:13px;color:var(--muted);line-height:1.8">سيتم حذف جلسة الدخول وتفضيلات الإشعارات المحفوظة على هذا الجهاز، وسيُطلب منك تسجيل الدخول من جديد. لا يمكن التراجع عن هذا الإجراء.</div></div>'+
+    '<div class="sheet-foot"><button class="logout" id="confirmClear">مسح نهائي</button></div>'+
   '</div></div>';
 }
 
@@ -1771,9 +1780,15 @@ function render(){
     headerBack.innerHTML=ic('chevronBack',18,'#12235C',2.1);
     headerBack.setAttribute('data-go',backTargetFor(S.tab));
   }
-  document.getElementById('nav').innerHTML=NAV.map(function(n){
+  var navEl=document.getElementById('nav');
+  navEl.innerHTML=NAV.map(function(n){
     var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
     return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'#12235C':'#64748B',on?2.1:1.8)+'<span style="color:'+(on?'#12235C':'#64748B')+'">'+n.l+'</span></button>'}).join('');
+  // إخفاء الشريط السفلي أثناء فتح أي نافذة منبثقة (.ov/.sheet) — كان
+  // ظاهرًا خلف خلفية النافذة شبه الشفافة (glass) فيبدو متسربًا فوق أسفل
+  // محتواها. أوثق حل: إخفاؤه فعليًا بدل الاعتماد على ترتيب z-index وحده.
+  var sheetOpen=!!S.sel||S.showClear||!!S.confirmRedeem;
+  navEl.style.display=sheetOpen?'none':'';
   bind();
   var total=CATS.reduce(function(s,c){return s+c.a},0);
   var heroNum=document.getElementById('heroNum');
