@@ -54,27 +54,30 @@
   .greet h1{font-size:26px;font-weight:800}
   .greet p{font-size:14px;color:var(--muted);margin-top:4px}
 
-  .hero{margin-top:16px;border-radius:24px;padding:20px;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;position:relative;overflow:hidden}
+  .hero{margin-top:16px;border-radius:24px;padding:16px;background:linear-gradient(135deg,var(--navy),var(--navy-2));color:#fff;position:relative;overflow:hidden}
   .hero::before{content:"";position:absolute;top:-55px;left:-55px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.24),transparent 70%);pointer-events:none}
   /* الرسم البياني وخطوط الشبكة يرتكزان على .hero-top (كتلة النص) لا على
      البطاقة كلها، فيبقيان خلف المبلغ دائمًا مهما تغيّر ارتفاع الزر أسفلها.
-     overflow:hidden على الحاوية + عرض محصور (~58%) + mask-image تتلاشى
-     نحو جهة الرقم (يمين البطاقة) تمنع تداخل طرف الخط مع الرقم مهما طال
-     الرقم أو ضاق عرض الشاشة؛ طبقة النص (z-index:2) فوق الرسم (z-index:1)
-     دائمًا بلا حاجة لهذا الضمان أصلاً، لكنه يبقي الخط بعيدًا بصريًا أيضًا. */
-  .hero-top{position:relative;overflow:hidden;min-height:96px}
+     الحصر بعرض 55% + overflow:hidden + mask-image كلها على حاوية واحدة
+     (.hero-chart) بدل الـSVG مباشرة، فحتى مع preserveAspectRatio="none"
+     يمدّد المسار داخلها، الحاوية تقصّه فعليًا عند حافتها ولا يفلت نحو
+     الرقم مهما طال الرقم أو ضاق عرض الشاشة؛ طبقة النص (z-index:2) فوق
+     الرسم (z-index:1) دائمًا بلا حاجة لهذا الضمان أصلاً، لكنه يبقي الخط
+     بعيدًا بصريًا أيضًا. */
+  .hero-top{position:relative;overflow:hidden;min-height:64px}
+  .hero-chart{position:absolute;left:0;bottom:0;width:55%;height:60px;overflow:hidden;pointer-events:none;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 25%);mask-image:linear-gradient(to left,transparent 0%,#000 25%)}
   /* الخط ونقطته ينتهيان عند 80% من عرض صندوقهما الخاص (لا 99%)، فتبقى
      النقطة داخل منطقة العتامة الكاملة للـmask بهامش أمان مريح، بدل أن
      تُطمَس معه قرب حافة البطاقة. */
-  .hero-grid{position:absolute;left:0;bottom:0;width:55%;height:70px;pointer-events:none;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 25%);mask-image:linear-gradient(to left,transparent 0%,#000 25%)}
-  .spark{position:absolute;left:0;bottom:0;width:55%;height:70px;pointer-events:none;z-index:1;-webkit-mask-image:linear-gradient(to left,transparent 0%,#000 15%);mask-image:linear-gradient(to left,transparent 0%,#000 15%)}
+  .hero-grid,.spark{position:absolute;left:0;top:0;width:100%;height:100%}
+  .spark{z-index:1}
   .hero-text{position:relative;z-index:2}
   .hero-label{font-size:13px;opacity:.7}
-  .hero-amount{font-size:clamp(28px,8vw,32px);font-weight:800;line-height:1.1;letter-spacing:-0.02em;margin-top:8px;direction:ltr;text-align:right}
+  .hero-amount{font-size:clamp(28px,8vw,32px);font-weight:800;line-height:1.05;letter-spacing:-0.02em;margin-top:6px;direction:ltr;text-align:right}
   .hero-amount s{text-decoration:none;font-size:14px;opacity:.7;font-weight:600;margin-right:4px;vertical-align:baseline}
-  .hero-sub{font-size:13px;opacity:.7;margin-top:8px}
+  .hero-sub{font-size:13px;opacity:.7;margin-top:4px}
   .hero-delta{font-size:13px;font-weight:600;margin-top:6px}
-  .hero-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:13px;border-radius:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);margin-top:16px;position:relative;z-index:1}
+  .hero-btn{width:100%;height:44px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:0 13px;border-radius:14px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);margin-top:12px;position:relative;z-index:1}
 
   .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px}
   .tile{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 4px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
@@ -888,12 +891,14 @@ function home(){
   '<div class="greet"><h1>مرحباً '+firstName+' 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
   '<div class="hero">'+
     '<div class="hero-top">'+
-      '<svg class="hero-grid" viewBox="0 0 200 70" preserveAspectRatio="none">'+
-        [20,60,100,140,180].map(function(x){return '<line x1="'+x+'" y1="0" x2="'+x+'" y2="70" stroke="rgba(255,255,255,.05)" stroke-width="1" stroke-dasharray="3 4"/>'}).join('')+
-      '</svg>'+
-      '<svg class="spark" viewBox="0 0 200 70" preserveAspectRatio="none">'+
-        '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24" fill="none" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>'+
-        '<circle cx="160" cy="24" r="6.5" fill="#fff"/></svg>'+
+      '<div class="hero-chart">'+
+        '<svg class="hero-grid" viewBox="0 0 200 70" preserveAspectRatio="none">'+
+          [20,60,100,140,180].map(function(x){return '<line x1="'+x+'" y1="0" x2="'+x+'" y2="70" stroke="rgba(255,255,255,.05)" stroke-width="1" stroke-dasharray="3 4"/>'}).join('')+
+        '</svg>'+
+        '<svg class="spark" viewBox="0 0 200 70" preserveAspectRatio="none">'+
+          '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24" fill="none" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>'+
+          '<circle cx="160" cy="24" r="6.5" fill="#fff"/></svg>'+
+      '</div>'+
       '<div class="hero-text">'+
         '<div class="hero-label">إجمالي المصروفات</div>'+
         '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
