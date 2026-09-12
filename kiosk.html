@@ -71,6 +71,8 @@
   .st-sep{height:1px;background:var(--line);margin:16px 0}
   .st-lbl{font-size:15px;font-weight:700;color:var(--muted);text-align:center;margin-bottom:6px}
   .st-big{font-size:60px;font-weight:800;color:var(--blue);text-align:center;line-height:1;direction:ltr}
+  .st-big.gold{color:var(--gold)}
+  .doc-name{font-size:19px;font-weight:800;color:var(--ink);text-align:center;line-height:1.3}
   .st-sub{font-size:14px;font-weight:600;color:var(--muted);text-align:center;margin-top:8px}
   .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;color:var(--muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
   .loy-loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 0}
@@ -115,13 +117,6 @@
   .inv-chip small{font-size:13px;font-weight:600;color:var(--muted)}
   .inv-chip b{font-size:18px;font-weight:800;color:var(--blue);direction:ltr}
   .inv-chip b span{font-size:13px;font-weight:700;margin-right:3px}
-  .sec-card{display:flex;align-items:center;gap:12px;background:var(--blue-soft);border-radius:14px;padding:10px 18px}
-  .sec-card-i{width:42px;height:42px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .sec-card-b{text-align:right}
-  .sec-card-b small{display:block;font-size:12.5px;font-weight:600;color:var(--muted)}
-  .sec-card-b>b{display:block;font-size:24px;font-weight:800;color:var(--blue);direction:ltr;line-height:1.25;margin:1px 0}
-  .sec-card-sub{display:flex;flex-direction:column;gap:1px}
-  .sec-card-sub span{font-size:12px;font-weight:600;color:var(--muted)}
   .coupon-btn{margin-top:12px;background:transparent;border:none;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:700;color:var(--blue);padding:6px}
   .coupon-btn:active{opacity:.65}
 
@@ -715,7 +710,7 @@ function header(){
 function leftCol(){
   var c=C(),t=c.topCard;
   var boxes='';
-  if(t.kind==='unit'||c.hasPoints)boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(t)+'</div>';
+  if(t.kind==='unit'||c.hasPoints)boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(c)+'</div>';
   if(c.hasQueue)boxes+='<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>';
   return '<div class="col">'+boxes+'</div>';
 }
@@ -730,13 +725,16 @@ function promoMsg(icon,title,sub){
   return '<div class="rb-i">'+ic(icon,26,'#2D7BF4')+'</div>'+
    '<div class="loy-msg"><b>'+title+'</b><small>'+sub+'</small></div>';
 }
-/* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم) أو نوع/رقم العيادة
-   (المركز الصحي)، بحسب حالة تعرّف العميل الحالية (CUST.status). في
-   guest/identifying/notfound تُعرض رسالة عامة لا تكشف أي بيانات عميل —
-   نصها يختلف بحسب t.kind (تشويق لبرنامج ولاء فعلي للقوالب النقطية، أو
-   لتوثيق التقارير/المواعيد للقالب الصحي الذي لا يملك برنامج ولاء إطلاقاً)؛
-   لا تُقرأ بيانات العميل الفعلية إلا في identified. */
-function loyaltyCardInner(t){
+/* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم/البقالة) أو نوع/رقم
+   العيادة والطبيب المعالج (المركز الصحي)، بحسب حالة تعرّف العميل الحالية
+   (CUST.status). في guest/identifying/notfound تُعرض رسالة عامة لا تكشف
+   أي بيانات — نصها يختلف بحسب t.kind (تشويق لبرنامج ولاء فعلي للقوالب
+   النقطية، أو لتوثيق التقارير/المواعيد للقالب الصحي الذي لا يملك برنامج
+   ولاء إطلاقاً)؛ لا تُقرأ بيانات العميل الفعلية إلا في identified. تأخذ
+   الدالة كائن القطاع كاملاً (لا topCard فقط) لأنها تحتاج أيضاً doctorName
+   و invoicePoints(c) في فرع identified. */
+function loyaltyCardInner(c){
+  var t=c.topCard;
   if(CUST.status==='identifying'){
     return '<div class="st-h">'+t.label+'</div>'+
      '<div class="loy-loading"><div class="loy-spin"></div><small>جارٍ التحقق من حسابك...</small></div>';
@@ -757,11 +755,15 @@ function loyaltyCardInner(t){
        '<div class="st-v">'+q.clinicType+'</div></div>'+
        '<div class="st-sep"></div>'+
        '<div class="st-lbl">'+t.subLabel+'</div>'+
-       '<div class="st-big">'+q.clinicNum+'</div>';
+       '<div class="st-big">'+q.clinicNum+'</div>'+
+       (c.doctorName?'<div class="st-sep"></div><div class="st-lbl">الطبيب المعالج</div><div class="doc-name">'+c.doctorName+'</div>':'');
     }
     return '<div class="st-h">'+t.label+'</div>'+
      '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
      '<div><div class="st-v gold">'+CUST.points+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
+     '<div class="st-sep"></div>'+
+     '<div class="st-lbl">نقاط هذه الفاتورة</div>'+
+     '<div class="st-big gold">+'+invoicePoints(c)+'</div>'+
      '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
   }
   // guest (الحالة الابتدائية دائماً) — رسالة تختلف بحسب طبيعة القطاع: القوالب
@@ -801,7 +803,7 @@ function queueCardInner(c){
    بناء الشاشة (نفس نهج الإصلاحات السابقة لتفادي الوميض). */
 function updateLoyaltyCard(){
   var el=document.getElementById('loyaltyCard');
-  if(el)el.innerHTML=loyaltyCardInner(C().topCard);
+  if(el)el.innerHTML=loyaltyCardInner(C());
 }
 function updateQueueCard(){
   var el=document.getElementById('queueCard');
@@ -811,38 +813,19 @@ function updateQueueCard(){
 function invChip(label,valueHtml){
   return '<div class="inv-chip"><small>'+label+'</small><b>'+valueHtml+'</b></div>';
 }
-/* بطاقة القطاع الموحّدة: كتلة واحدة مترابطة (أيقونة + رقم أبرز + سطور
-   فرعية اختيارية) بدل عدة رقاقات متفرقة — نفس الحجم والشكل بصرف النظر
-   عن القطاع، يتغيّر محتواها فقط. */
-function sectorCard(icon,label,bigValue,subLines){
-  return '<div class="sec-card"><div class="sec-card-i">'+ic(icon,24,'#2D7BF4',2)+'</div>'+
-   '<div class="sec-card-b"><small>'+label+'</small><b>'+bigValue+'</b>'+
-   (subLines&&subLines.length?'<div class="sec-card-sub">'+subLines.map(function(s){return '<span>'+s+'</span>'}).join('')+'</div>':'')+
-   '</div></div>';
-}
-/* بطاقة القطاع + مبلغ الفاتورة أعلى بطاقة "ضع جوالك هنا"، بترتيب RTL:
-   بطاقة القطاع أولاً في الـHTML (فتقع أقصى اليمين) ثم مبلغ الفاتورة
-   بعدها. حارسان مطلقان متبادلان لا يجتمعان أبداً على بطاقة واحدة: إما
-   doctorName (القطاع الطبي فقط حالياً: رقم الدور الأبرز + رقم العيادة
-   واسم الطبيب كسطرين فرعيين — بيانات هذه الزيارة نفسها، لا بيانات
-   عميل، فتُعرَض فوراً بلا انتظار تعرّف) أو hasPoints (بقية القطاعات:
-   نقاط الولاء المكتسبة من هذه الفاتورة). الصف يتمركز في المنتصف عبر
-   flexbox أياً كان عدد العناصر الظاهر (واحد أو اثنان)، فلا يبقى فراغ
-   في أي طرف عند إخفاء أحدهما. */
+/* منطقة "ضع جوالك هنا" تبقى نظيفة: أيقونة NFC ونص فقط، بلا أي بطاقات
+   بيانات فوقها. مبلغ الفاتورة هو العنصر الوحيد المعروض هنا (كما كان)؛
+   كل بيانات القطاع (نقاط الولاء، رقم العيادة، اسم الطبيب، رقم الدور)
+   انتقلت إلى بطاقتيها الأصليتين في leftCol() — loyaltyCardInner() و
+   queueCardInner() — بدل تكرارها في بطاقة عائمة هنا. */
 function centerCol(){
   var c=C();
-  var sector='';
-  if(c.doctorName){
-   sector=sectorCard(c.topCard.icon,'رقم الدور',c.ticket,['رقم العيادة: '+c.topCard.subValue,c.doctorName]);
-  }else if(c.hasPoints){
-   sector=sectorCard('gift','نقاط الولاء','+'+invoicePoints(c));
-  }
-  var amount=c.showInvoiceAmount?invChip('مبلغ الفاتورة',c.invoiceAmount+' <span>ريال</span>'):'';
-  var row=(sector||amount)?'<div class="inv-row">'+sector+amount+'</div>':'';
+  var amount=c.showInvoiceAmount?
+   '<div class="inv-row">'+invChip('مبلغ الفاتورة',c.invoiceAmount+' <span>ريال</span>')+'</div>':'';
   var coupon=c.showCouponBtn?
    '<button class="coupon-btn" id="couponBtn">'+ic('gift',18,'#2D7BF4')+' لديك كوبون خصم؟</button>':'';
   return '<div class="col"><div class="tap">'+
-   row+
+   amount+
    '<h2>ضع جوالك هنا</h2>'+
    '<div class="nfc"><div class="halo"></div><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>'+
    '<div class="ph">'+ic('nfc',44,'#2D7BF4',2.2)+'</div></div>'+
