@@ -52,6 +52,7 @@
 
   .biz{display:flex;align-items:center;gap:13px;flex-shrink:0;text-align:left}
   .biz-t b{display:block;font-size:24px;font-weight:800;white-space:nowrap}
+  .biz-branch{font-size:13px;font-weight:600;color:var(--muted-2);margin-top:1px}
   .biz-t small{display:block;font-size:12.5px;color:var(--muted);margin-top:3px}
   .biz-l{width:60px;height:60px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 
@@ -688,7 +689,9 @@ function identifyCustomer(phone,cb){
 function header(){
   var biz=currentBiz();
   return '<div class="hd">'+
-   '<div class="biz"><div class="biz-t"><b>'+biz.name+'</b><small>'+biz.slogan+'</small></div>'+biz.logo+'</div>'+
+   '<div class="biz"><div class="biz-t"><b>'+biz.bareName+'</b>'+
+    (biz.branch?'<div class="biz-branch">'+biz.branch+'</div>':'')+
+    '<small>'+biz.slogan+'</small></div>'+biz.logo+'</div>'+
    '<div class="tagline"><p>من لحظة الدفع، تحصل على<br><span class="hl">فاتورتك وخدماتك</span> بلا رسائل مزعجة.</p><div class="tag-dot"></div></div>'+
    '<div class="noj" id="nojLogo"><div class="noj-m">N</div><div class="noj-t"><b>NOJ</b><small>No Ordinary Journey</small></div></div>'+
   '</div>';
