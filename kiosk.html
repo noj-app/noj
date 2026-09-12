@@ -67,7 +67,7 @@
   .st-row{display:flex;align-items:center;gap:14px;justify-content:center}
   .st-i{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow-sm)}
   .st-v{font-size:34px;font-weight:800;color:var(--blue);line-height:1}
-  .st-v.gold{color:var(--gold)}
+  .st-v.gold{color:var(--gold);direction:ltr}
   .st-sep{height:1px;background:var(--line);margin:16px 0}
   .st-lbl{font-size:15px;font-weight:700;color:var(--muted);text-align:center;margin-bottom:6px}
   .st-big{font-size:60px;font-weight:800;color:var(--blue);text-align:center;line-height:1;direction:ltr}
@@ -75,13 +75,6 @@
   .doc-name{font-size:19px;font-weight:800;color:var(--ink);text-align:center;line-height:1.3}
   .st-sub{font-size:14px;font-weight:600;color:var(--muted);text-align:center;margin-top:8px}
   .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;color:var(--muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
-  .loy-loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 0}
-  .loy-spin{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:loyspin .8s linear infinite}
-  @keyframes loyspin{to{transform:rotate(360deg)}}
-  .loy-loading small{color:var(--muted);font-size:13px;font-weight:600}
-  .loy-msg{text-align:center}
-  .loy-msg b{display:block;font-size:19.5px;font-weight:800;line-height:1.45;margin-bottom:8px}
-  .loy-msg small{display:block;font-size:14px;color:var(--muted);line-height:1.65}
 
   .queue-box{text-align:center}
   .q-top{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px}
@@ -600,22 +593,22 @@ function C(){return T[S.t]}
    نفسه. لا تُستدعى إلا حين c.hasPoints=true. */
 function invoicePoints(c){return Math.round(parseFloat(c.invoiceAmount)*c.pointsRate)}
 
-/* ================= CUSTOMER IDENTIFICATION (بطاقة الولاء والدور) =========
-   الشاشة عامة يقف أمامها أي شخص، فلا يجوز عرض أي بيانات خاصة بالعميل
-   (رصيد نقاط، رقم دور، نوع/رقم عيادة) قبل أن يُعرِّف نفسه فعلياً (لمس
-   NFC أو إدخال رقم جواله وتأكيده). حالة العرض واحدة للقوالب الثلاثة
-   بلا استثناء:
-   - guest       : لا هوية معروفة بعد (الحالة الابتدائية دائماً) — تُعرض
-                   بطاقات تعريفية بالخدمة فقط، بلا أي بيانات.
+/* ================= CUSTOMER IDENTIFICATION (الرصيد التراكمي) =========
+   بطاقتا الولاء/الدور في الشاشة الرئيسية (leftCol) تعرضان بيانات هذه
+   الفاتورة نفسها فوراً بلا أي علاقة بهذه الحالة (انظر loyaltyCardInner/
+   queueCardInner). آلية التعرّف هنا خاصة حصراً بالرصيد التراكمي المعروض
+   في الشاشة الثالثة (success/balanceSummary)، الذي يتطلب فعلاً معرفة
+   هوية العميل من رقم جواله (لمس NFC أو إدخال الرقم وتأكيده):
+   - guest       : لا هوية معروفة بعد (الحالة الابتدائية دائماً).
    - identifying : جارٍ التحقق بعد لمسة/تأكيد العميل.
-   - identified  : تم العثور على بيانات العميل — CUST.points (نقاط
-                   الولاء، للمقهى/المطعم) و/أو CUST.queue (رقم الدور،
-                   وللمركز الصحي أيضاً نوع/رقم العيادة) تحمل القيم الفعلية.
-   - notfound    : لا بيانات مرتبطة بهذا الرقم. */
+   - identified  : تم العثور على حساب العميل — CUST.points يحمل رصيده
+                   السابق (للقوالب ذات نقاط)، وCUST.queue يحمل رقم دوره
+                   الفعلي (يُستخدَم كمصدر أول لرقم التذكرة في success()).
+   - notfound    : لا حساب مرتبط بهذا الرقم — لا بطاقة رصيد في الشاشة
+                   الثالثة حينها. */
 var CUST={status:'guest',points:null,queue:null};
 function resetCustomerState(){
   CUST.status='guest';CUST.points=null;CUST.queue=null;
-  updateLoyaltyCard();updateQueueCard();
 }
 /* دالة معزولة هي المصدر الوحيد لأي رقم نقاط ولاء في الواجهة — ممنوع وضع
    أي رقم ثابت آخر خارجها. تُعيد رصيد العميل السابق (قبل إضافة نقاط هذه
@@ -655,9 +648,10 @@ function getQueueInfo(phone){
   }
   return null; // الوضع المباشر: لا اتصال حقيقي بعد، فلا دور معروف
 }
-/* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تعرض
-   "جارٍ التحقق" فوراً في بطاقتي الولاء والدور معاً، ثم تُحدِّثهما
-   بالنتيجة بعد مهلة قصيرة تحاكي زمن استعلام حقيقي، ثم تستدعي cb
+/* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تحدِّد
+   CUST.points/CUST.queue (لأجل success()/balanceSummary في الشاشة
+   الثالثة حصراً؛ بطاقتا الشاشة الرئيسية لا تتأثران، فمحتواهما مستقل عن
+   هذه الحالة) بعد مهلة قصيرة تحاكي زمن استعلام حقيقي، ثم تستدعي cb
    للمتابعة (إرسال الفاتورة). تُطبَّق على القوالب الثلاثة بلا استثناء:
    القوالب ذات topCard.kind==='points' يحدِّد getLoyaltyPoints حالة
    identified/notfound (وجود حساب ولاء)، وباقي القوالب (kind==='unit')
@@ -672,7 +666,6 @@ function getQueueInfo(phone){
 function identifyCustomer(phone,cb){
   if(CUST.status==='identifying')return;
   CUST.status='identifying';CUST.points=null;CUST.queue=null;
-  updateLoyaltyCard();updateQueueCard();
   setTimeout(function(){
     var q=getQueueInfo(phone);
     CUST.queue=q;
@@ -683,7 +676,6 @@ function identifyCustomer(phone,cb){
     }else{
       CUST.status=q?'identified':'notfound';
     }
-    updateLoyaltyCard();updateQueueCard();
     setTimeout(function(){
       if(S.view!=='main'){resetCustomerState();return}
       if(cb)cb();
@@ -717,97 +709,36 @@ function leftCol(){
 /* لون اسم NOJ الأزرق الموحّد في أي نص "من تطبيق NOJ" — نفس الأسلوب
    المستخدَم أصلاً في بطاقة "حجز موعدك القادم من تطبيق NOJ". */
 var NOJ_BLUE='<span class="brandblue">NOJ</span>';
-/* رسالة تعريفية عامة بالخدمة (بلا أي بيانات عميل)، مع أيقونة بنفس أسلوب
-   أيقونات العمود الأيسر (`.rb-i`: نفس المقاس والمربع المدوّر ونظام
-   الألوان الخفيفة) — تُستخدَم في حالتي guest وnotfound لبطاقتي الولاء
-   والدور معاً، ليتوازن العمودان بصرياً حتى في الحالات بلا بيانات. */
-function promoMsg(icon,title,sub){
-  return '<div class="rb-i">'+ic(icon,26,'#2D7BF4')+'</div>'+
-   '<div class="loy-msg"><b>'+title+'</b><small>'+sub+'</small></div>';
-}
 /* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم/البقالة) أو نوع/رقم
-   العيادة والطبيب المعالج (المركز الصحي)، بحسب حالة تعرّف العميل الحالية
-   (CUST.status). في guest/identifying/notfound تُعرض رسالة عامة لا تكشف
-   أي بيانات — نصها يختلف بحسب t.kind (تشويق لبرنامج ولاء فعلي للقوالب
-   النقطية، أو لتوثيق التقارير/المواعيد للقالب الصحي الذي لا يملك برنامج
-   ولاء إطلاقاً)؛ لا تُقرأ بيانات العميل الفعلية إلا في identified. تأخذ
-   الدالة كائن القطاع كاملاً (لا topCard فقط) لأنها تحتاج أيضاً doctorName
-   و invoicePoints(c) في فرع identified. */
+   العيادة والطبيب المعالج (المركز الصحي) — بيانات خاصة بهذه الفاتورة
+   نفسها لا بهوية العميل، فتُعرَض فوراً بمجرد صدور الفاتورة، بلا أي
+   انتظار لتعرّف العميل (بخلاف الرصيد التراكمي في الشاشة الثالثة الذي
+   يحتاج فعلاً معرفة هوية العميل من رقم جواله). تأخذ الدالة كائن القطاع
+   كاملاً (لا topCard فقط) لأنها تحتاج أيضاً doctorName وinvoicePoints(c). */
 function loyaltyCardInner(c){
   var t=c.topCard;
-  if(CUST.status==='identifying'){
-    return '<div class="st-h">'+t.label+'</div>'+
-     '<div class="loy-loading"><div class="loy-spin"></div><small>جارٍ التحقق من حسابك...</small></div>';
-  }
-  if(CUST.status==='notfound'){
-    if(t.kind==='unit'){
-      return '<div class="st-h">'+t.label+'</div>'+
-       promoMsg(t.icon,'تعذّر العثور على حجز مرتبط بهذا الرقم','يرجى مراجعة موظف الاستقبال');
-    }
-    return '<div class="st-h">'+t.label+'</div>'+
-     promoMsg('gift','لا يوجد حساب مرتبط بهذا الرقم','سجّل الآن عبر تطبيق NOJ لبدء جمع النقاط');
-  }
-  if(CUST.status==='identified'){
-    if(t.kind==='unit'){
-      var q=CUST.queue||{};
-      return '<div class="st-h">'+t.label+'</div>'+
-       '<div class="st-row"><div class="st-i" style="background:var(--blue-soft)">'+ic(t.icon,30,'#2D7BF4',1.7)+'</div>'+
-       '<div class="st-v">'+q.clinicType+'</div></div>'+
-       '<div class="st-sep"></div>'+
-       '<div class="st-lbl">'+t.subLabel+'</div>'+
-       '<div class="st-big">'+q.clinicNum+'</div>'+
-       (c.doctorName?'<div class="st-sep"></div><div class="st-lbl">الطبيب المعالج</div><div class="doc-name">'+c.doctorName+'</div>':'');
-    }
-    return '<div class="st-h">'+t.label+'</div>'+
-     '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
-     '<div><div class="st-v gold">'+CUST.points+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
-     '<div class="st-sep"></div>'+
-     '<div class="st-lbl">نقاط هذه الفاتورة</div>'+
-     '<div class="st-big gold">+'+invoicePoints(c)+'</div>'+
-     '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
-  }
-  // guest (الحالة الابتدائية دائماً) — رسالة تختلف بحسب طبيعة القطاع: القوالب
-  // النقطية (مقهى/مطعم) تُشوّق لبرنامج ولاء فعلي؛ القالب الصحي لا يملك أي
-  // برنامج ولاء أو نقاط إطلاقاً، فتُستبدَل ببطاقة تناسب طبيعته (تقارير
-  // ومواعيد) بدل عرض تشويق لولاء غير موجود.
   if(t.kind==='unit'){
     return '<div class="st-h">'+t.label+'</div>'+
-     promoMsg(t.icon,'استقبل تقاريرك ومواعيدك','كل زياراتك موثقة في تطبيق '+NOJ_BLUE);
+     '<div class="st-row"><div class="st-i" style="background:var(--blue-soft)">'+ic(t.icon,30,'#2D7BF4',1.7)+'</div>'+
+     '<div class="st-v">'+t.value+'</div></div>'+
+     '<div class="st-sep"></div>'+
+     '<div class="st-lbl">'+t.subLabel+'</div>'+
+     '<div class="st-big">'+t.subValue+'</div>'+
+     (c.doctorName?'<div class="st-sep"></div><div class="st-lbl">الطبيب المعالج</div><div class="doc-name">'+c.doctorName+'</div>':'');
   }
   return '<div class="st-h">'+t.label+'</div>'+
-   promoMsg('gift','احصل على نقاط ولاء','تابع نقاطك من تطبيق '+NOJ_BLUE);
+   '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
+   '<div><div class="st-v gold">+'+invoicePoints(c)+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
+   '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
 }
-/* بطاقة الصندوق الثاني: رقم الدور وعدد المنتظرين (القوالب الثلاثة بلا
-   استثناء). نفس منطق الحالة أعلاه — بلا أي رقم دور قبل identified. */
+/* بطاقة الصندوق الثاني: رقم الدور (القطاع الطبي فقط، عبر hasQueue) —
+   بيانات هذه الزيارة/الفاتورة نفسها، فتُعرَض فوراً بلا انتظار تعرّف،
+   بنفس منطق بطاقة الصندوق الأول أعلاه. */
 function queueCardInner(c){
-  if(CUST.status==='identifying'){
-    return '<div class="st-h">'+c.queueLabel+'</div>'+
-     '<div class="loy-loading"><div class="loy-spin"></div><small>جارٍ التحقق من حسابك...</small></div>';
-  }
-  if(CUST.status==='identified'&&CUST.queue){
-    var q=CUST.queue;
-    return '<div class="st-h">'+c.queueLabel+'</div>'+
-     '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
-     '<div class="q-num">'+q.ticket+'</div></div>'+
-     '<div class="st-sub">أمامك '+q.ahead+' '+q.aheadWord+'</div>';
-  }
-  if(CUST.status==='notfound'){
-    return '<div class="st-h">'+c.queueLabel+'</div>'+
-     promoMsg('bell','تعذّر العثور على دورك','يرجى مراجعة الموظف للمساعدة');
-  }
-  // guest (الحالة الابتدائية دائماً)
   return '<div class="st-h">'+c.queueLabel+'</div>'+
-   promoMsg('bell','تابع دورك لحظة بلحظة','من تطبيق '+NOJ_BLUE);
-}
-/* تُحدَّث بطاقتا الولاء والدور وحدهما عند تغيّر CUST.status، بلا إعادة
-   بناء الشاشة (نفس نهج الإصلاحات السابقة لتفادي الوميض). */
-function updateLoyaltyCard(){
-  var el=document.getElementById('loyaltyCard');
-  if(el)el.innerHTML=loyaltyCardInner(C());
-}
-function updateQueueCard(){
-  var el=document.getElementById('queueCard');
-  if(el)el.innerHTML=queueCardInner(C());
+   '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
+   '<div class="q-num">'+c.ticket+'</div></div>'+
+   '<div class="st-sub">أمامك '+c.ahead+' '+c.aheadWord+'</div>';
 }
 
 function invChip(label,valueHtml){
