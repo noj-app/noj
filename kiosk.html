@@ -206,6 +206,7 @@
   .adm-f:last-child{margin-bottom:0}
   .adm-f input{display:block;width:100%;margin-top:6px;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl}
   .adm-f input:focus{outline:none;border-color:var(--blue)}
+  #fBizBranch{font-size:13px}
   .adm-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:6px}
   .adm-testbtn{background:var(--navy);color:#fff;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:800;transition:transform .12s}
   .adm-testbtn:active{transform:scale(.96)}
@@ -249,6 +250,7 @@
   .idle-hd-msg small{display:block;font-size:12px;color:var(--muted);margin-top:3px}
   .idle-mid{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;position:relative;z-index:1;text-align:center}
   .idle-mid h1{font-size:34px;font-weight:800;margin-top:6px}
+  .idle-branch{font-size:15px;color:var(--muted-2);font-weight:600}
   .idle-slogan{font-size:17px;color:var(--muted);font-weight:600}
   .idle-note{margin-top:12px;max-width:640px}
   .idle-note b{display:block;font-size:16.5px;font-weight:800;line-height:1.6}
@@ -568,13 +570,14 @@ function escAttr(s){
 }
 function currentBiz(){
   var t=T[SETTINGS.sector];
-  var name=SETTINGS.bizName?SETTINGS.bizName:t.biz;
-  if(SETTINGS.bizBranch)name+=' - '+SETTINGS.bizBranch;
+  var bareName=SETTINGS.bizName?SETTINGS.bizName:t.biz;
+  var branch=SETTINGS.bizBranch||'';
+  var name=branch?bareName+' - '+branch:bareName;
   var slogan=SETTINGS.bizSlogan?SETTINGS.bizSlogan:t.slogan;
   var logo=SETTINGS.bizLogo?
     '<img src="'+escAttr(SETTINGS.bizLogo)+'" alt="'+escAttr(name)+'" style="width:60px;height:60px;border-radius:16px;object-fit:cover;flex-shrink:0">':
     t.logo;
-  return {name:name,slogan:slogan,logo:logo};
+  return {name:name,bareName:bareName,branch:branch,slogan:slogan,logo:logo};
 }
 
 var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:'',page:'idle'};
@@ -874,7 +877,8 @@ function idleScreen(){
    '</div>'+
    '<div class="idle-mid">'+
     bizLogoLarge(150)+
-    '<h1>'+escAttr(biz.name)+'</h1>'+
+    '<h1>'+escAttr(biz.bareName)+'</h1>'+
+    (biz.branch?'<p class="idle-branch">'+escAttr(biz.branch)+'</p>':'')+
     '<p class="idle-slogan">'+escAttr(biz.slogan)+'</p>'+
     '<div class="idle-note"><b>'+cat.idleNote.ar+'</b><small>'+cat.idleNote.en+'</small></div>'+
    '</div>'+
