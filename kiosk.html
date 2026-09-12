@@ -110,6 +110,12 @@
   .pbtn{width:100%;max-width:430px;background:#fff;border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform .16s,border-color .2s,box-shadow .2s}
   .pbtn:hover{border-color:var(--blue);box-shadow:0 8px 22px rgba(45,123,244,.1)}
   .pbtn:active{transform:scale(.98)}
+  .inv-amount{display:flex;align-items:baseline;gap:8px;background:var(--blue-soft);border-radius:14px;padding:10px 20px;margin-bottom:16px}
+  .inv-amount small{font-size:15px;font-weight:600;color:var(--muted)}
+  .inv-amount b{font-size:20px;font-weight:800;color:var(--blue);direction:ltr}
+  .inv-amount b span{font-size:14px;font-weight:700;margin-right:4px}
+  .coupon-btn{margin-top:12px;background:transparent;border:none;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:700;color:var(--blue);padding:6px}
+  .coupon-btn:active{opacity:.65}
 
   /* right column */
   .rb{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:20px;padding:22px 18px;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center}
@@ -367,7 +373,29 @@ var P={
 function ic(n,s,c,w){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.9)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBox="0 0 24 24" fill="'+c+'" stroke="none">'+(P[n]||'')+'</svg>'}
 
-/* ================= TEMPLATES ================= */
+/* ================= TEMPLATES (كائن إعداد واحد لكل قطاع) =================
+   T هو المصدر الوحيد لكل ما يخص قطاعاً معيّناً — شاشتي main/success
+   (بيانات العرض التجريبي: biz/slogan/logo/ticket/topCard/footer/okItems)
+   وشاشة الخمول معاً (idleNote/idleMenuBtn) وعناصر الشاشة الرئيسية
+   القابلة للتشغيل/الإطفاء بلا أي شرط if متفرق في المكونات:
+     hasPoints          — بطاقة نقاط الولاء اليسرى (loyaltyCard) تُرندَر
+                           فقط إن كانت true أو كان topCard.kind==='unit'
+                           (فالقطاع الطبي يعرض بطاقته الخاصة دوماً بصرف
+                           النظر عن هذا العلم، لأنها ليست عن نقاط أصلاً).
+     hasQueue           — بطاقة رقم الانتظار (queueCard) لا تُرندَر إطلاقاً
+                           إن كانت false، لا تُخفى بصرياً فقط.
+     showInvoiceAmount  — عرض مبلغ الفاتورة أعلى بطاقة "ضع جوالك هنا"
+                           (invoiceAmount هو القيمة التجريبية المعروضة).
+     showCouponBtn      — زر "لديك كوبون خصم؟" (لا آلية كوبونات حقيقية
+                           خلفه بعد — عنصر مؤقت بانتظار ربط فعلي).
+     showDigitalInvoice — بطاقة "استقبل فاتورتك الإلكترونية" اليمنى.
+     idleMenuBtn        — إعداد زر المنيو في شاشة الخمول، أو null إن لم
+                           يملك القطاع زر قائمة إطلاقاً (الحارس المطلق:
+                           لا يُرندَر بصرف النظر عن SETTINGS.showMenuBtn).
+   إضافة قطاع جديد = مُدخل واحد هنا بلا تعديل أي دالة عرض. وميزة خاصة
+   بقطاع واحد فقط (كإدارة الدين/الآجل المخطَّط لها لاحقاً لقطاع البقالة)
+   تُضاف كحقل إضافي على كائن ذلك القطاع وحده (مثال: grocery.creditEnabled)
+   دون أي تأثير على بقية القطاعات أو حاجة لأي شرط عام جديد. */
 var T={
  medical:{
   key:'medical',
@@ -392,7 +420,13 @@ var T={
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'bell',c:'#C99A2E',b:'رقم دورك',s:'ستصلك تنبيهات قبل دورك'},
     {i:'cal',c:'#0F6E6E',b:'موعدك القادم',s:'احجزه من التطبيق مباشرة'}
-  ]
+  ],
+  idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
+  idleMenuBtn:null,
+  hasPoints:false, hasQueue:true,
+  showInvoiceAmount:true, invoiceAmount:'120.00',
+  showCouponBtn:false, showDigitalInvoice:true
  },
  cafe:{
   key:'cafe',
@@ -416,7 +450,13 @@ var T={
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'gift',c:'#C99A2E',b:'+18 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
-  ]
+  ],
+  idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
+  idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'},
+  hasPoints:true, hasQueue:false,
+  showInvoiceAmount:true, invoiceAmount:'27.50',
+  showCouponBtn:true, showDigitalInvoice:true
  },
  restaurant:{
   key:'restaurant',
@@ -440,7 +480,13 @@ var T={
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'gift',c:'#C99A2E',b:'+22 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
-  ]
+  ],
+  idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
+  idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'},
+  hasPoints:true, hasQueue:false,
+  showInvoiceAmount:true, invoiceAmount:'86.00',
+  showCouponBtn:true, showDigitalInvoice:true
  },
  grocery:{
   key:'grocery',
@@ -464,7 +510,13 @@ var T={
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {i:'gift',c:'#C99A2E',b:'+15 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم فاتورتك',s:'راجعها من التطبيق في أي وقت'}
-  ]
+  ],
+  idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
+  idleMenuBtn:null,
+  hasPoints:true, hasQueue:false,
+  showInvoiceAmount:true, invoiceAmount:'54.25',
+  showCouponBtn:true, showDigitalInvoice:true
  }
 };
 
@@ -476,58 +528,6 @@ var T={
 var ADMIN_PIN='1234';
 var SETTINGS_KEY='noj_kiosk_settings';
 
-/* ================= IDLE SCREEN CATEGORIES (نص وضبط موحّد) =================
-   مصدر واحد لكل نصوص/إعدادات شاشة الخمول، مفتاحة بنفس مفاتيح "القطاع"
-   الحالي (T: medical/cafe/restaurant/grocery) بالضبط — لا يوجد حقل قسم
-   منفصل إطلاقاً (كان وجود حقلين لنفس الغرض "القطاع" و"قسم المتجر" هو
-   سبب علّة سابقة: تعارضا فعلياً حين اختلفت قيمتاهما). القطاع هو المصدر
-   الوحيد الذي تشتق منه كل شيء بلا أي شروط if متفرقة داخل المكونات —
-   كل قطاع كائن واحد بخصائصه الخمس القياسية:
-     note      — العبارة (عربي/إنجليزي) المعروضة في شاشة الخمول.
-     hasPoints — هل لدى هذا القطاع برنامج نقاط ولاء (يُقرأ من مكونات
-                 مستقبلية تعرض/تخفي أي شيء متعلق بالنقاط، بلا حاجة
-                 لفحص اسم القطاع نفسه).
-     hasQueue  — هل يعرض رقم انتظار/دور فعلي (كذلك يُقرأ لا يُخمَّن).
-     menuBtn   — إعداد زر المنيو (label/sub/icon)، أو null إن كان هذا
-                 القطاع لا يملك زر قائمة إطلاقاً (وأهمها صحة) — الحارس
-                 المطلق: لا يُرندَر أي زر له بصرف النظر عن
-                 SETTINGS.showMenuBtn، حتى لو كانت قيمة قديمة محفوظة.
-   إضافة قطاع جديد مستقبلاً = مُدخل واحد هنا (+ مُدخل مقابل في T لبيانات
-   العرض التجريبي لشاشتي main/success) بلا تعديل أي دالة عرض. وميزة
-   خاصة بقطاع واحد فقط (كإدارة الدين/الآجل المخطَّط لها لاحقاً لقطاع
-   البقالة) تُضاف كحقل إضافي على كائن ذلك القطاع وحده (مثال:
-   grocery.creditEnabled)، دون أي تأثير على بقية القطاعات أو حاجة لأي
-   شرط عام جديد. */
-var IDLE_CATEGORIES={
- cafe:{
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
-  hasPoints:true,
-  hasQueue:false,
-  menuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'}
- },
- restaurant:{
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
-  hasPoints:true,
-  hasQueue:false,
-  menuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
- },
- grocery:{
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
-  hasPoints:true,
-  hasQueue:false,
-  menuBtn:null
- },
- medical:{
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
-  hasPoints:false,
-  hasQueue:true,
-  menuBtn:null
- }
-};
 var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',showMenuBtn:true,menuImages:[]};
 function loadSettings(){
   try{
@@ -672,12 +672,18 @@ function header(){
   '</div>';
 }
 
+/* كل صندوق هنا يُرندَر أو لا يُرندَر بالكامل حسب إعدادات القطاع (لا إخفاء
+   بـ CSS) — بفضل .col{display:flex;flex-direction:column}+.box{flex:1}
+   فحذف صندوق من الـHTML يجعل البقية تتمدد تلقائياً بلا أي فراغ. بطاقة
+   الولاء تُرندَر إن كان القطاع من نوع "unit" (عيادة، لا مفهوم نقاط له
+   أصلاً) أو إن كان hasPoints مفعّلاً؛ بطاقة الدور تُرندَر فقط إن كان
+   hasQueue مفعّلاً. */
 function leftCol(){
   var c=C(),t=c.topCard;
-  return '<div class="col">'+
-   '<div class="box" id="loyaltyCard">'+loyaltyCardInner(t)+'</div>'+
-   '<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>'+
-  '</div>';
+  var boxes='';
+  if(t.kind==='unit'||c.hasPoints)boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(t)+'</div>';
+  if(c.hasQueue)boxes+='<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>';
+  return '<div class="col">'+boxes+'</div>';
 }
 /* لون اسم NOJ الأزرق الموحّد في أي نص "من تطبيق NOJ" — نفس الأسلوب
    المستخدَم أصلاً في بطاقة "حجز موعدك القادم من تطبيق NOJ". */
@@ -769,22 +775,31 @@ function updateQueueCard(){
 }
 
 function centerCol(){
+  var c=C();
+  var amount=c.showInvoiceAmount?
+   '<div class="inv-amount"><small>مبلغ الفاتورة</small><b>'+c.invoiceAmount+' <span>ريال</span></b></div>':'';
+  var coupon=c.showCouponBtn?
+   '<button class="coupon-btn" id="couponBtn">'+ic('gift',18,'#2D7BF4')+' لديك كوبون خصم؟</button>':'';
   return '<div class="col"><div class="tap">'+
+   amount+
    '<h2>ضع جوالك هنا</h2>'+
    '<div class="nfc"><div class="halo"></div><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>'+
    '<div class="ph">'+ic('nfc',44,'#2D7BF4',2.2)+'</div></div>'+
    '<div class="tap-sub">للحصول على فاتورتك وخدماتك</div>'+
    '<div class="or"><i></i><span>أو</span><i></i></div>'+
    '<button class="pbtn" id="openPad">'+ic('phone',24,'#12235C')+' أدخل رقم جوالك</button>'+
+   coupon+
   '</div></div>';
 }
 
 function rightCol(){
   var c=C();
-  return '<div class="col right">'+
+  var digitalInvoice=c.showDigitalInvoice?
    '<div class="rb"><div class="rb-i">'+ic('receipt',26,'#2D7BF4')+'</div>'+
    '<b>استقبل فاتورتك<br>الإلكترونية بالتطبيق</b>'+
-   '<small>تصلك مباشرة بعد الدفع في تطبيق<br><span class="brandblue">NOJ</span></small></div>'+
+   '<small>تصلك مباشرة بعد الدفع في تطبيق<br><span class="brandblue">NOJ</span></small></div>':'';
+  return '<div class="col right">'+
+   digitalInvoice+
    '<div class="rb"><div class="rb-i">'+ic('calchk',26,'#2D7BF4')+'</div>'+
    '<b>'+c.small2.title+'</b><small>'+c.small2.note+'</small></div>'+
   '</div>';
@@ -849,12 +864,13 @@ function startIdleClock(){
 
 function idleScreen(){
   var biz=currentBiz();
-  var cat=IDLE_CATEGORIES[SETTINGS.sector]||IDLE_CATEGORIES.medical;
-  /* الحارس المطلق: menuBtn:null (القطاع الطبي) يمنع رندرة الزر جذرياً —
-     لا يُقرأ SETTINGS.showMenuBtn إطلاقاً إلا بعد التأكد من وجود menuBtn
-     أصلاً، فلا يمكن لأي قيمة محفوظة قديماً أن تُظهر الزر في قطاع بلا زر. */
-  var showBtn=!!(cat.menuBtn&&SETTINGS.showMenuBtn);
-  var btn=cat.menuBtn;
+  var cat=T[SETTINGS.sector]||T.medical;
+  /* الحارس المطلق: idleMenuBtn:null (القطاع الطبي/البقالة) يمنع رندرة
+     الزر جذرياً — لا يُقرأ SETTINGS.showMenuBtn إطلاقاً إلا بعد التأكد
+     من وجود idleMenuBtn أصلاً، فلا يمكن لأي قيمة محفوظة قديماً أن تُظهر
+     الزر في قطاع بلا زر. */
+  var showBtn=!!(cat.idleMenuBtn&&SETTINGS.showMenuBtn);
+  var btn=cat.idleMenuBtn;
   return '<div class="idle">'+
    '<div class="idle-hd">'+
     '<div class="idle-clock" id="idleClock">'+idleClockInner()+'</div>'+
@@ -869,7 +885,7 @@ function idleScreen(){
     bizLogoLarge(150)+
     '<h1>'+escAttr(biz.name)+'</h1>'+
     '<p class="idle-slogan">'+escAttr(biz.slogan)+'</p>'+
-    '<div class="idle-note"><b>'+cat.note.ar+'</b><small>'+cat.note.en+'</small></div>'+
+    '<div class="idle-note"><b>'+cat.idleNote.ar+'</b><small>'+cat.idleNote.en+'</small></div>'+
    '</div>'+
    '<div class="idle-ft">'+
     (showBtn?
@@ -1084,6 +1100,8 @@ function bindMain(){
   };
   var logo=document.getElementById('nojLogo');
   if(logo)bindLogoLongPress(logo);
+  var cp=document.getElementById('couponBtn');
+  if(cp)cp.onclick=function(){console.log('coupon button tapped (no coupon system yet)')};
 }
 function bindLayer(){
   var cl=document.getElementById('closePad');
@@ -1270,12 +1288,12 @@ function settingsScreen(){
 /* ================= IDLE SECTION ADMIN (شاشة الخمول) =================
    القسم بأكمله (المفتاح + رفع الملف) يظهر أو يختفي جذرياً حسب القطاع —
    لا حقل قسم منفصل (كان وجود حقلين "القطاع" و"قسم المتجر" لنفس الغرض
-   هو سبب علّة سابقة حين تعارضت قيمتاهما). القطاع الطبي (بلا menuBtn في
-   IDLE_CATEGORIES) لا يعرض أي شيء هنا إطلاقاً — لا مفتاح ولا رفع ملف
-   ولا نص، تماشياً مع أنه لا يملك زر قائمة أصلاً. */
+   هو سبب علّة سابقة حين تعارضت قيمتاهما). أي قطاع بلا idleMenuBtn في T
+   (الطبي والبقالة حالياً) لا يعرض أي شيء هنا إطلاقاً — لا مفتاح ولا رفع
+   ملف ولا نص، تماشياً مع أنه لا يملك زر قائمة أصلاً. */
 function idleSectionAdminHtml(d){
-  var cat=IDLE_CATEGORIES[d.sector];
-  if(!cat||!cat.menuBtn)return '';
+  var cat=T[d.sector];
+  if(!cat||!cat.idleMenuBtn)return '';
   return '<div class="adm-sec"><h3>شاشة الخمول</h3>'+
    '<div class="adm-f">إظهار زر المنيو<div id="menuBtnToggleWrap" style="margin-top:6px">'+menuBtnToggleHtml(d)+'</div></div>'+
    '<label class="adm-f">ملف المنيو (PDF أو صور)'+
