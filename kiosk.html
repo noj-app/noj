@@ -243,12 +243,13 @@
   .idle-note b{display:block;font-size:16.5px;font-weight:800;line-height:1.6}
   .idle-note small{display:block;font-size:13px;color:var(--muted-2);margin-top:6px;direction:ltr;line-height:1.5}
   .idle-ft{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;z-index:1}
-  .idle-menu-btn{width:100%;max-width:420px;background:var(--navy);color:#fff;border-radius:18px;padding:14px 22px;display:flex;align-items:center;justify-content:center;gap:14px;transition:transform .14s}
+  .idle-menu-btn{width:100%;max-width:420px;background:linear-gradient(135deg,#FBF3E9,#F3E3CE);border:1px solid #EAD8BE;box-shadow:0 4px 14px rgba(107,74,47,.1);border-radius:999px;padding:10px 20px;display:flex;align-items:center;gap:14px;transition:transform .14s}
   .idle-menu-btn:active{transform:scale(.97)}
-  .idle-menu-ico{width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .idle-menu-txt{text-align:right}
-  .idle-menu-txt b{display:block;font-size:18px;font-weight:800;line-height:1.25}
-  .idle-menu-txt small{display:block;font-size:12.5px;font-weight:600;opacity:.8;margin-top:2px}
+  .idle-menu-ico{width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px rgba(107,74,47,.14)}
+  .idle-menu-txt{flex:1;min-width:0;text-align:right}
+  .idle-menu-txt b{display:block;font-size:17px;font-weight:800;color:#6B4A2F;line-height:1.25}
+  .idle-menu-txt small{display:block;font-size:12.5px;font-weight:600;color:#B08968;margin-top:2px}
+  .idle-menu-chev{flex-shrink:0;display:flex;align-items:center;justify-content:center}
   .idle-devnext{margin-top:4px;font-size:13px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:10px 20px;border-radius:99px;transition:transform .12s,background .15s}
   .idle-devnext:active{transform:scale(.95);background:var(--line)}
 
@@ -458,43 +459,50 @@ var SETTINGS_KEY='noj_kiosk_settings';
    نص أو منطق موزّع داخل الشاشة نفسها. كل عبارة تبدأ دائماً بتوضيح أن هذه
    شاشة انتظار قبل إصدار الفاتورة (لا يُمرَّر الجوال هنا فعلياً، ذلك يصير
    بالشاشة التالية)، لتفادي محاولة عميل تمرير جواله في هذه الشاشة بلا فائدة.
-   menuBtn.show هنا يُستخدَم فقط كقيمة افتراضية تُطبَّق على
-   SETTINGS.showMenuBtn عند اختيار القسم من الإعدادات؛ الإظهار الفعلي وقت
-   العرض يعتمد على SETTINGS.showMenuBtn وحدها لأن التاجر قد يتجاوز
-   الافتراضي يدوياً بأي اتجاه. زر المنيو بتصميم واحد فقط (نفس اسم/أيقونة
-   food) يظهر افتراضياً لقسم المقاهي والمطاعم حصراً؛ إن فعّله التاجر يدوياً
-   لقسم آخر (menuBtn.label فارغ فيه) يُستخدَم تصميم food كاحتياطي عام. */
-var IDLE_CATEGORY_ORDER=['food','retail','health','services','default'];
+   menuBtn.eligible هو الحارس الوحيد والمطلق لإمكان ظهور الزر أصلاً —
+   القسم غير المؤهَّل (eligible:false، وأهمها "صحة") لا يمكن أن يُرندَر
+   له الزر إطلاقاً بصرف النظر عن SETTINGS.showMenuBtn (حتى لو كانت قيمة
+   قديمة محفوظة في localStorage من إعداد سابق)؛ هذا يمنع فئة كاملة من
+   الأخطاء حيث يبقى الزر ظاهراً بسبب تبديل قسم دون حفظ، أو إعداد محفوظ
+   قبل هذا التغيير. SETTINGS.showMenuBtn يبقى مفتاح تشغيل/إيقاف فعلي،
+   لكن فقط للأقسام المؤهَّلة أصلاً (مقاهي/مطاعم حالياً). */
+var IDLE_CATEGORY_ORDER=['cafe','restaurant','retail','health','services','default'];
 var IDLE_CATEGORIES={
- food:{
-  label:'مقاهي ومطاعم',
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاطك',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your points.'},
-  menuBtn:{show:true,label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
+ cafe:{
+  label:'مقاهي',
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
+  menuBtn:{eligible:true,show:true,label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'}
+ },
+ restaurant:{
+  label:'مطاعم',
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
+  menuBtn:{eligible:true,show:true,label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
  },
  retail:{
   label:'تجزئة ومتاجر',
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتجمع نقاطك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to collect your points.'},
-  menuBtn:{show:false,label:'',sub:'',icon:''}
+  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
  },
  health:{
   label:'صحة',
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
-  menuBtn:{show:false,label:'',sub:'',icon:''}
+  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
  },
  services:{
   label:'خدمات (صالونات، ورش)',
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لحفظ سجل خدماتك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to save your service history.'},
-  menuBtn:{show:false,label:'',sub:'',icon:''}
+  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
  },
  'default':{
   label:'الافتراضي',
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لربط فاتورتك بتطبيق NOJ',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to link your invoice to the NOJ app.'},
-  menuBtn:{show:false,label:'',sub:'',icon:''}
+  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
  }
 };
 var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',bizCategory:'default',showMenuBtn:IDLE_CATEGORIES['default'].menuBtn.show,menuImages:[]};
@@ -820,8 +828,11 @@ function startIdleClock(){
 function idleScreen(){
   var biz=currentBiz();
   var cat=IDLE_CATEGORIES[SETTINGS.bizCategory]||IDLE_CATEGORIES['default'];
-  var foodBtn=IDLE_CATEGORIES.food.menuBtn;
-  var btn=cat.menuBtn.label?cat.menuBtn:foodBtn;
+  /* الحارس المطلق: eligible=false (وأهمها صحة) يمنع رندرة الزر جذرياً —
+     لا يُقرأ SETTINGS.showMenuBtn إطلاقاً إلا بعد التأكد من الأهلية أولاً،
+     فلا يمكن لأي قيمة محفوظة قديماً أن تُظهر الزر في قسم غير مؤهَّل. */
+  var showBtn=cat.menuBtn.eligible&&SETTINGS.showMenuBtn;
+  var btn=cat.menuBtn;
   return '<div class="idle">'+
    '<div class="idle-hd">'+
     '<div class="idle-clock" id="idleClock">'+idleClockInner()+'</div>'+
@@ -839,10 +850,11 @@ function idleScreen(){
     '<div class="idle-note"><b>'+cat.note.ar+'</b><small>'+cat.note.en+'</small></div>'+
    '</div>'+
    '<div class="idle-ft">'+
-    (SETTINGS.showMenuBtn?
+    (showBtn?
      '<button class="idle-menu-btn" id="idleMenuBtn">'+
-      '<div class="idle-menu-ico">'+ic(btn.icon,26,'#12235C',1.8)+'</div>'+
+      '<div class="idle-menu-ico">'+ic(btn.icon,24,'#6B4A2F',1.8)+'</div>'+
       '<div class="idle-menu-txt"><b>'+btn.label+'</b><small>'+btn.sub+'</small></div>'+
+      '<div class="idle-menu-chev">'+ic('chevL',18,'#B08968',2.2)+'</div>'+
      '</button>':'')+
     (DEV_SHOW_NEXT_BUTTON?'<button class="idle-devnext" id="idleDevNext">التالي (تجربة) ›</button>':'')+
    '</div>'+
@@ -1220,12 +1232,7 @@ function settingsScreen(){
       '<label class="adm-f">قسم المتجر<select id="fBizCategory">'+
        IDLE_CATEGORY_ORDER.map(function(k){return '<option value="'+k+'"'+(d.bizCategory===k?' selected':'')+'>'+IDLE_CATEGORIES[k].label+'</option>'}).join('')+
       '</select></label>'+
-      '<div class="adm-f">إظهار زر القائمة'+
-       '<div class="sw" id="menuBtnToggle" style="margin-top:6px">'+
-        '<button type="button" data-show="1" class="'+(d.showMenuBtn?'on':'')+'">إظهار</button>'+
-        '<button type="button" data-show="0" class="'+(!d.showMenuBtn?'on':'')+'">إخفاء</button>'+
-       '</div>'+
-      '</div>'+
+      '<div class="adm-f">إظهار زر القائمة<div id="menuBtnToggleWrap" style="margin-top:6px">'+menuBtnToggleHtml(d)+'</div></div>'+
       '<label class="adm-f">ملف المنيو (PDF أو صور)'+
        '<div class="adm-row" style="margin-top:6px">'+
         '<button type="button" class="adm-testbtn" id="pickMenuFileBtn">رفع ملف</button>'+
@@ -1355,9 +1362,27 @@ function updateModeButtons(){
     b.className=(b.getAttribute('data-m')===DRAFT.mode)?'on':'';
   });
 }
-function updateMenuBtnToggle(){
+/* زر القائمة مقيّد بأقسام مؤهَّلة فقط (menuBtn.eligible) — لغير المؤهَّل
+   (وأهمها صحة) يُستبدَل مفتاح الإظهار/الإخفاء بملاحظة توضيحية بدل مفتاح
+   لا فائدة منه، حتى لا يظن التاجر أنه يتحكم بزر لن يظهر أياً كانت قيمته. */
+function menuBtnToggleHtml(d){
+  var cat=IDLE_CATEGORIES[d.bizCategory];
+  if(!cat||!cat.menuBtn.eligible){
+    return '<p class="adm-note">هذا القسم لا يعرض زر قائمة على شاشة الخمول (متاح حالياً لقسمي مقاهي ومطاعم فقط).</p>';
+  }
+  return '<div class="sw" id="menuBtnToggle">'+
+   '<button type="button" data-show="1" class="'+(d.showMenuBtn?'on':'')+'">إظهار</button>'+
+   '<button type="button" data-show="0" class="'+(!d.showMenuBtn?'on':'')+'">إخفاء</button>'+
+  '</div>';
+}
+function renderMenuBtnToggle(){
+  var wrap=document.getElementById('menuBtnToggleWrap');
+  if(wrap)wrap.innerHTML=menuBtnToggleHtml(DRAFT);
+  bindMenuBtnToggle();
+}
+function bindMenuBtnToggle(){
   [].forEach.call(document.querySelectorAll('#menuBtnToggle button'),function(b){
-    b.className=(b.getAttribute('data-show')===(DRAFT.showMenuBtn?'1':'0'))?'on':'';
+    b.onclick=function(){DRAFT.showMenuBtn=b.getAttribute('data-show')==='1';renderMenuBtnToggle()};
   });
 }
 function bindAdmin(){
@@ -1377,12 +1402,10 @@ function bindAdmin(){
   if(fCat)fCat.onchange=function(){
     DRAFT.bizCategory=fCat.value;
     var def=IDLE_CATEGORIES[fCat.value];
-    DRAFT.showMenuBtn=def?def.menuBtn.show:true;
-    updateMenuBtnToggle();
+    DRAFT.showMenuBtn=def?def.menuBtn.show:false;
+    renderMenuBtnToggle();
   };
-  [].forEach.call(document.querySelectorAll('#menuBtnToggle button'),function(b){
-    b.onclick=function(){DRAFT.showMenuBtn=b.getAttribute('data-show')==='1';updateMenuBtnToggle()};
-  });
+  bindMenuBtnToggle();
   bindMenuThumbs();
   var pickMenuFileBtn=document.getElementById('pickMenuFileBtn');
   var fMenuFile=document.getElementById('fMenuFile');
