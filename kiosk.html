@@ -110,10 +110,12 @@
   .pbtn{width:100%;max-width:430px;background:#fff;border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform .16s,border-color .2s,box-shadow .2s}
   .pbtn:hover{border-color:var(--blue);box-shadow:0 8px 22px rgba(45,123,244,.1)}
   .pbtn:active{transform:scale(.98)}
-  .inv-amount{display:flex;align-items:baseline;gap:8px;background:var(--blue-soft);border-radius:14px;padding:10px 20px;margin-bottom:16px}
-  .inv-amount small{font-size:15px;font-weight:600;color:var(--muted)}
-  .inv-amount b{font-size:20px;font-weight:800;color:var(--blue);direction:ltr}
-  .inv-amount b span{font-size:14px;font-weight:700;margin-right:4px}
+  .inv-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
+  .inv-chip{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--blue-soft);border-radius:14px;padding:9px 16px}
+  .inv-chip small{font-size:13px;font-weight:600;color:var(--muted)}
+  .inv-chip b{font-size:18px;font-weight:800;color:var(--blue);direction:ltr}
+  .inv-chip b span{font-size:13px;font-weight:700;margin-right:3px}
+  .inv-chip.name b{font-size:15.5px;direction:rtl}
   .coupon-btn{margin-top:12px;background:transparent;border:none;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:700;color:var(--blue);padding:6px}
   .coupon-btn:active{opacity:.65}
 
@@ -175,6 +177,13 @@
   .tno small{font-size:13.5px;color:var(--muted)}
   .tno b{font-size:42px;font-weight:800;color:var(--blue);direction:ltr;line-height:1.15}
   .timer{margin-top:18px;font-size:13.5px;color:var(--muted-2)}
+  .bal-card{display:inline-flex;flex-direction:column;align-items:center;background:var(--gold-soft);border-radius:20px;padding:18px 36px;margin-top:22px}
+  .bal-card>small{font-size:13.5px;color:var(--muted);font-weight:600}
+  .bal-total{font-size:38px;font-weight:800;color:#C99A2E;direction:ltr;line-height:1.15;margin:5px 0 12px}
+  .bal-total span{font-size:15px;font-weight:700}
+  .bal-break{display:flex;gap:26px}
+  .bal-item{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12.5px;color:var(--muted)}
+  .bal-item b{font-size:17px;font-weight:800;color:var(--ink);direction:ltr}
 
   @keyframes fade{from{opacity:0}to{opacity:1}}
   @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
@@ -392,6 +401,17 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
      idleMenuBtn        — إعداد زر المنيو في شاشة الخمول، أو null إن لم
                            يملك القطاع زر قائمة إطلاقاً (الحارس المطلق:
                            لا يُرندَر بصرف النظر عن SETTINGS.showMenuBtn).
+     pointsRate         — معامل تحويل مبلغ الفاتورة إلى نقاط (نقطة واحدة
+                           لكل ريال افتراضياً)؛ قيمة إعداد لا رقم ثابت في
+                           الكود، لتختلف مستقبلاً بين القطاعات لو لزم.
+                           لا تُستخدَم إطلاقاً إلا حين hasPoints=true.
+     doctorName         — الحارس المطلق لبطاقة "رقم الدور/رقم العيادة/
+                           اسم الطبيب" التي تظهر بدل رصيد النقاط على
+                           الشاشة الثانية والثالثة (القطاع الطبي فقط
+                           حالياً؛ null لبقية القطاعات فلا تُرندَر عندها
+                           إطلاقاً). قيمة تجريبية ثابتة الآن؛ نقطة الربط
+                           الحقيقية المستقبلية: تُستبدَل باسم الطبيب
+                           الفعلي المسنَد لهذه الزيارة من نظام المنشأة.
    إضافة قطاع جديد = مُدخل واحد هنا بلا تعديل أي دالة عرض. وميزة خاصة
    بقطاع واحد فقط (كإدارة الدين/الآجل المخطَّط لها لاحقاً لقطاع البقالة)
    تُضاف كحقل إضافي على كائن ذلك القطاع وحده (مثال: grocery.creditEnabled)
@@ -426,7 +446,8 @@ var T={
   idleMenuBtn:null,
   hasPoints:false, hasQueue:true,
   showInvoiceAmount:true, invoiceAmount:'120.00',
-  showCouponBtn:false, showDigitalInvoice:true
+  showCouponBtn:false, showDigitalInvoice:true,
+  pointsRate:0, doctorName:'د. سلطان الحربي'
  },
  cafe:{
   key:'cafe',
@@ -448,7 +469,6 @@ var T={
   ],
   okItems:[
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {i:'gift',c:'#C99A2E',b:'+18 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
@@ -456,7 +476,8 @@ var T={
   idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'},
   hasPoints:true, hasQueue:false,
   showInvoiceAmount:true, invoiceAmount:'27.50',
-  showCouponBtn:true, showDigitalInvoice:true
+  showCouponBtn:true, showDigitalInvoice:true,
+  pointsRate:1, doctorName:null
  },
  restaurant:{
   key:'restaurant',
@@ -478,7 +499,6 @@ var T={
   ],
   okItems:[
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {i:'gift',c:'#C99A2E',b:'+22 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
@@ -486,7 +506,8 @@ var T={
   idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'},
   hasPoints:true, hasQueue:false,
   showInvoiceAmount:true, invoiceAmount:'86.00',
-  showCouponBtn:true, showDigitalInvoice:true
+  showCouponBtn:true, showDigitalInvoice:true,
+  pointsRate:1, doctorName:null
  },
  grocery:{
   key:'grocery',
@@ -508,7 +529,6 @@ var T={
   ],
   okItems:[
     {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {i:'gift',c:'#C99A2E',b:'+15 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم فاتورتك',s:'راجعها من التطبيق في أي وقت'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
@@ -516,7 +536,8 @@ var T={
   idleMenuBtn:null,
   hasPoints:true, hasQueue:false,
   showInvoiceAmount:true, invoiceAmount:'54.25',
-  showCouponBtn:true, showDigitalInvoice:true
+  showCouponBtn:true, showDigitalInvoice:true,
+  pointsRate:1, doctorName:null
  }
 };
 
@@ -572,6 +593,11 @@ var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:'',page:'idle'};
    احذف الزر بالكامل من idleScreen() وهذا التعريف. */
 var DEV_SHOW_NEXT_BUTTON=true;
 function C(){return T[S.t]}
+/* نقاط هذه الفاتورة تحديداً (لا رصيد العميل الكلي) = مبلغ الفاتورة ×
+   معامل التحويل الخاص بالقطاع (c.pointsRate) — معروفة فوراً من لحظة
+   صدور الفاتورة، بلا أي انتظار لتعرّف العميل، تماماً كمبلغ الفاتورة
+   نفسه. لا تُستدعى إلا حين c.hasPoints=true. */
+function invoicePoints(c){return Math.round(parseFloat(c.invoiceAmount)*c.pointsRate)}
 
 /* ================= CUSTOMER IDENTIFICATION (بطاقة الولاء والدور) =========
    الشاشة عامة يقف أمامها أي شخص، فلا يجوز عرض أي بيانات خاصة بالعميل
@@ -591,9 +617,11 @@ function resetCustomerState(){
   updateLoyaltyCard();updateQueueCard();
 }
 /* دالة معزولة هي المصدر الوحيد لأي رقم نقاط ولاء في الواجهة — ممنوع وضع
-   أي رقم ثابت آخر خارجها. نقطة الربط المستقبلية الحقيقية: استبدل جسم
-   هذه الدالة باستعلام فعلي بمجرد ربط الجهاز بقاعدة بيانات (مثلاً
-   Supabase: select loyalty_points from profiles where phone = phone).
+   أي رقم ثابت آخر خارجها. تُعيد رصيد العميل السابق (قبل إضافة نقاط هذه
+   الفاتورة — تلك تُحسَب بمعزل عبر invoicePoints(c))، ثم تُجمَع القيمتان
+   في ملخص الرصيد على الشاشة الثالثة. نقطة الربط المستقبلية الحقيقية:
+   استبدل جسم هذه الدالة باستعلام فعلي بمجرد ربط الجهاز بقاعدة بيانات
+   (مثلاً Supabase: select loyalty_points from profiles where phone = phone).
    تُعيد رقم النقاط عند وجود حساب، أو null عند عدم وجوده. لا تُستدعى
    إطلاقاً قبل أن يبدأ العميل عملية التعرّف بنفسه. تُستخدَم فقط للقوالب
    ذات topCard.kind==='points' (المقهى والمطعم). */
@@ -774,14 +802,30 @@ function updateQueueCard(){
   if(el)el.innerHTML=queueCardInner(C());
 }
 
+function invChip(label,valueHtml,isName){
+  return '<div class="inv-chip'+(isName?' name':'')+'"><small>'+label+'</small><b>'+valueHtml+'</b></div>';
+}
+/* صف الرقاقات أعلى بطاقة "ضع جوالك هنا": مبلغ الفاتورة (إن فُعِّل)، ثم
+   إما نقاط هذه الفاتورة (hasPoints=true) أو — بدلاً منها كلياً، حصراً
+   حين يملك القطاع doctorName (القطاع الطبي فقط حالياً) — رقم الدور
+   ورقم العيادة واسم الطبيب. لا يظهر الاثنان معاً أبداً؛ رقم الدور/رقم
+   العيادة هنا بيانات هذه الزيارة/الفاتورة نفسها (لا بيانات عميل)، لذا
+   تُعرَض فوراً بلا انتظار لتعرّف العميل، تماماً كمبلغ الفاتورة. */
 function centerCol(){
   var c=C();
-  var amount=c.showInvoiceAmount?
-   '<div class="inv-amount"><small>مبلغ الفاتورة</small><b>'+c.invoiceAmount+' <span>ريال</span></b></div>':'';
+  var chips='';
+  if(c.showInvoiceAmount)chips+=invChip('مبلغ الفاتورة',c.invoiceAmount+' <span>ريال</span>');
+  if(c.hasPoints)chips+=invChip('نقاط هذه الفاتورة','+'+invoicePoints(c)+' <span>نقطة</span>');
+  else if(c.doctorName){
+   chips+=invChip('رقم الدور',c.ticket);
+   chips+=invChip('رقم العيادة',c.topCard.subValue);
+   chips+=invChip('الطبيب المعالج',c.doctorName,true);
+  }
+  var row=chips?'<div class="inv-row">'+chips+'</div>':'';
   var coupon=c.showCouponBtn?
    '<button class="coupon-btn" id="couponBtn">'+ic('gift',18,'#2D7BF4')+' لديك كوبون خصم؟</button>':'';
   return '<div class="col"><div class="tap">'+
-   amount+
+   row+
    '<h2>ضع جوالك هنا</h2>'+
    '<div class="nfc"><div class="halo"></div><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div>'+
    '<div class="ph">'+ic('nfc',44,'#2D7BF4',2.2)+'</div></div>'+
@@ -1003,9 +1047,32 @@ function updateKeypadDisplay(){
 }
 
 /* ================= SUCCESS ================= */
+/* رقم الجوال يظهر مخفياً جزئياً دوماً على هذه الشاشة العامة (يراها من
+   في الطابور) — أول رقمين وآخر رقمين فقط ظاهران، ولا يُعرض اسم العميل
+   أو أي بيانات شخصية أخرى إطلاقاً. */
+function maskPhone(d){
+  if(!d||d.length<9)return d;
+  return d.slice(0,2)+' *** **'+d.slice(-2);
+}
+/* ملخص رصيد نقاط الولاء بعد إضافة نقاط هذه الفاتورة — للقطاعات ذات
+   برنامج نقاط فقط (hasPoints=true)، وبعد نجاح التعرّف فعلياً؛ في notfound
+   لا حساب أصلاً لتحديثه، وفي القطاع الطبي (hasPoints=false) لا تُرندَر
+   هذه البطاقة إطلاقاً — شاشته الثالثة تكتفي بتأكيد الربط ورقم الدور.
+   الإجمالي الجديد (رصيد سابق + نقاط هذه الفاتورة) هو العنصر الأبرز
+   بصرياً، والتفصيل تحته أصغر. */
+function balanceSummary(c){
+  if(!c.hasPoints||CUST.status!=='identified')return '';
+  var added=invoicePoints(c),prev=CUST.points||0,total=prev+added;
+  return '<div class="bal-card"><small>رصيدك الجديد من نقاط الولاء</small>'+
+   '<div class="bal-total">'+total+' <span>نقطة</span></div>'+
+   '<div class="bal-break">'+
+    '<div class="bal-item"><b>+'+added+'</b>نقاط هذه الفاتورة</div>'+
+    '<div class="bal-item"><b>'+prev+'</b>رصيدك السابق</div>'+
+   '</div></div>';
+}
 function success(){
   var c=C();
-  var linked=S.phone?('+966 '+fmt(S.phone)):('تطبيق '+NOJ_BLUE);
+  var linked=S.phone?('+966 '+maskPhone(S.phone)):('تطبيق '+NOJ_BLUE);
   /* رقم الدور المعروض هنا يأتي من CUST.queue (نفس مصدر بطاقة الدور على
      الشاشة الرئيسية، عبر getQueueInfo) لا من c.ticket مباشرة؛ الرجوع
      لـ c.ticket لا يحدث إلا في الوضع المباشر حيث لا يوجد اتصال حقيقي
@@ -1019,6 +1086,7 @@ function success(){
      return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
      '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
    }).join('')+'</div>'+
+   balanceSummary(c)+
    '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>'+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
