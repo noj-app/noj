@@ -396,7 +396,7 @@ var T={
  },
  cafe:{
   key:'cafe',
-  switchLabel:'مقهى',
+  switchLabel:'مقاهي',
   category:'مقاهي',
   ticketLabel:'رقم طلبك',
   biz:'مقهى نَجَل', slogan:'قهوة لحظاتك، نَجَل، يومك',
@@ -420,7 +420,7 @@ var T={
  },
  restaurant:{
   key:'restaurant',
-  switchLabel:'مطعم',
+  switchLabel:'مطاعم',
   category:'مطاعم',
   ticketLabel:'رقم انتظارك',
   biz:'مطعم مذاق', slogan:'نكهة تستحق الانتظار',
@@ -441,6 +441,30 @@ var T={
     {i:'gift',c:'#C99A2E',b:'+22 نقطة',s:'أُضيفت إلى رصيد ولائك'},
     {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
   ]
+ },
+ grocery:{
+  key:'grocery',
+  switchLabel:'بقالة',
+  category:'بقالة',
+  ticketLabel:'رقم فاتورتك',
+  biz:'بقالة الحي', slogan:'كل احتياجاتك اليومية',
+  logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('bag',46,'#22A87A',2)+'</div>',
+  ticket:31, ahead:2, aheadWord:'عملاء',
+  queueLabel:'رقمك في الانتظار',
+  topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  small2:{icon:'cal',title:'عروض هذا الأسبوع',note:'تصفّح أحدث العروض والتخفيضات<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
+  footer:[
+    {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
+    {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
+    {i:'clock',b:'سجل مشترياتك',s:'اطّلع على كل مشترياتك'},
+    {i:'gift',b:'نقاط ولاء ومكافآت',s:'اجمع النقاط واستبدلها'},
+    {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
+  ],
+  okItems:[
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
+    {i:'gift',c:'#C99A2E',b:'+15 نقطة',s:'أُضيفت إلى رصيد ولائك'},
+    {i:'bell',c:'#0F6E6E',b:'رقم فاتورتك',s:'راجعها من التطبيق في أي وقت'}
+  ]
  }
 };
 
@@ -454,27 +478,53 @@ var SETTINGS_KEY='noj_kiosk_settings';
 
 /* ================= IDLE SCREEN CATEGORIES (نص وضبط موحّد) =================
    مصدر واحد لكل نصوص/إعدادات شاشة الخمول، مفتاحة بنفس مفاتيح "القطاع"
-   الحالي (T: medical/cafe/restaurant) بالضبط — لا يوجد حقل قسم منفصل
-   إطلاقاً (كان وجود حقلين لنفس الغرض "القطاع" و"قسم المتجر" هو سبب علّة
-   سابقة: تعارضا فعلياً حين اختلفت قيمتاهما). القطاع هو المصدر الوحيد
-   الذي تشتق منه العبارة والزر والأيقونة معاً، وكل قسم جديد مستقبلاً
-   يُضاف هنا فقط. menuBtn:null (القطاع الطبي حالياً) هو الحارس المطلق:
-   لا يمكن أن يُرندَر أي زر قائمة له إطلاقاً بصرف النظر عن
-   SETTINGS.showMenuBtn، حتى لو كانت قيمة قديمة محفوظة في localStorage. */
+   الحالي (T: medical/cafe/restaurant/grocery) بالضبط — لا يوجد حقل قسم
+   منفصل إطلاقاً (كان وجود حقلين لنفس الغرض "القطاع" و"قسم المتجر" هو
+   سبب علّة سابقة: تعارضا فعلياً حين اختلفت قيمتاهما). القطاع هو المصدر
+   الوحيد الذي تشتق منه كل شيء بلا أي شروط if متفرقة داخل المكونات —
+   كل قطاع كائن واحد بخصائصه الخمس القياسية:
+     note      — العبارة (عربي/إنجليزي) المعروضة في شاشة الخمول.
+     hasPoints — هل لدى هذا القطاع برنامج نقاط ولاء (يُقرأ من مكونات
+                 مستقبلية تعرض/تخفي أي شيء متعلق بالنقاط، بلا حاجة
+                 لفحص اسم القطاع نفسه).
+     hasQueue  — هل يعرض رقم انتظار/دور فعلي (كذلك يُقرأ لا يُخمَّن).
+     menuBtn   — إعداد زر المنيو (label/sub/icon)، أو null إن كان هذا
+                 القطاع لا يملك زر قائمة إطلاقاً (وأهمها صحة) — الحارس
+                 المطلق: لا يُرندَر أي زر له بصرف النظر عن
+                 SETTINGS.showMenuBtn، حتى لو كانت قيمة قديمة محفوظة.
+   إضافة قطاع جديد مستقبلاً = مُدخل واحد هنا (+ مُدخل مقابل في T لبيانات
+   العرض التجريبي لشاشتي main/success) بلا تعديل أي دالة عرض. وميزة
+   خاصة بقطاع واحد فقط (كإدارة الدين/الآجل المخطَّط لها لاحقاً لقطاع
+   البقالة) تُضاف كحقل إضافي على كائن ذلك القطاع وحده (مثال:
+   grocery.creditEnabled)، دون أي تأثير على بقية القطاعات أو حاجة لأي
+   شرط عام جديد. */
 var IDLE_CATEGORIES={
  cafe:{
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
+  hasPoints:true,
+  hasQueue:false,
   menuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'}
  },
  restaurant:{
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
+  hasPoints:true,
+  hasQueue:false,
   menuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
+ },
+ grocery:{
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
+  hasPoints:true,
+  hasQueue:false,
+  menuBtn:null
  },
  medical:{
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
+  hasPoints:false,
+  hasQueue:true,
   menuBtn:null
  }
 };
