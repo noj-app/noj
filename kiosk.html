@@ -74,12 +74,13 @@
   .st-big.gold{color:var(--gold)}
   .doc-name{font-size:19px;font-weight:800;color:var(--ink);text-align:center;line-height:1.3}
   .st-sub{font-size:14px;font-weight:600;color:var(--muted);text-align:center;margin-top:8px}
-  .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;color:var(--muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:var(--muted-2);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
 
   .queue-box{text-align:center}
   .q-top{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px}
   .q-ico{width:52px;height:52px;border-radius:50%;background:var(--blue-soft);backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow-sm);display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .q-num{font-size:74px;font-weight:800;color:var(--blue);line-height:.95;direction:ltr}
+  .q-note{font-size:12.5px;color:var(--muted-2);text-align:center;margin-top:10px;line-height:1.5}
 
   /* center tap card */
   /* .tap ثابتة الموضع (لا تتحرك بنفسها)؛ حلقات NFC المتحركة باستمرار
@@ -418,8 +419,7 @@ var T={
   ticketLabel:'رقم دورك',
   biz:'مركز النور الطبي', slogan:'نعتني بصحتك',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+icF('moon',54,'#0F6E6E')+'</div>',
-  ticket:23, ahead:3, aheadWord:'مرضى',
-  queueLabel:'راقب دورك من التطبيق',
+  ticket:23, ahead:3, aheadWord:'مرضى', aheadSingular:'مريض واحد', aheadDual:'مريضان',
   // left top card
   topCard:{kind:'unit',label:'نوع العيادة',icon:'tooth',value:'أسنان',subLabel:'رقم العيادة',subValue:'3'},
   // right small cards
@@ -450,9 +450,8 @@ var T={
   ticketLabel:'رقم طلبك',
   biz:'مقهى نَجَل', slogan:'قهوة لحظاتك، نَجَل، يومك',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cup',50,'#C99A2E',2.1)+'</div>',
-  ticket:12, ahead:4, aheadWord:'طلبات',
-  queueLabel:'رقمك في الانتظار',
-  topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  ticket:12, ahead:4, aheadWord:'طلبات', aheadSingular:'طلب واحد', aheadDual:'طلبان',
+  topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
   small2:{icon:'cal',title:'حجز موعدك القادم',note:'احجز موعدك أو طلبك المسبق<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
@@ -480,9 +479,8 @@ var T={
   ticketLabel:'رقم انتظارك',
   biz:'مطعم مذاق', slogan:'نكهة تستحق الانتظار',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cutlery',46,'#7C5CE6',2)+'</div>',
-  ticket:47, ahead:5, aheadWord:'طاولات',
-  queueLabel:'رقمك في الانتظار',
-  topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  ticket:47, ahead:5, aheadWord:'طاولات', aheadSingular:'طاولة واحدة', aheadDual:'طاولتان',
+  topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
   small2:{icon:'cal',title:'حجز طاولتك القادمة',note:'احجز طاولتك أو طلبك المسبق<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
@@ -510,9 +508,8 @@ var T={
   ticketLabel:'رقم فاتورتك',
   biz:'بقالة الحي', slogan:'كل احتياجاتك اليومية',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('bag',46,'#22A87A',2)+'</div>',
-  ticket:31, ahead:2, aheadWord:'عملاء',
-  queueLabel:'رقمك في الانتظار',
-  topCard:{kind:'points',label:'نقاط ولاء',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  ticket:31, ahead:2, aheadWord:'عملاء', aheadSingular:'عميل واحد', aheadDual:'عميلان',
+  topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
   small2:{icon:'cal',title:'عروض هذا الأسبوع',note:'تصفّح أحدث العروض والتخفيضات<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
@@ -729,16 +726,28 @@ function loyaltyCardInner(c){
   return '<div class="st-h">'+t.label+'</div>'+
    '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
    '<div><div class="st-v gold">+'+invoicePoints(c)+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
-   '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+'</div>';
+   '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+' عبر تطبيق '+NOJ_BLUE+'</div>';
+}
+/* عدد المنتظرين قبل هذا الدور (c.ahead) قيمة تجريبية بانتظار الربط
+   الحقيقي بنظام إدارة الطابور في المنشأة — نقطة الربط المستقبلية:
+   استبدل قيمة ahead في T بقيمة حيّة من ذلك النظام. الصياغة العربية
+   السليمة (مفرد/مثنى/جمع، أو "دورك الآن" عند الصفر) عامة لأي قطاع
+   يفعّل hasQueue مستقبلاً، لا للقطاع الطبي حصراً. */
+function aheadText(c){
+  if(c.ahead===0)return 'دورك الآن';
+  if(c.ahead===1)return 'أمامك '+c.aheadSingular;
+  if(c.ahead===2)return 'أمامك '+c.aheadDual;
+  return 'أمامك '+c.ahead+' '+c.aheadWord;
 }
 /* بطاقة الصندوق الثاني: رقم الدور (القطاع الطبي فقط، عبر hasQueue) —
-   بيانات هذه الزيارة/الفاتورة نفسها، فتُعرَض فوراً بلا انتظار تعرّف،
-   بنفس منطق بطاقة الصندوق الأول أعلاه. */
+   بيانات هذه الزيارة/الفاتورة نفسها، فتُعرَض فوراً بلا انتظار تعرّف.
+   رقم الانتظار هو الأبرز بصرياً (أعلى البطاقة)، يليه عدد المتبقين قبل
+   الدور، وآخرها سطر إرشادي أخف وأصغر (لا بيانات) في الأسفل. */
 function queueCardInner(c){
-  return '<div class="st-h">'+c.queueLabel+'</div>'+
-   '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
+  return '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
    '<div class="q-num">'+c.ticket+'</div></div>'+
-   '<div class="st-sub">أمامك '+c.ahead+' '+c.aheadWord+'</div>';
+   '<div class="st-sub">'+aheadText(c)+'</div>'+
+   '<div class="q-note">راقب دورك من تطبيق '+NOJ_BLUE+'</div>';
 }
 
 function invChip(label,valueHtml){
