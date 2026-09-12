@@ -453,59 +453,32 @@ var ADMIN_PIN='1234';
 var SETTINGS_KEY='noj_kiosk_settings';
 
 /* ================= IDLE SCREEN CATEGORIES (نص وضبط موحّد) =================
-   مصدر واحد لكل نصوص/إعدادات شاشة الخمول بحسب "قسم المتجر" (منفصل تماماً
-   عن "القطاع" الأعلى الذي يتحكم بقالب الدور التجريبي لشاشتي main/success
-   ولا يُمسّ هنا) — كل قسم جديد مستقبلاً يُضاف كمُدخل واحد هنا فقط، بلا أي
-   نص أو منطق موزّع داخل الشاشة نفسها. كل عبارة تبدأ دائماً بتوضيح أن هذه
-   شاشة انتظار قبل إصدار الفاتورة (لا يُمرَّر الجوال هنا فعلياً، ذلك يصير
-   بالشاشة التالية)، لتفادي محاولة عميل تمرير جواله في هذه الشاشة بلا فائدة.
-   menuBtn.eligible هو الحارس الوحيد والمطلق لإمكان ظهور الزر أصلاً —
-   القسم غير المؤهَّل (eligible:false، وأهمها "صحة") لا يمكن أن يُرندَر
-   له الزر إطلاقاً بصرف النظر عن SETTINGS.showMenuBtn (حتى لو كانت قيمة
-   قديمة محفوظة في localStorage من إعداد سابق)؛ هذا يمنع فئة كاملة من
-   الأخطاء حيث يبقى الزر ظاهراً بسبب تبديل قسم دون حفظ، أو إعداد محفوظ
-   قبل هذا التغيير. SETTINGS.showMenuBtn يبقى مفتاح تشغيل/إيقاف فعلي،
-   لكن فقط للأقسام المؤهَّلة أصلاً (مقاهي/مطاعم حالياً). */
-var IDLE_CATEGORY_ORDER=['cafe','restaurant','retail','health','services','default'];
+   مصدر واحد لكل نصوص/إعدادات شاشة الخمول، مفتاحة بنفس مفاتيح "القطاع"
+   الحالي (T: medical/cafe/restaurant) بالضبط — لا يوجد حقل قسم منفصل
+   إطلاقاً (كان وجود حقلين لنفس الغرض "القطاع" و"قسم المتجر" هو سبب علّة
+   سابقة: تعارضا فعلياً حين اختلفت قيمتاهما). القطاع هو المصدر الوحيد
+   الذي تشتق منه العبارة والزر والأيقونة معاً، وكل قسم جديد مستقبلاً
+   يُضاف هنا فقط. menuBtn:null (القطاع الطبي حالياً) هو الحارس المطلق:
+   لا يمكن أن يُرندَر أي زر قائمة له إطلاقاً بصرف النظر عن
+   SETTINGS.showMenuBtn، حتى لو كانت قيمة قديمة محفوظة في localStorage. */
 var IDLE_CATEGORIES={
  cafe:{
-  label:'مقاهي',
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
-  menuBtn:{eligible:true,show:true,label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'}
+  menuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'}
  },
  restaurant:{
-  label:'مطاعم',
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
-  menuBtn:{eligible:true,show:true,label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
+  menuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
  },
- retail:{
-  label:'تجزئة ومتاجر',
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتجمع نقاطك',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to collect your points.'},
-  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
- },
- health:{
-  label:'صحة',
+ medical:{
   note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
-  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
- },
- services:{
-  label:'خدمات (صالونات، ورش)',
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لحفظ سجل خدماتك',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to save your service history.'},
-  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
- },
- 'default':{
-  label:'الافتراضي',
-  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لربط فاتورتك بتطبيق NOJ',
-        en:'Wait until the invoice is issued, then tap your phone or enter your number to link your invoice to the NOJ app.'},
-  menuBtn:{eligible:false,show:false,label:'',sub:'',icon:''}
+  menuBtn:null
  }
 };
-var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',bizCategory:'default',showMenuBtn:IDLE_CATEGORIES['default'].menuBtn.show,menuImages:[]};
+var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',showMenuBtn:true,menuImages:[]};
 function loadSettings(){
   try{
     var raw=localStorage.getItem(SETTINGS_KEY);
@@ -525,7 +498,6 @@ var SETTINGS=(function(){
     merged[k]=(k in saved)?saved[k]:DEFAULT_SETTINGS[k];
   });
   if(!T[merged.sector])merged.sector=DEFAULT_SETTINGS.sector;
-  if(!IDLE_CATEGORIES[merged.bizCategory])merged.bizCategory=DEFAULT_SETTINGS.bizCategory;
   return merged;
 })();
 function escAttr(s){
@@ -827,11 +799,11 @@ function startIdleClock(){
 
 function idleScreen(){
   var biz=currentBiz();
-  var cat=IDLE_CATEGORIES[SETTINGS.bizCategory]||IDLE_CATEGORIES['default'];
-  /* الحارس المطلق: eligible=false (وأهمها صحة) يمنع رندرة الزر جذرياً —
-     لا يُقرأ SETTINGS.showMenuBtn إطلاقاً إلا بعد التأكد من الأهلية أولاً،
-     فلا يمكن لأي قيمة محفوظة قديماً أن تُظهر الزر في قسم غير مؤهَّل. */
-  var showBtn=cat.menuBtn.eligible&&SETTINGS.showMenuBtn;
+  var cat=IDLE_CATEGORIES[SETTINGS.sector]||IDLE_CATEGORIES.medical;
+  /* الحارس المطلق: menuBtn:null (القطاع الطبي) يمنع رندرة الزر جذرياً —
+     لا يُقرأ SETTINGS.showMenuBtn إطلاقاً إلا بعد التأكد من وجود menuBtn
+     أصلاً، فلا يمكن لأي قيمة محفوظة قديماً أن تُظهر الزر في قطاع بلا زر. */
+  var showBtn=!!(cat.menuBtn&&SETTINGS.showMenuBtn);
   var btn=cat.menuBtn;
   return '<div class="idle">'+
    '<div class="idle-hd">'+
@@ -1228,21 +1200,7 @@ function settingsScreen(){
       '<label class="adm-f">الفرع<input type="text" id="fBizBranch" value="'+escAttr(d.bizBranch)+'" placeholder="مثال: فرع العليا"></label>'+
       '<label class="adm-f">الشعار الفرعي<input type="text" id="fBizSlogan" value="'+escAttr(d.bizSlogan)+'" placeholder="'+escAttr(T[d.sector].slogan)+'"></label>'+
      '</div>'+
-     '<div class="adm-sec"><h3>شاشة الخمول</h3>'+
-      '<label class="adm-f">قسم المتجر<select id="fBizCategory">'+
-       IDLE_CATEGORY_ORDER.map(function(k){return '<option value="'+k+'"'+(d.bizCategory===k?' selected':'')+'>'+IDLE_CATEGORIES[k].label+'</option>'}).join('')+
-      '</select></label>'+
-      '<div class="adm-f">إظهار زر القائمة<div id="menuBtnToggleWrap" style="margin-top:6px">'+menuBtnToggleHtml(d)+'</div></div>'+
-      '<label class="adm-f">ملف المنيو (PDF أو صور)'+
-       '<div class="adm-row" style="margin-top:6px">'+
-        '<button type="button" class="adm-testbtn" id="pickMenuFileBtn">رفع ملف</button>'+
-        '<input type="file" accept="application/pdf,image/*" multiple id="fMenuFile" style="display:none">'+
-       '</div>'+
-       '<div class="warn" id="menuFileWarn"></div>'+
-       '<p class="adm-note">يتحوّل ملف PDF تلقائياً إلى صور عند الرفع (يتطلب اتصال الجهاز بالإنترنت أول مرة). يمكن أيضاً رفع صور مباشرة. الحد الأقصى لكل صفحة: 1.5 ميجابايت.</p>'+
-       '<div id="menuThumbs">'+menuThumbsHtml(d.menuImages)+'</div>'+
-      '</label>'+
-     '</div>'+
+     '<div id="idleSectionWrap">'+idleSectionAdminHtml(d)+'</div>'+
      '<div class="adm-sec"><h3>الربط بنظام الكاشير</h3>'+
       '<label class="adm-f">رمز الإقران (6 أرقام)<input type="text" inputmode="numeric" id="fPairing" value="'+escAttr(d.pairingCode)+'" placeholder="000000"></label>'+
       '<div class="adm-row"><button class="adm-testbtn" id="testConn">اختبار الاتصال</button>'+
@@ -1258,6 +1216,75 @@ function settingsScreen(){
     '<div class="adm-ft"><button class="cancel" id="adminExit2">خروج من الإعدادات</button>'+
     '<button class="save" id="adminSave">حفظ</button></div>'+
    '</div></div>';
+}
+/* ================= IDLE SECTION ADMIN (شاشة الخمول) =================
+   القسم بأكمله (المفتاح + رفع الملف) يظهر أو يختفي جذرياً حسب القطاع —
+   لا حقل قسم منفصل (كان وجود حقلين "القطاع" و"قسم المتجر" لنفس الغرض
+   هو سبب علّة سابقة حين تعارضت قيمتاهما). القطاع الطبي (بلا menuBtn في
+   IDLE_CATEGORIES) لا يعرض أي شيء هنا إطلاقاً — لا مفتاح ولا رفع ملف
+   ولا نص، تماشياً مع أنه لا يملك زر قائمة أصلاً. */
+function idleSectionAdminHtml(d){
+  var cat=IDLE_CATEGORIES[d.sector];
+  if(!cat||!cat.menuBtn)return '';
+  return '<div class="adm-sec"><h3>شاشة الخمول</h3>'+
+   '<div class="adm-f">إظهار زر المنيو<div id="menuBtnToggleWrap" style="margin-top:6px">'+menuBtnToggleHtml(d)+'</div></div>'+
+   '<label class="adm-f">ملف المنيو (PDF أو صور)'+
+    '<div class="adm-row" style="margin-top:6px">'+
+     '<button type="button" class="adm-testbtn" id="pickMenuFileBtn">رفع ملف</button>'+
+     '<input type="file" accept="application/pdf,image/*" multiple id="fMenuFile" style="display:none">'+
+    '</div>'+
+    '<div class="warn" id="menuFileWarn"></div>'+
+    '<p class="adm-note">يتحوّل ملف PDF تلقائياً إلى صور عند الرفع (يتطلب اتصال الجهاز بالإنترنت أول مرة). يمكن أيضاً رفع صور مباشرة. الحد الأقصى لكل صفحة: 1.5 ميجابايت.</p>'+
+    '<div id="menuThumbs">'+menuThumbsHtml(d.menuImages)+'</div>'+
+   '</label>'+
+  '</div>';
+}
+function renderIdleSectionAdmin(){
+  var wrap=document.getElementById('idleSectionWrap');
+  if(wrap)wrap.innerHTML=idleSectionAdminHtml(DRAFT);
+  bindIdleSectionAdmin();
+}
+function bindIdleSectionAdmin(){
+  bindMenuBtnToggle();
+  bindMenuThumbs();
+  var pickMenuFileBtn=document.getElementById('pickMenuFileBtn');
+  var fMenuFile=document.getElementById('fMenuFile');
+  if(pickMenuFileBtn&&fMenuFile)pickMenuFileBtn.onclick=function(){fMenuFile.click()};
+  if(fMenuFile)fMenuFile.onchange=function(){
+    var files=[].slice.call(fMenuFile.files||[]);
+    fMenuFile.value='';
+    if(!files.length)return;
+    var w=document.getElementById('menuFileWarn');
+    if(w)w.textContent='';
+    if(files.length===1&&files[0].type==='application/pdf'){
+      var pf=files[0];
+      if(w)w.textContent='جارٍ تحويل ملف PDF إلى صور...';
+      pf.arrayBuffer().then(convertPdfToImages).then(function(imgs){
+        DRAFT.menuImages=DRAFT.menuImages.concat(imgs);
+        if(w)w.textContent='';
+        renderMenuThumbs();
+      }).catch(function(err){
+        if(w)w.textContent='تعذّر تحويل ملف PDF (يتطلب اتصالاً بالإنترنت أول مرة). جرّب رفع صور مباشرة بدلاً منه.';
+        console.error('NOJ kiosk: PDF conversion failed',err);
+      });
+      return;
+    }
+    var bad=files.some(function(f){return !f.type||f.type.indexOf('image/')!==0});
+    if(bad){if(w)w.textContent='الرجاء اختيار ملفات صور صحيحة، أو ملف PDF واحد';return}
+    var big=files.some(function(f){return f.size>1.5*1024*1024});
+    if(big){if(w)w.textContent='حجم إحدى الصفحات كبير جداً (الحد الأقصى 1.5 ميجابايت للصفحة)';return}
+    var readers=files.map(function(f){
+      return new Promise(function(res){
+        var r=new FileReader();
+        r.onload=function(){res(r.result)};
+        r.readAsDataURL(f);
+      });
+    });
+    Promise.all(readers).then(function(results){
+      DRAFT.menuImages=DRAFT.menuImages.concat(results);
+      renderMenuThumbs();
+    });
+  };
 }
 /* ================= MENU FILE ADMIN (رفع ملف المنيو) =================
    يعمل على DRAFT.menuImages (نسخة مسودة) مثل باقي حقول شاشة الإعدادات
@@ -1362,14 +1389,9 @@ function updateModeButtons(){
     b.className=(b.getAttribute('data-m')===DRAFT.mode)?'on':'';
   });
 }
-/* زر القائمة مقيّد بأقسام مؤهَّلة فقط (menuBtn.eligible) — لغير المؤهَّل
-   (وأهمها صحة) يُستبدَل مفتاح الإظهار/الإخفاء بملاحظة توضيحية بدل مفتاح
-   لا فائدة منه، حتى لا يظن التاجر أنه يتحكم بزر لن يظهر أياً كانت قيمته. */
+/* لا يُستدعى إطلاقاً إلا من idleSectionAdminHtml، الذي يتأكد مسبقاً من
+   أن القطاع الحالي يملك menuBtn أصلاً — فلا حاجة هنا لأي فرع "غير مؤهَّل". */
 function menuBtnToggleHtml(d){
-  var cat=IDLE_CATEGORIES[d.bizCategory];
-  if(!cat||!cat.menuBtn.eligible){
-    return '<p class="adm-note">هذا القسم لا يعرض زر قائمة على شاشة الخمول (متاح حالياً لقسمي مقاهي ومطاعم فقط).</p>';
-  }
   return '<div class="sw" id="menuBtnToggle">'+
    '<button type="button" data-show="1" class="'+(d.showMenuBtn?'on':'')+'">إظهار</button>'+
    '<button type="button" data-show="0" class="'+(!d.showMenuBtn?'on':'')+'">إخفاء</button>'+
@@ -1392,59 +1414,13 @@ function bindAdmin(){
   if(exit2)exit2.onclick=closeAdmin;
 
   [].forEach.call(document.querySelectorAll('#adminSw button'),function(b){
-    b.onclick=function(){DRAFT.sector=b.getAttribute('data-t');updateSectorButtons()};
+    b.onclick=function(){DRAFT.sector=b.getAttribute('data-t');updateSectorButtons();renderIdleSectionAdmin()};
   });
   [].forEach.call(document.querySelectorAll('#adminMode button'),function(b){
     b.onclick=function(){DRAFT.mode=b.getAttribute('data-m');updateModeButtons()};
   });
 
-  var fCat=document.getElementById('fBizCategory');
-  if(fCat)fCat.onchange=function(){
-    DRAFT.bizCategory=fCat.value;
-    var def=IDLE_CATEGORIES[fCat.value];
-    DRAFT.showMenuBtn=def?def.menuBtn.show:false;
-    renderMenuBtnToggle();
-  };
-  bindMenuBtnToggle();
-  bindMenuThumbs();
-  var pickMenuFileBtn=document.getElementById('pickMenuFileBtn');
-  var fMenuFile=document.getElementById('fMenuFile');
-  if(pickMenuFileBtn&&fMenuFile)pickMenuFileBtn.onclick=function(){fMenuFile.click()};
-  if(fMenuFile)fMenuFile.onchange=function(){
-    var files=[].slice.call(fMenuFile.files||[]);
-    fMenuFile.value='';
-    if(!files.length)return;
-    var w=document.getElementById('menuFileWarn');
-    if(w)w.textContent='';
-    if(files.length===1&&files[0].type==='application/pdf'){
-      var pf=files[0];
-      if(w)w.textContent='جارٍ تحويل ملف PDF إلى صور...';
-      pf.arrayBuffer().then(convertPdfToImages).then(function(imgs){
-        DRAFT.menuImages=DRAFT.menuImages.concat(imgs);
-        if(w)w.textContent='';
-        renderMenuThumbs();
-      }).catch(function(err){
-        if(w)w.textContent='تعذّر تحويل ملف PDF (يتطلب اتصالاً بالإنترنت أول مرة). جرّب رفع صور مباشرة بدلاً منه.';
-        console.error('NOJ kiosk: PDF conversion failed',err);
-      });
-      return;
-    }
-    var bad=files.some(function(f){return !f.type||f.type.indexOf('image/')!==0});
-    if(bad){if(w)w.textContent='الرجاء اختيار ملفات صور صحيحة، أو ملف PDF واحد';return}
-    var big=files.some(function(f){return f.size>1.5*1024*1024});
-    if(big){if(w)w.textContent='حجم إحدى الصفحات كبير جداً (الحد الأقصى 1.5 ميجابايت للصفحة)';return}
-    var readers=files.map(function(f){
-      return new Promise(function(res){
-        var r=new FileReader();
-        r.onload=function(){res(r.result)};
-        r.readAsDataURL(f);
-      });
-    });
-    Promise.all(readers).then(function(results){
-      DRAFT.menuImages=DRAFT.menuImages.concat(results);
-      renderMenuThumbs();
-    });
-  };
+  bindIdleSectionAdmin();
 
   var pickLogoBtn=document.getElementById('pickLogoBtn');
   var fBizLogo=document.getElementById('fBizLogo');
