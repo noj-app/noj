@@ -243,10 +243,14 @@
   .idle-note b{display:block;font-size:16.5px;font-weight:800;line-height:1.6}
   .idle-note small{display:block;font-size:13px;color:var(--muted-2);margin-top:6px;direction:ltr;line-height:1.5}
   .idle-ft{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;z-index:1}
-  .idle-menu-btn{width:100%;max-width:520px;background:var(--navy);color:#fff;border-radius:18px;padding:20px 24px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:19px;font-weight:800;transition:transform .14s}
+  .idle-menu-btn{width:100%;max-width:420px;background:var(--navy);color:#fff;border-radius:18px;padding:14px 22px;display:flex;align-items:center;justify-content:center;gap:14px;transition:transform .14s}
   .idle-menu-btn:active{transform:scale(.97)}
-  .idle-devnext{margin-top:2px;font-size:12px;color:var(--muted-2);background:transparent;padding:6px 10px;opacity:.55}
-  .idle-devnext:active{opacity:.9}
+  .idle-menu-ico{width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .idle-menu-txt{text-align:right}
+  .idle-menu-txt b{display:block;font-size:18px;font-weight:800;line-height:1.25}
+  .idle-menu-txt small{display:block;font-size:12.5px;font-weight:600;opacity:.8;margin-top:2px}
+  .idle-devnext{margin-top:4px;font-size:13px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:10px 20px;border-radius:99px;transition:transform .12s,background .15s}
+  .idle-devnext:active{transform:scale(.95);background:var(--line)}
 
   /* ===== MENU (customer-facing, read-only) — عارض صور بملء الشاشة ===== */
   .menu-ov{align-items:stretch;justify-content:stretch;padding:0;background:#000}
@@ -284,7 +288,9 @@
     .idle-mid h1{font-size:27px}
     .idle-slogan{font-size:15px}
     .idle-note b{font-size:14.5px}
-    .idle-menu-btn{padding:16px 22px;font-size:17px}
+    .idle-menu-btn{padding:12px 18px}
+    .idle-menu-ico{width:40px;height:40px}
+    .idle-menu-txt b{font-size:16px}
   }
 
   @media(max-width:1100px){
@@ -449,44 +455,49 @@ var SETTINGS_KEY='noj_kiosk_settings';
    مصدر واحد لكل نصوص/إعدادات شاشة الخمول بحسب "قسم المتجر" (منفصل تماماً
    عن "القطاع" الأعلى الذي يتحكم بقالب الدور التجريبي لشاشتي main/success
    ولا يُمسّ هنا) — كل قسم جديد مستقبلاً يُضاف كمُدخل واحد هنا فقط، بلا أي
-   نص أو منطق موزّع داخل الشاشة نفسها. menuBtn.show هنا يُستخدَم فقط
-   كقيمة افتراضية تُطبَّق على SETTINGS.showMenuBtn عند اختيار القسم من
-   الإعدادات؛ الإظهار الفعلي وقت العرض يعتمد على SETTINGS.showMenuBtn
-   وحدها لأن التاجر قد يتجاوز الافتراضي يدوياً بأي اتجاه. */
+   نص أو منطق موزّع داخل الشاشة نفسها. كل عبارة تبدأ دائماً بتوضيح أن هذه
+   شاشة انتظار قبل إصدار الفاتورة (لا يُمرَّر الجوال هنا فعلياً، ذلك يصير
+   بالشاشة التالية)، لتفادي محاولة عميل تمرير جواله في هذه الشاشة بلا فائدة.
+   menuBtn.show هنا يُستخدَم فقط كقيمة افتراضية تُطبَّق على
+   SETTINGS.showMenuBtn عند اختيار القسم من الإعدادات؛ الإظهار الفعلي وقت
+   العرض يعتمد على SETTINGS.showMenuBtn وحدها لأن التاجر قد يتجاوز
+   الافتراضي يدوياً بأي اتجاه. زر المنيو بتصميم واحد فقط (نفس اسم/أيقونة
+   food) يظهر افتراضياً لقسم المقاهي والمطاعم حصراً؛ إن فعّله التاجر يدوياً
+   لقسم آخر (menuBtn.label فارغ فيه) يُستخدَم تصميم food كاحتياطي عام. */
 var IDLE_CATEGORY_ORDER=['food','retail','health','services','default'];
 var IDLE_CATEGORIES={
  food:{
   label:'مقاهي ومطاعم',
-  note:{ar:'مرّر جوالك أو أدخل رقمك لتُحفظ فاتورتك وتُحتسب نقاطك',
-        en:'Tap your phone or enter your number to save your invoice and earn your points.'},
-  menuBtn:{show:true,label:'المنيو — اطلع على قائمتنا',icon:'cutlery'}
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاطك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your points.'},
+  menuBtn:{show:true,label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'}
  },
  retail:{
   label:'تجزئة ومتاجر',
-  note:{ar:'مرّر جوالك أو أدخل رقمك لتُحفظ فاتورتك وتجمع نقاطك',
-        en:'Tap your phone or enter your number to save your invoice and collect your points.'},
-  menuBtn:{show:true,label:'منتجاتنا',icon:'bag'}
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتجمع نقاطك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to collect your points.'},
+  menuBtn:{show:false,label:'',sub:'',icon:''}
  },
  health:{
   label:'صحة',
-  note:{ar:'مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
-        en:'Tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
-  menuBtn:{show:false,label:'',icon:''}
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
+  menuBtn:{show:false,label:'',sub:'',icon:''}
  },
  services:{
   label:'خدمات (صالونات، ورش)',
-  note:{ar:'مرّر جوالك أو أدخل رقمك لحفظ سجل خدماتك ومكافآتك',
-        en:'Tap your phone or enter your number to save your service history and rewards.'},
-  menuBtn:{show:true,label:'خدماتنا',icon:'gear'}
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لحفظ سجل خدماتك',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to save your service history.'},
+  menuBtn:{show:false,label:'',sub:'',icon:''}
  },
  'default':{
   label:'الافتراضي',
-  note:{ar:'مرّر جوالك أو أدخل رقمك لربط فاتورتك بتطبيق NOJ',
-        en:'Tap your phone or enter your number to link your invoice to the NOJ app.'},
-  menuBtn:{show:true,label:'قائمتنا',icon:'receipt'}
+  note:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لربط فاتورتك بتطبيق NOJ',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to link your invoice to the NOJ app.'},
+  menuBtn:{show:false,label:'',sub:'',icon:''}
  }
 };
-var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',bizCategory:'default',showMenuBtn:true,menuImages:[]};
+var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',bizCategory:'default',showMenuBtn:IDLE_CATEGORIES['default'].menuBtn.show,menuImages:[]};
 function loadSettings(){
   try{
     var raw=localStorage.getItem(SETTINGS_KEY);
@@ -809,9 +820,8 @@ function startIdleClock(){
 function idleScreen(){
   var biz=currentBiz();
   var cat=IDLE_CATEGORIES[SETTINGS.bizCategory]||IDLE_CATEGORIES['default'];
-  var def=IDLE_CATEGORIES['default'];
-  var btnLabel=cat.menuBtn.label||def.menuBtn.label;
-  var btnIcon=cat.menuBtn.icon||def.menuBtn.icon;
+  var foodBtn=IDLE_CATEGORIES.food.menuBtn;
+  var btn=cat.menuBtn.label?cat.menuBtn:foodBtn;
   return '<div class="idle">'+
    '<div class="idle-hd">'+
     '<div class="idle-clock" id="idleClock">'+idleClockInner()+'</div>'+
@@ -829,7 +839,11 @@ function idleScreen(){
     '<div class="idle-note"><b>'+cat.note.ar+'</b><small>'+cat.note.en+'</small></div>'+
    '</div>'+
    '<div class="idle-ft">'+
-    (SETTINGS.showMenuBtn?'<button class="idle-menu-btn" id="idleMenuBtn">'+ic(btnIcon,22,'#fff',2)+'<span>'+btnLabel+'</span></button>':'')+
+    (SETTINGS.showMenuBtn?
+     '<button class="idle-menu-btn" id="idleMenuBtn">'+
+      '<div class="idle-menu-ico">'+ic(btn.icon,26,'#12235C',1.8)+'</div>'+
+      '<div class="idle-menu-txt"><b>'+btn.label+'</b><small>'+btn.sub+'</small></div>'+
+     '</button>':'')+
     (DEV_SHOW_NEXT_BUTTON?'<button class="idle-devnext" id="idleDevNext">التالي (تجربة) ›</button>':'')+
    '</div>'+
   '</div>';
