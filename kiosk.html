@@ -73,14 +73,15 @@
   .st-big{font-size:60px;font-weight:800;color:var(--blue);text-align:center;line-height:1;direction:ltr}
   .st-big.gold{color:var(--gold)}
   .doc-name{font-size:19px;font-weight:800;color:var(--ink);text-align:center;line-height:1.3}
-  .st-sub{font-size:14px;font-weight:600;color:var(--muted);text-align:center;margin-top:8px}
-  .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:var(--muted-2);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .st-sub{font-size:14.5px;font-weight:600;color:var(--muted);text-align:center;margin-top:8px}
+  .st-link{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px;color:var(--muted-2);margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .noj-emph{font-size:14.5px}
 
   .queue-box{text-align:center}
   .q-top{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px}
   .q-ico{width:52px;height:52px;border-radius:50%;background:var(--blue-soft);backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow-sm);display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .q-num{font-size:74px;font-weight:800;color:var(--blue);line-height:.95;direction:ltr}
-  .q-note{font-size:12.5px;color:var(--muted-2);text-align:center;margin-top:10px;line-height:1.5}
+  .q-note{font-size:14px;color:var(--muted-2);text-align:center;margin-top:10px;line-height:1.5}
 
   /* center tap card */
   /* .tap ثابتة الموضع (لا تتحرك بنفسها)؛ حلقات NFC المتحركة باستمرار
@@ -706,6 +707,11 @@ function leftCol(){
 /* لون اسم NOJ الأزرق الموحّد في أي نص "من تطبيق NOJ" — نفس الأسلوب
    المستخدَم أصلاً في بطاقة "حجز موعدك القادم من تطبيق NOJ". */
 var NOJ_BLUE='<span class="brandblue">NOJ</span>';
+/* نسخة أكبر قليلاً من NOJ_BLUE، حصراً للنصوص الإرشادية في بطاقتي الشاشة
+   الثانية (نقاط الولاء/رقم الانتظار) — أوضح على مسافة مشاهدة التابلت،
+   يبقى أصغر من عناوين البطاقات وأصغر بكثير من الأرقام الرئيسية. لا
+   تُستخدَم في أي مكان آخر كي لا تتأثر بقية نصوص NOJ في التطبيق. */
+var NOJ_EMPH='<span class="brandblue noj-emph">NOJ</span>';
 /* بطاقة الصندوق الأول: نقاط الولاء (المقهى/المطعم/البقالة) أو نوع/رقم
    العيادة والطبيب المعالج (المركز الصحي) — بيانات خاصة بهذه الفاتورة
    نفسها لا بهوية العميل، فتُعرَض فوراً بمجرد صدور الفاتورة، بلا أي
@@ -726,7 +732,7 @@ function loyaltyCardInner(c){
   return '<div class="st-h">'+t.label+'</div>'+
    '<div class="st-row"><div class="st-i" style="background:var(--gold-soft)">'+icF('star',30,'#C99A2E')+'</div>'+
    '<div><div class="st-v gold">+'+invoicePoints(c)+'</div><div style="font-size:14px;color:var(--muted);font-weight:600;margin-top:4px">'+t.unit+'</div></div></div>'+
-   '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+' عبر تطبيق '+NOJ_BLUE+'</div>';
+   '<div class="st-link">'+ic('gift',18,'#8A93AD')+' '+t.link+' عبر تطبيق '+NOJ_EMPH+'</div>';
 }
 /* عدد المنتظرين قبل هذا الدور (c.ahead) قيمة تجريبية بانتظار الربط
    الحقيقي بنظام إدارة الطابور في المنشأة — نقطة الربط المستقبلية:
@@ -748,7 +754,7 @@ function queueCardInner(c){
    '<div class="q-top"><div class="q-ico">'+ic('users',26,'#2D7BF4')+'</div>'+
    '<div class="q-num">'+c.ticket+'</div></div>'+
    '<div class="st-sub">'+aheadText(c)+'</div>'+
-   '<div class="q-note">راقب دورك من تطبيق '+NOJ_BLUE+'</div>';
+   '<div class="q-note">راقب دورك من تطبيق '+NOJ_EMPH+'</div>';
 }
 
 function invChip(label,valueHtml){
