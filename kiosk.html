@@ -110,12 +110,18 @@
   .pbtn{width:100%;max-width:430px;background:#fff;border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform .16s,border-color .2s,box-shadow .2s}
   .pbtn:hover{border-color:var(--blue);box-shadow:0 8px 22px rgba(45,123,244,.1)}
   .pbtn:active{transform:scale(.98)}
-  .inv-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
-  .inv-chip{display:flex;flex-direction:column;align-items:center;gap:2px;background:var(--blue-soft);border-radius:14px;padding:9px 16px}
+  .inv-row{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
+  .inv-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--blue-soft);border-radius:14px;padding:9px 16px}
   .inv-chip small{font-size:13px;font-weight:600;color:var(--muted)}
   .inv-chip b{font-size:18px;font-weight:800;color:var(--blue);direction:ltr}
   .inv-chip b span{font-size:13px;font-weight:700;margin-right:3px}
-  .inv-chip.name b{font-size:15.5px;direction:rtl}
+  .sec-card{display:flex;align-items:center;gap:12px;background:var(--blue-soft);border-radius:14px;padding:10px 18px}
+  .sec-card-i{width:42px;height:42px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .sec-card-b{text-align:right}
+  .sec-card-b small{display:block;font-size:12.5px;font-weight:600;color:var(--muted)}
+  .sec-card-b>b{display:block;font-size:24px;font-weight:800;color:var(--blue);direction:ltr;line-height:1.25;margin:1px 0}
+  .sec-card-sub{display:flex;flex-direction:column;gap:1px}
+  .sec-card-sub span{font-size:12px;font-weight:600;color:var(--muted)}
   .coupon-btn{margin-top:12px;background:transparent;border:none;display:flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:700;color:var(--blue);padding:6px}
   .coupon-btn:active{opacity:.65}
 
@@ -802,26 +808,37 @@ function updateQueueCard(){
   if(el)el.innerHTML=queueCardInner(C());
 }
 
-function invChip(label,valueHtml,isName){
-  return '<div class="inv-chip'+(isName?' name':'')+'"><small>'+label+'</small><b>'+valueHtml+'</b></div>';
+function invChip(label,valueHtml){
+  return '<div class="inv-chip"><small>'+label+'</small><b>'+valueHtml+'</b></div>';
 }
-/* صف الرقاقات أعلى بطاقة "ضع جوالك هنا": مبلغ الفاتورة (إن فُعِّل)، ثم
-   إما نقاط هذه الفاتورة (hasPoints=true) أو — بدلاً منها كلياً، حصراً
-   حين يملك القطاع doctorName (القطاع الطبي فقط حالياً) — رقم الدور
-   ورقم العيادة واسم الطبيب. لا يظهر الاثنان معاً أبداً؛ رقم الدور/رقم
-   العيادة هنا بيانات هذه الزيارة/الفاتورة نفسها (لا بيانات عميل)، لذا
-   تُعرَض فوراً بلا انتظار لتعرّف العميل، تماماً كمبلغ الفاتورة. */
+/* بطاقة القطاع الموحّدة: كتلة واحدة مترابطة (أيقونة + رقم أبرز + سطور
+   فرعية اختيارية) بدل عدة رقاقات متفرقة — نفس الحجم والشكل بصرف النظر
+   عن القطاع، يتغيّر محتواها فقط. */
+function sectorCard(icon,label,bigValue,subLines){
+  return '<div class="sec-card"><div class="sec-card-i">'+ic(icon,24,'#2D7BF4',2)+'</div>'+
+   '<div class="sec-card-b"><small>'+label+'</small><b>'+bigValue+'</b>'+
+   (subLines&&subLines.length?'<div class="sec-card-sub">'+subLines.map(function(s){return '<span>'+s+'</span>'}).join('')+'</div>':'')+
+   '</div></div>';
+}
+/* بطاقة القطاع + مبلغ الفاتورة أعلى بطاقة "ضع جوالك هنا"، بترتيب RTL:
+   بطاقة القطاع أولاً في الـHTML (فتقع أقصى اليمين) ثم مبلغ الفاتورة
+   بعدها. حارسان مطلقان متبادلان لا يجتمعان أبداً على بطاقة واحدة: إما
+   doctorName (القطاع الطبي فقط حالياً: رقم الدور الأبرز + رقم العيادة
+   واسم الطبيب كسطرين فرعيين — بيانات هذه الزيارة نفسها، لا بيانات
+   عميل، فتُعرَض فوراً بلا انتظار تعرّف) أو hasPoints (بقية القطاعات:
+   نقاط الولاء المكتسبة من هذه الفاتورة). الصف يتمركز في المنتصف عبر
+   flexbox أياً كان عدد العناصر الظاهر (واحد أو اثنان)، فلا يبقى فراغ
+   في أي طرف عند إخفاء أحدهما. */
 function centerCol(){
   var c=C();
-  var chips='';
-  if(c.showInvoiceAmount)chips+=invChip('مبلغ الفاتورة',c.invoiceAmount+' <span>ريال</span>');
-  if(c.hasPoints)chips+=invChip('نقاط هذه الفاتورة','+'+invoicePoints(c)+' <span>نقطة</span>');
-  else if(c.doctorName){
-   chips+=invChip('رقم الدور',c.ticket);
-   chips+=invChip('رقم العيادة',c.topCard.subValue);
-   chips+=invChip('الطبيب المعالج',c.doctorName,true);
+  var sector='';
+  if(c.doctorName){
+   sector=sectorCard(c.topCard.icon,'رقم الدور',c.ticket,['رقم العيادة: '+c.topCard.subValue,c.doctorName]);
+  }else if(c.hasPoints){
+   sector=sectorCard('gift','نقاط الولاء','+'+invoicePoints(c));
   }
-  var row=chips?'<div class="inv-row">'+chips+'</div>':'';
+  var amount=c.showInvoiceAmount?invChip('مبلغ الفاتورة',c.invoiceAmount+' <span>ريال</span>'):'';
+  var row=(sector||amount)?'<div class="inv-row">'+sector+amount+'</div>':'';
   var coupon=c.showCouponBtn?
    '<button class="coupon-btn" id="couponBtn">'+ic('gift',18,'#2D7BF4')+' لديك كوبون خصم؟</button>':'';
   return '<div class="col"><div class="tap">'+
