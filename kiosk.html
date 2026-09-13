@@ -379,6 +379,7 @@ var P={
  cutlery:'<path d="M6 2v5.5M8 2v5.5M10 2v5.5M6 7.5a2 2 0 004 0M8 7.5V21"/><path d="M18 2c-2.4 1.1-3.8 3.9-3.8 7s1.4 5.4 3.8 6.5"/><path d="M18 2v19"/>',
  gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
  bag:'<path d="M6.5 8h11l-1 12.5h-9z"/><path d="M9 8V6a3 3 0 016 0v2"/>',
+ tag:'<path d="M20.5 13.4L13 20.9a2 2 0 01-2.8 0L3.5 14.3A2 2 0 013 12.9V5a1 1 0 011-1h7.9a2 2 0 011.4.6l7.2 7.2a2 2 0 010 2.6z"/><circle cx="8" cy="8" r="1.4"/>',
  chevL:'<path d="M15 4l-8 8 8 8"/>',
  chevR:'<path d="M9 4l8 8-8 8"/>'
 };
@@ -431,7 +432,7 @@ var T={
   // left top card
   topCard:{kind:'unit',label:'نوع العيادة',icon:'tooth',value:'أسنان',subLabel:'رقم العيادة',subValue:'3'},
   // right small cards
-  small2:{icon:'cal',title:'حجز موعدك القادم',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
+  small2:{icon:'calchk',title:'حجز موعدك القادم',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات المواعيد',s:'لا تفوّت موعدك'},
@@ -460,7 +461,7 @@ var T={
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cup',50,'#C99A2E',2.1)+'</div>',
   ticket:12, ahead:4, aheadWord:'طلبات', aheadSingular:'طلب واحد', aheadDual:'طلبان',
   topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small2:{icon:'cal',title:'حجز موعدك القادم',note:'احجز موعدك أو طلبك المسبق<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
+  small2:{icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
@@ -489,7 +490,7 @@ var T={
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cutlery',46,'#7C5CE6',2)+'</div>',
   ticket:47, ahead:5, aheadWord:'طاولات', aheadSingular:'طاولة واحدة', aheadDual:'طاولتان',
   topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small2:{icon:'cal',title:'حجز طاولتك القادمة',note:'احجز طاولتك أو طلبك المسبق<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
+  small2:{icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
@@ -518,7 +519,7 @@ var T={
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('bag',46,'#22A87A',2)+'</div>',
   ticket:31, ahead:2, aheadWord:'عملاء', aheadSingular:'عميل واحد', aheadDual:'عميلان',
   topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
-  small2:{icon:'cal',title:'عروض هذا الأسبوع',note:'تصفّح أحدث العروض والتخفيضات<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
+  small2:{icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
@@ -802,7 +803,7 @@ function rightCol(){
    '<small>تصلك مباشرة بعد الدفع في تطبيق<br><span class="brandblue">NOJ</span></small></div>':'';
   return '<div class="col right">'+
    digitalInvoice+
-   '<div class="rb"><div class="rb-i">'+ic('calchk',26,'#2D7BF4')+'</div>'+
+   '<div class="rb"><div class="rb-i">'+ic(c.small2.icon,26,'#2D7BF4')+'</div>'+
    '<b>'+c.small2.title+'</b><small>'+c.small2.note+'</small></div>'+
   '</div>';
 }
