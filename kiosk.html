@@ -163,24 +163,25 @@
   @keyframes draw{to{stroke-dashoffset:0}}
   .ok h2{font-size:32px;font-weight:800;margin-bottom:9px}
   .ok p{font-size:17px;color:var(--muted);margin-bottom:24px}
-  .got{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-  @media(max-width:700px){.got{grid-template-columns:1fr}}
-  .g{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:17px;padding:19px 13px;animation:rise .4s ease both}
+  /* صف بطاقات شاشة النجاح: عرض/ارتفاع موحّد لكل بطاقة بصرف النظر عن
+     عددها (بطاقتان أو ثلاث) — flex بدل grid ثابت الأعمدة، لأن grid
+     بثلاثة أعمدة يترك عموداً فارغاً ويُزيح الصف حين يكون العدد أقل من
+     ثلاثة (هذا بالضبط ما كان يكسر محاذاة قطاعات النقاط). العرض الثابت
+     244px = نفس عرض بطاقة قطاع الصحة (760px داخل .ok-in ÷ 3 أعمدة). */
+  .got{display:flex;flex-wrap:wrap;justify-content:center;gap:14px}
+  .g{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:17px;padding:19px 13px;width:244px;flex-shrink:0;animation:rise .4s ease both}
   .g:nth-child(2){animation-delay:.1s}.g:nth-child(3){animation-delay:.2s}
   .g-i{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border)}
   .g b{display:block;font-size:16px;font-weight:800;margin-bottom:4px}
   .g small{display:block;font-size:12.5px;color:var(--muted);line-height:1.6}
+  .g-pts-total{display:block;font-size:15px;font-weight:800;color:var(--gold);direction:ltr}
+  .g-pts-total span{font-size:11px;font-weight:700}
+  .g-pts-break{display:block;font-size:11px;color:var(--muted);line-height:1.5;margin-top:2px}
+  @media(max-width:700px){.g{width:100%}}
   .tno{display:inline-flex;flex-direction:column;align-items:center;border:2.5px solid var(--blue);border-radius:20px;padding:15px 42px;margin-top:22px}
   .tno small{font-size:13.5px;color:var(--muted)}
   .tno b{font-size:42px;font-weight:800;color:var(--blue);direction:ltr;line-height:1.15}
   .timer{margin-top:18px;font-size:13.5px;color:var(--muted-2)}
-  .bal-card{display:inline-flex;flex-direction:column;align-items:center;background:var(--gold-soft);border-radius:20px;padding:18px 36px;margin-top:22px}
-  .bal-card>small{font-size:13.5px;color:var(--muted);font-weight:600}
-  .bal-total{font-size:38px;font-weight:800;color:#C99A2E;direction:ltr;line-height:1.15;margin:5px 0 12px}
-  .bal-total span{font-size:15px;font-weight:700}
-  .bal-break{display:flex;gap:26px}
-  .bal-item{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12.5px;color:var(--muted)}
-  .bal-item b{font-size:17px;font-weight:800;color:var(--ink);direction:ltr}
 
   @keyframes fade{from{opacity:0}to{opacity:1}}
   @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
@@ -465,8 +466,7 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
@@ -494,8 +494,7 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
@@ -523,8 +522,7 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {i:'bell',c:'#0F6E6E',b:'رقم فاتورتك',s:'راجعها من التطبيق في أي وقت'}
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
@@ -599,7 +597,7 @@ function invoicePoints(c){return Math.round(parseFloat(c.invoiceAmount)*c.points
    بطاقتا الولاء/الدور في الشاشة الرئيسية (leftCol) تعرضان بيانات هذه
    الفاتورة نفسها فوراً بلا أي علاقة بهذه الحالة (انظر loyaltyCardInner/
    queueCardInner). آلية التعرّف هنا خاصة حصراً بالرصيد التراكمي المعروض
-   في الشاشة الثالثة (success/balanceSummary)، الذي يتطلب فعلاً معرفة
+   في الشاشة الثالثة (success/loyaltyOkCard)، الذي يتطلب فعلاً معرفة
    هوية العميل من رقم جواله (لمس NFC أو إدخال الرقم وتأكيده):
    - guest       : لا هوية معروفة بعد (الحالة الابتدائية دائماً).
    - identifying : جارٍ التحقق بعد لمسة/تأكيد العميل.
@@ -651,7 +649,7 @@ function getQueueInfo(phone){
   return null; // الوضع المباشر: لا اتصال حقيقي بعد، فلا دور معروف
 }
 /* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تحدِّد
-   CUST.points/CUST.queue (لأجل success()/balanceSummary في الشاشة
+   CUST.points/CUST.queue (لأجل success()/loyaltyOkCard في الشاشة
    الثالثة حصراً؛ بطاقتا الشاشة الرئيسية لا تتأثران، فمحتواهما مستقل عن
    هذه الحالة) بعد مهلة قصيرة تحاكي زمن استعلام حقيقي، ثم تستدعي cb
    للمتابعة (إرسال الفاتورة). تُطبَّق على القوالب الثلاثة بلا استثناء:
@@ -1008,21 +1006,20 @@ function maskPhone(d){
   if(!d||d.length<9)return d;
   return d.slice(0,2)+' *** **'+d.slice(-2);
 }
-/* ملخص رصيد نقاط الولاء بعد إضافة نقاط هذه الفاتورة — للقطاعات ذات
-   برنامج نقاط فقط (hasPoints=true)، وبعد نجاح التعرّف فعلياً؛ في notfound
-   لا حساب أصلاً لتحديثه، وفي القطاع الطبي (hasPoints=false) لا تُرندَر
-   هذه البطاقة إطلاقاً — شاشته الثالثة تكتفي بتأكيد الربط ورقم الدور.
-   الإجمالي الجديد (رصيد سابق + نقاط هذه الفاتورة) هو العنصر الأبرز
-   بصرياً، والتفصيل تحته أصغر. */
-function balanceSummary(c){
+/* بطاقة نقاط الولاء ضمن صف بطاقات شاشة النجاح (.got) — بنفس شكل/حجم
+   أخواتها بالضبط (icon أعلاها ثم عنوان)، مع ملخص الرصيد (سابق + نقاط
+   هذه الفاتورة + الإجمالي الجديد) مرتّباً بشكل مضغوط مكان النص الإرشادي
+   المعتاد، بلا أي تكبير للبطاقة. للقطاعات ذات برنامج نقاط فقط
+   (hasPoints=true)، وبعد نجاح التعرّف فعلياً؛ في notfound لا حساب أصلاً
+   لتحديثه، وفي القطاع الطبي (hasPoints=false) لا تُرندَر هذه البطاقة
+   إطلاقاً — شاشته الثالثة تكتفي بتأكيد الربط ورقم الدور. */
+function loyaltyOkCard(c){
   if(!c.hasPoints||CUST.status!=='identified')return '';
   var added=invoicePoints(c),prev=CUST.points||0,total=prev+added;
-  return '<div class="bal-card"><small>رصيدك الجديد من نقاط الولاء</small>'+
-   '<div class="bal-total">'+total+' <span>نقطة</span></div>'+
-   '<div class="bal-break">'+
-    '<div class="bal-item"><b>+'+added+'</b>نقاط هذه الفاتورة</div>'+
-    '<div class="bal-item"><b>'+prev+'</b>رصيدك السابق</div>'+
-   '</div></div>';
+  return '<div class="g"><div class="g-i" style="background:var(--gold-soft)">'+icF('star',22,'#C99A2E')+'</div>'+
+   '<b>نقاط الولاء</b>'+
+   '<div class="g-pts-total">'+total+' <span>نقطة</span></div>'+
+   '<div class="g-pts-break">سابق '+prev+' + مضاف '+added+'</div></div>';
 }
 function success(){
   var c=C();
@@ -1039,8 +1036,7 @@ function success(){
    '<div class="got">'+c.okItems.map(function(o){
      return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
      '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
-   }).join('')+'</div>'+
-   balanceSummary(c)+
+   }).join('')+loyaltyOkCard(c)+'</div>'+
    '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>'+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
