@@ -238,13 +238,14 @@
   .sw{display:flex;flex-wrap:wrap;gap:7px}
   .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);white-space:nowrap}
   .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
-  .card-tog-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}
+  .card-tog-row{display:flex;align-items:center;justify-content:flex-start;gap:16px;margin-bottom:16px}
   .card-tog-row:last-child{margin-bottom:0}
   .card-tog-label{font-size:13.5px;font-weight:700;color:var(--ink)}
   .flip-sw{width:56px;height:34px;border-radius:99px;background:#D8DCE3;border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background .18s}
   .flip-sw .flip-knob{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s}
   .flip-sw.on{background:var(--blue)}
   .flip-sw.on .flip-knob{transform:translateX(-22px)}
+  .menu-file-sub{margin-inline-start:18px}
 
   /* ===== IDLE SCREEN (شاشة الخمول — الشاشة رقم ١) =====
      تُعرض قبل بدء أي عملية دفع (الحالة الافتراضية عند تشغيل الجهاز).
@@ -264,7 +265,7 @@
   .noj-ring{position:absolute;inset:-7px;width:58px;height:58px;pointer-events:none;transform:rotate(-90deg);opacity:0;transition:opacity .15s}
   .noj-ring circle{fill:none;stroke:var(--blue);stroke-width:3;stroke-linecap:round;stroke-dasharray:157;stroke-dashoffset:157}
   .idle-noj-btn.pressing .noj-ring{opacity:1}
-  .idle-noj-btn.pressing .noj-ring circle{stroke-dashoffset:0;transition:stroke-dashoffset 3s linear}
+  .idle-noj-btn.pressing .noj-ring circle{stroke-dashoffset:0;transition:stroke-dashoffset 1.5s linear}
   .idle-noj-txt b{display:block;font-size:27px;font-weight:800;letter-spacing:-.5px;line-height:1}
   .idle-noj-txt small{display:block;font-size:8.5px;letter-spacing:1.7px;color:var(--navy);margin-top:4px;font-weight:600}
   .idle-sep{width:1px;height:36px;background:var(--line);flex-shrink:0}
@@ -959,7 +960,7 @@ function idleScreen(){
    '<div class="idle-hd">'+
     '<div class="idle-clock" id="idleClock">'+idleClockInner()+'</div>'+
     '<div class="idle-noj">'+
-     '<button class="idle-noj-btn" id="idleNojBtn" aria-label="إعدادات التاجر (اضغط مطولاً 3 ثوانٍ)">'+
+     '<button class="idle-noj-btn" id="idleNojBtn" aria-label="إعدادات التاجر (اضغط مطولاً ثانية ونصف)">'+
       '<svg class="noj-ring" viewBox="0 0 58 58" aria-hidden="true"><circle cx="29" cy="29" r="25"/></svg>'+
       '<div class="noj-m">N</div>'+
      '</button>'+
@@ -986,12 +987,15 @@ function idleScreen(){
    '</div>'+
   '</div>';
 }
-/* زر الدخول للإعدادات (N) يتطلب ضغطاً مطولاً 3 ثوانٍ كاملة قبل فتح شاشة
-   الرقم السري، بدل ضغطة عادية — لمنع فتحه بالخطأ من العملاء (الشاشة
-   أمامهم دوماً). الحلقة المحيطة (noj-ring) تمتلئ بصرياً عبر transition
-   CSS على stroke-dashoffset مدتها 3 ثوانٍ بالتزامن مع مؤقّت JS بنفس
-   المدة؛ رفع الإصبع قبل الاكتمال يُلغي المؤقّت فوراً ويُعيد الحلقة بلا
-   أي أنيميشن رجوع (إلغاء فوري كما طُلب). */
+/* زر الدخول للإعدادات (N) يتطلب ضغطاً مطولاً ثانية ونصف (1500ms) كاملة
+   قبل فتح شاشة الرقم السري، بدل ضغطة عادية — لمنع فتحه بالخطأ من
+   العملاء (الشاشة أمامهم دوماً). الحلقة المحيطة (noj-ring) تمتلئ
+   بصرياً عبر transition CSS على stroke-dashoffset بنفس مدة NOJ_PRESS_MS
+   بالتزامن مع مؤقّت JS بنفس المدة؛ رفع الإصبع قبل الاكتمال يُلغي
+   المؤقّت فوراً ويُعيد الحلقة بلا أي أنيميشن رجوع (إلغاء فوري كما طُلب).
+   المدتان (هنا وفي CSS .idle-noj-btn.pressing .noj-ring circle) يجب أن
+   تبقيا متطابقتين يدوياً — لا رابط تقني بينهما. */
+var NOJ_PRESS_MS=1500;
 var nojPressTimer=null;
 function bindNojLongPress(btn){
   function cancelPress(){
@@ -1005,7 +1009,7 @@ function bindNojLongPress(btn){
       nojPressTimer=null;
       btn.classList.remove('pressing');
       openPinScreen();
-    },3000);
+    },NOJ_PRESS_MS);
   }
   btn.addEventListener('pointerdown',startPress);
   btn.addEventListener('pointerup',cancelPress);
@@ -1443,17 +1447,33 @@ function idleSectionAdminHtml(d){
   var cat=T[d.sector];
   if(!cat||!cat.idleMenuBtn)return '';
   return '<div class="adm-sec"><h3>شاشة الخمول</h3>'+
-   '<div class="adm-f">إظهار زر المنيو<div id="menuBtnToggleWrap" style="margin-top:6px">'+menuBtnToggleHtml(d)+'</div></div>'+
-   '<label class="adm-f">ملف المنيو (PDF أو صور)'+
-    '<div class="adm-row" style="margin-top:6px">'+
-     '<button type="button" class="adm-testbtn" id="pickMenuFileBtn">رفع ملف</button>'+
-     '<input type="file" accept="application/pdf,image/*" multiple id="fMenuFile" style="display:none">'+
-    '</div>'+
-    '<div class="warn" id="menuFileWarn"></div>'+
-    '<p class="adm-note">يتحوّل ملف PDF تلقائياً إلى صور عند الرفع (يتطلب اتصال الجهاز بالإنترنت أول مرة). يمكن أيضاً رفع صور مباشرة. الحد الأقصى لكل صفحة: 1.5 ميجابايت.</p>'+
-    '<div id="menuThumbs">'+menuThumbsHtml(d.menuImages)+'</div>'+
-   '</label>'+
+   '<div class="card-tog-row">'+
+    '<span class="card-tog-label">إظهار زر المنيو</span>'+
+    '<div id="menuBtnToggleWrap">'+menuBtnToggleHtml(d)+'</div>'+
+   '</div>'+
+   '<div id="menuFileSectionWrap">'+menuFileSectionHtml(d)+'</div>'+
   '</div>';
+}
+/* حقل رفع ملف المنيو تابع لمفتاح "إظهار زر المنيو" مباشرة فوقه: لا
+   يُرندَر إطلاقاً إن كان المفتاح مطفأ في DRAFT (حياً أثناء التحرير عبر
+   renderMenuFileSection، لا بعد الحفظ فقط)، وإزاحته للداخل (margin-
+   inline-start على .menu-file-sub) توضّح بصرياً تبعيته للمفتاح فوقه. */
+function menuFileSectionHtml(d){
+  if(!d.showMenuBtn)return '';
+  return '<label class="adm-f menu-file-sub">ملف المنيو (PDF أو صور)'+
+   '<div class="adm-row" style="margin-top:6px">'+
+    '<button type="button" class="adm-testbtn" id="pickMenuFileBtn">رفع ملف</button>'+
+    '<input type="file" accept="application/pdf,image/*" multiple id="fMenuFile" style="display:none">'+
+   '</div>'+
+   '<div class="warn" id="menuFileWarn"></div>'+
+   '<p class="adm-note">يتحوّل ملف PDF تلقائياً إلى صور عند الرفع (يتطلب اتصال الجهاز بالإنترنت أول مرة). يمكن أيضاً رفع صور مباشرة. الحد الأقصى لكل صفحة: 1.5 ميجابايت.</p>'+
+   '<div id="menuThumbs">'+menuThumbsHtml(d.menuImages)+'</div>'+
+  '</label>';
+}
+function renderMenuFileSection(){
+  var wrap=document.getElementById('menuFileSectionWrap');
+  if(wrap)wrap.innerHTML=menuFileSectionHtml(DRAFT);
+  bindMenuFileSection();
 }
 function renderIdleSectionAdmin(){
   var wrap=document.getElementById('idleSectionWrap');
@@ -1462,6 +1482,9 @@ function renderIdleSectionAdmin(){
 }
 function bindIdleSectionAdmin(){
   bindMenuBtnToggle();
+  bindMenuFileSection();
+}
+function bindMenuFileSection(){
   bindMenuThumbs();
   var pickMenuFileBtn=document.getElementById('pickMenuFileBtn');
   var fMenuFile=document.getElementById('fMenuFile');
@@ -1532,7 +1555,7 @@ function renderCardTogglesAdmin(){
   bindCardTogglesAdmin();
 }
 function bindCardTogglesAdmin(){
-  [].forEach.call(document.querySelectorAll('.flip-sw'),function(sw){
+  [].forEach.call(document.querySelectorAll('.flip-sw[data-card]'),function(sw){
     var id=sw.getAttribute('data-card');
     sw.onclick=function(){
       if(!DRAFT.cardToggles)DRAFT.cardToggles={};
@@ -1647,10 +1670,7 @@ function updateModeButtons(){
 /* لا يُستدعى إطلاقاً إلا من idleSectionAdminHtml، الذي يتأكد مسبقاً من
    أن القطاع الحالي يملك menuBtn أصلاً — فلا حاجة هنا لأي فرع "غير مؤهَّل". */
 function menuBtnToggleHtml(d){
-  return '<div class="sw" id="menuBtnToggle">'+
-   '<button type="button" data-show="1" class="'+(d.showMenuBtn?'on':'')+'">إظهار</button>'+
-   '<button type="button" data-show="0" class="'+(!d.showMenuBtn?'on':'')+'">إخفاء</button>'+
-  '</div>';
+  return '<button type="button" class="flip-sw'+(d.showMenuBtn?' on':'')+'" id="menuBtnToggle" role="switch" aria-checked="'+d.showMenuBtn+'" aria-label="إظهار زر المنيو"><span class="flip-knob"></span></button>';
 }
 function renderMenuBtnToggle(){
   var wrap=document.getElementById('menuBtnToggleWrap');
@@ -1658,9 +1678,12 @@ function renderMenuBtnToggle(){
   bindMenuBtnToggle();
 }
 function bindMenuBtnToggle(){
-  [].forEach.call(document.querySelectorAll('#menuBtnToggle button'),function(b){
-    b.onclick=function(){DRAFT.showMenuBtn=b.getAttribute('data-show')==='1';renderMenuBtnToggle()};
-  });
+  var sw=document.getElementById('menuBtnToggle');
+  if(sw)sw.onclick=function(){
+    DRAFT.showMenuBtn=!DRAFT.showMenuBtn;
+    renderMenuBtnToggle();
+    renderMenuFileSection();
+  };
 }
 function bindAdmin(){
   var exit1=document.getElementById('adminExit');
