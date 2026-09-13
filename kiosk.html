@@ -174,6 +174,9 @@
   .g-i{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border)}
   .g b{display:block;font-size:16px;font-weight:800;margin-bottom:4px}
   .g small{display:block;font-size:12.5px;color:var(--muted);line-height:1.6}
+  /* بطاقة نقاط الولاء بنفس أبعاد/حواف/ترتيب بطاقات الصف بالضبط (.g) —
+     الخلفية الصفراء الفاتحة وحدها مقصودة لتمييزها عن بقية البطاقات. */
+  .g-pts{background:var(--gold-soft)}
   .g-pts-total{display:block;font-size:15px;font-weight:800;color:var(--gold);direction:ltr}
   .g-pts-total span{font-size:11px;font-weight:700}
   .g-pts-break{display:block;font-size:11px;color:var(--muted);line-height:1.5;margin-top:2px}
@@ -1006,17 +1009,18 @@ function maskPhone(d){
   if(!d||d.length<9)return d;
   return d.slice(0,2)+' *** **'+d.slice(-2);
 }
-/* بطاقة نقاط الولاء ضمن صف بطاقات شاشة النجاح (.got) — بنفس شكل/حجم
+/* بطاقة نقاط الولاء ضمن صف بطاقات شاشة النجاح (.got) — بنفس أبعاد/حواف
    أخواتها بالضبط (icon أعلاها ثم عنوان)، مع ملخص الرصيد (سابق + نقاط
    هذه الفاتورة + الإجمالي الجديد) مرتّباً بشكل مضغوط مكان النص الإرشادي
-   المعتاد، بلا أي تكبير للبطاقة. للقطاعات ذات برنامج نقاط فقط
-   (hasPoints=true)، وبعد نجاح التعرّف فعلياً؛ في notfound لا حساب أصلاً
-   لتحديثه، وفي القطاع الطبي (hasPoints=false) لا تُرندَر هذه البطاقة
-   إطلاقاً — شاشته الثالثة تكتفي بتأكيد الربط ورقم الدور. */
+   المعتاد، بلا أي تكبير للبطاقة. الاختلاف الوحيد المقصود عن أخواتها هو
+   خلفيتها الصفراء الفاتحة (كلاس g-pts) لتمييزها بصرياً. للقطاعات ذات
+   برنامج نقاط فقط (hasPoints=true)، وبعد نجاح التعرّف فعلياً؛ في notfound
+   لا حساب أصلاً لتحديثه، وفي القطاع الطبي (hasPoints=false) لا تُرندَر
+   هذه البطاقة إطلاقاً — شاشته الثالثة تكتفي بتأكيد الربط ورقم الدور. */
 function loyaltyOkCard(c){
   if(!c.hasPoints||CUST.status!=='identified')return '';
   var added=invoicePoints(c),prev=CUST.points||0,total=prev+added;
-  return '<div class="g"><div class="g-i" style="background:var(--gold-soft)">'+icF('star',22,'#C99A2E')+'</div>'+
+  return '<div class="g g-pts"><div class="g-i" style="background:#fff">'+icF('star',22,'#C99A2E')+'</div>'+
    '<b>نقاط الولاء</b>'+
    '<div class="g-pts-total">'+total+' <span>نقطة</span></div>'+
    '<div class="g-pts-break">سابق '+prev+' + مضاف '+added+'</div></div>';
