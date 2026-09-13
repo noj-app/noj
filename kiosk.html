@@ -469,7 +469,8 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
+    {i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
@@ -497,7 +498,8 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
+    {i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
@@ -525,7 +527,8 @@ var T={
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
   okItems:[
-    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
+    {i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
+    {i:'bell',c:'#0F6E6E',b:'رقم فاتورتك',s:'راجعها من التطبيق في أي وقت'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
@@ -654,11 +657,14 @@ function getQueueInfo(phone){
 /* تُشغَّل عند بدء تعرّف العميل (لمس NFC أو تأكيد رقم الجوال) فقط — تحدِّد
    CUST.points/CUST.queue (لأجل success()/loyaltyOkCard في الشاشة
    الثالثة حصراً؛ بطاقتا الشاشة الرئيسية لا تتأثران، فمحتواهما مستقل عن
-   هذه الحالة) بعد مهلة قصيرة تحاكي زمن استعلام حقيقي، ثم تستدعي cb
-   للمتابعة (إرسال الفاتورة). تُطبَّق على القوالب الثلاثة بلا استثناء:
-   القوالب ذات topCard.kind==='points' يحدِّد getLoyaltyPoints حالة
-   identified/notfound (وجود حساب ولاء)، وباقي القوالب (kind==='unit')
-   يحدِّدها وجود بيانات دور فعلية من getQueueInfo. حارسان مهمّان:
+   هذه الحالة)، ثم تستدعي cb للمتابعة (إرسال الفاتورة) فوراً تقريباً —
+   getQueueInfo/getLoyaltyPoints دالتان محليتان متزامنتان (لا اتصال
+   شبكة فعلي بعد)، فلا داعي لأي تأخير مصطنع طويل يُبطئ ظهور الشاشة
+   الثالثة؛ المهلة القصيرة هنا (أقل من 200ms) فقط لإفساح مجال للمتصفح
+   لرسم أي تحديث بصري بين الحالتين قبل الانتقال، لا محاكاة زمن استجابة.
+   عند الربط الفعلي بنظام حقيقي لاحقاً (Supabase مثلاً)، يُستبدَل هذا
+   الجزء المتزامن باستدعاء غير متزامن حقيقي، وعندها تُعرَض الشاشة
+   الثالثة فوراً بمؤشر تحميل بسيط إلى حين وصول البيانات. حارسان مهمّان:
    - تُتجاهَل أي محاولة تعرّف جديدة أثناء وجود محاولة قيد التنفيذ بالفعل
      (مثال: لمس NFC ثم فتح لوحة الأرقام وتأكيد رقم قبل انتهاء الأولى) —
      بلا هذا الحارس يمكن أن تتداخل محاولتان فتُرسَل فاتورتان.
@@ -679,11 +685,9 @@ function identifyCustomer(phone,cb){
     }else{
       CUST.status=q?'identified':'notfound';
     }
-    setTimeout(function(){
-      if(S.view!=='main'){resetCustomerState();return}
-      if(cb)cb();
-    },900);
-  },700);
+    if(S.view!=='main'){resetCustomerState();return}
+    if(cb)cb();
+  },120);
 }
 
 /* ================= BLOCKS ================= */
@@ -1033,14 +1037,21 @@ function success(){
      لـ c.ticket لا يحدث إلا في الوضع المباشر حيث لا يوجد اتصال حقيقي
      بعد (CUST.queue فارغة عندها) كقيمة احتياطية مؤقتة فقط. */
   var ticket=(CUST.queue&&CUST.queue.ticket!=null)?CUST.queue.ticket:c.ticket;
+  /* ترتيب صف بطاقات النجاح: فاتورتك (أول عنصر في okItems) أولاً، ثم
+     بطاقة نقاط الولاء (إن وُجدت لهذا القطاع) مباشرة بعدها، ثم بقية
+     عناصر okItems كما هي — بهذا الترتيب يظهر "فاتورتك ← نقاط الولاء ←
+     رقم طلبك" للقطاعات ذات النقاط، و"فاتورتك ← رقم دورك ← موعدك القادم"
+     للقطاع الطبي دون أي تغيير (loyaltyOkCard تُعيد '' فيُستبعَد تلقائياً). */
+  var okHtml=c.okItems.map(function(o){
+    return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
+    '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
+  });
+  var gotCards=[okHtml[0],loyaltyOkCard(c)].concat(okHtml.slice(1)).filter(Boolean).join('');
   return '<div class="ok"><div class="ok-in">'+
    '<div class="ok-c">'+ic('check',54,'#22A87A',3)+'</div>'+
    '<h2>تم الربط بنجاح</h2>'+
    '<p>أُرسلت فاتورتك إلى '+linked+'</p>'+
-   '<div class="got">'+c.okItems.map(function(o){
-     return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
-     '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
-   }).join('')+loyaltyOkCard(c)+'</div>'+
+   '<div class="got">'+gotCards+'</div>'+
    '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>'+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
