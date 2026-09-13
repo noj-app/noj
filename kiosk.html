@@ -238,6 +238,13 @@
   .sw{display:flex;flex-wrap:wrap;gap:7px}
   .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);white-space:nowrap}
   .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .card-tog-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}
+  .card-tog-row:last-child{margin-bottom:0}
+  .card-tog-label{font-size:13.5px;font-weight:700;color:var(--ink)}
+  .flip-sw{width:56px;height:34px;border-radius:99px;background:#D8DCE3;border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background .18s}
+  .flip-sw .flip-knob{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s}
+  .flip-sw.on{background:var(--blue)}
+  .flip-sw.on .flip-knob{transform:translateX(-22px)}
 
   /* ===== IDLE SCREEN (شاشة الخمول — الشاشة رقم ١) =====
      تُعرض قبل بدء أي عملية دفع (الحالة الافتراضية عند تشغيل الجهاز).
@@ -252,8 +259,12 @@
   .idle-date{font-size:15px;font-weight:700;color:var(--muted)}
   .idle-time{font-size:28px;font-weight:800;color:var(--ink);direction:ltr;line-height:1.1}
   .idle-noj{display:flex;align-items:center;gap:14px;direction:ltr}
-  .idle-noj-btn{display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .14s;border-radius:13px}
+  .idle-noj-btn{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .14s;border-radius:13px;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   .idle-noj-btn:active{transform:scale(.9)}
+  .noj-ring{position:absolute;inset:-7px;width:58px;height:58px;pointer-events:none;transform:rotate(-90deg);opacity:0;transition:opacity .15s}
+  .noj-ring circle{fill:none;stroke:var(--blue);stroke-width:3;stroke-linecap:round;stroke-dasharray:157;stroke-dashoffset:157}
+  .idle-noj-btn.pressing .noj-ring{opacity:1}
+  .idle-noj-btn.pressing .noj-ring circle{stroke-dashoffset:0;transition:stroke-dashoffset 3s linear}
   .idle-noj-txt b{display:block;font-size:27px;font-weight:800;letter-spacing:-.5px;line-height:1}
   .idle-noj-txt small{display:block;font-size:8.5px;letter-spacing:1.7px;color:var(--navy);margin-top:4px;font-weight:600}
   .idle-sep{width:1px;height:36px;background:var(--line);flex-shrink:0}
@@ -411,7 +422,11 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
                            (invoiceAmount هو القيمة التجريبية المعروضة).
      showCouponBtn      — زر "لديك كوبون خصم؟" (لا آلية كوبونات حقيقية
                            خلفه بعد — عنصر مؤقت بانتظار ربط فعلي).
-     showDigitalInvoice — بطاقة "استقبل فاتورتك الإلكترونية" اليمنى.
+     showDigitalInvoice — بطاقة "استقبل فاتورتك الإلكترونية" اليمنى، وهي
+                          نفس بطاقة "فاتورتك" التي يتحكم بها التاجر عبر
+                          مفتاح invoiceArrived في cardToggles؛ الحارس
+                          المطلق هنا (هيكلي)، ومفتاح التاجر فوقه (cardOn)
+                          — كلاهما يجب أن يتحقق لتظهر البطاقة.
      idleMenuBtn        — إعداد زر المنيو في شاشة الخمول، أو null إن لم
                            يملك القطاع زر قائمة إطلاقاً (الحارس المطلق:
                            لا يُرندَر بصرف النظر عن SETTINGS.showMenuBtn).
@@ -854,7 +869,7 @@ function centerCol(){
 
 function rightCol(){
   var c=C();
-  var digitalInvoice=c.showDigitalInvoice?
+  var digitalInvoice=(c.showDigitalInvoice&&cardOn('invoiceArrived'))?
    '<div class="rb"><div class="rb-i">'+ic('receipt',26,'#2D7BF4')+'</div>'+
    '<b>استقبل فاتورتك<br>الإلكترونية بالتطبيق</b>'+
    '<small>تصلك مباشرة بعد الدفع في تطبيق<br><span class="brandblue">NOJ</span></small></div>':'';
@@ -944,7 +959,10 @@ function idleScreen(){
    '<div class="idle-hd">'+
     '<div class="idle-clock" id="idleClock">'+idleClockInner()+'</div>'+
     '<div class="idle-noj">'+
-     '<button class="idle-noj-btn" id="idleNojBtn" aria-label="إعدادات التاجر"><div class="noj-m">N</div></button>'+
+     '<button class="idle-noj-btn" id="idleNojBtn" aria-label="إعدادات التاجر (اضغط مطولاً 3 ثوانٍ)">'+
+      '<svg class="noj-ring" viewBox="0 0 58 58" aria-hidden="true"><circle cx="29" cy="29" r="25"/></svg>'+
+      '<div class="noj-m">N</div>'+
+     '</button>'+
      '<div class="idle-noj-txt"><b>NOJ</b><small>No Ordinary Journey</small></div>'+
      '<div class="idle-sep"></div>'+
      '<div class="idle-hd-msg"><b>مع كل عملية شراء تبدأ رحلة أذكى</b><small>بلا رسائل مزعجة.</small></div>'+
@@ -968,9 +986,36 @@ function idleScreen(){
    '</div>'+
   '</div>';
 }
+/* زر الدخول للإعدادات (N) يتطلب ضغطاً مطولاً 3 ثوانٍ كاملة قبل فتح شاشة
+   الرقم السري، بدل ضغطة عادية — لمنع فتحه بالخطأ من العملاء (الشاشة
+   أمامهم دوماً). الحلقة المحيطة (noj-ring) تمتلئ بصرياً عبر transition
+   CSS على stroke-dashoffset مدتها 3 ثوانٍ بالتزامن مع مؤقّت JS بنفس
+   المدة؛ رفع الإصبع قبل الاكتمال يُلغي المؤقّت فوراً ويُعيد الحلقة بلا
+   أي أنيميشن رجوع (إلغاء فوري كما طُلب). */
+var nojPressTimer=null;
+function bindNojLongPress(btn){
+  function cancelPress(){
+    if(nojPressTimer){clearTimeout(nojPressTimer);nojPressTimer=null;}
+    btn.classList.remove('pressing');
+  }
+  function startPress(){
+    if(nojPressTimer)return;
+    btn.classList.add('pressing');
+    nojPressTimer=setTimeout(function(){
+      nojPressTimer=null;
+      btn.classList.remove('pressing');
+      openPinScreen();
+    },3000);
+  }
+  btn.addEventListener('pointerdown',startPress);
+  btn.addEventListener('pointerup',cancelPress);
+  btn.addEventListener('pointercancel',cancelPress);
+  btn.addEventListener('pointerleave',cancelPress);
+  btn.addEventListener('contextmenu',function(e){e.preventDefault()});
+}
 function bindIdle(){
   var n=document.getElementById('idleNojBtn');
-  if(n)n.onclick=function(){openPinScreen()};
+  if(n)bindNojLongPress(n);
   var mb=document.getElementById('idleMenuBtn');
   if(mb)mb.onclick=function(){menuIdx=0;S.view='menu';renderLayer()};
   var next=document.getElementById('idleDevNext');
@@ -1474,11 +1519,10 @@ function cardTogglesAdminHtml(d){
   return '<div class="adm-sec"><h3>بطاقات الشاشة الثانية</h3>'+
    list.map(function(item){
      var on=cardOnDraft(d,item.id);
-     return '<div class="adm-f">'+item.label+
-      '<div class="sw card-toggle-sw" data-card="'+item.id+'" style="margin-top:6px">'+
-       '<button type="button" data-show="1" class="'+(on?'on':'')+'">إظهار</button>'+
-       '<button type="button" data-show="0" class="'+(!on?'on':'')+'">إخفاء</button>'+
-      '</div></div>';
+     return '<div class="card-tog-row">'+
+      '<span class="card-tog-label">'+item.label+'</span>'+
+      '<button type="button" class="flip-sw'+(on?' on':'')+'" data-card="'+item.id+'" role="switch" aria-checked="'+on+'" aria-label="'+item.label+'"><span class="flip-knob"></span></button>'+
+     '</div>';
    }).join('')+
   '</div>';
 }
@@ -1488,15 +1532,13 @@ function renderCardTogglesAdmin(){
   bindCardTogglesAdmin();
 }
 function bindCardTogglesAdmin(){
-  [].forEach.call(document.querySelectorAll('.card-toggle-sw'),function(sw){
+  [].forEach.call(document.querySelectorAll('.flip-sw'),function(sw){
     var id=sw.getAttribute('data-card');
-    [].forEach.call(sw.querySelectorAll('button'),function(b){
-      b.onclick=function(){
-        if(!DRAFT.cardToggles)DRAFT.cardToggles={};
-        DRAFT.cardToggles[id]=(b.getAttribute('data-show')==='1');
-        renderCardTogglesAdmin();
-      };
-    });
+    sw.onclick=function(){
+      if(!DRAFT.cardToggles)DRAFT.cardToggles={};
+      DRAFT.cardToggles[id]=!cardOnDraft(DRAFT,id);
+      renderCardTogglesAdmin();
+    };
   });
 }
 /* ================= MENU FILE ADMIN (رفع ملف المنيو) =================
