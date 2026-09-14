@@ -41,6 +41,19 @@
        من التاجر (قد يكون داكناً بخلفية شفافة) يجب أن يظل واضحاً حتى في
        الوضع الليلي، فلا تُعرَّف هذه القيمة داخل :root.dark إطلاقاً. */
     --logo-plate:#fff;
+    /* رموز الحركة الموحّدة مع تطبيق العميل (index.html) — نفس القيم
+       حرفياً في كلا الملفين (لا يمكن مشاركة ملف CSS فعلي بين ملفّي HTML
+       مستقلّين كاملين، فالتوحيد هنا هو تطابق القيم، لا مصدر واحد فعلي؛
+       أي تعديل مستقبلي على مدة/منحنى الحركة يجب أن يتكرر في كلا
+       :root — انظر index.html لنفس التعريفات وتفاصيل كل استخدام). */
+    --ease-brand:cubic-bezier(.22,.9,.3,1); /* المنحنى الموحّد: ضغط الأزرار/البطاقات، فتح اللوحات */
+    --ease-bounce:cubic-bezier(.34,1.4,.64,1); /* قفزة خفيفة لمفتاح التبديل on/off فقط */
+    --dur-press:.16s;  /* تأثير الضغط على الأزرار والبطاقات */
+    --dur-fade:.2s;    /* ظهور الطبقة العلوية نفسها (خلفية الطبقة) */
+    --dur-panel:.32s;  /* استقرار محتوى اللوحة/الشاشة في مكانها بعد الظهور */
+    --dur-enter:.34s;  /* دخول بطاقات المحتوى عند تحميل الشاشة */
+    --dur-toggle:.22s; /* مفتاح التبديل on/off */
+    --dur-spin:.7s;    /* دورة مؤشر التحميل الدوّار */
   }
   /* الوضع الليلي: رمادي داكن (#1A1D24) بدل الأسود الخالص لتخفيف التباين
      الحاد على عين تنظر للشاشة طويلاً، ونصوص بيضاء مائلة للرمادي لا بيضاء
@@ -114,7 +127,11 @@
   .biz-l{width:60px;height:60px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 
   /* ===== BODY GRID ===== */
-  .bd{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1.5fr 1fr;justify-content:center;gap:16px;padding:14px 26px 0;overflow-y:auto}
+  /* نفس حركة ظهور حاوية الشاشة في index.html (#view{animation:fadeIn})
+     — تصاحب ظهور المحتوى، لا تسبقه: المحتوى (بما فيه مبلغ الفاتورة
+     وبيانات القطاع) موجود بالكامل في الـDOM من اللحظة الأولى، فقط
+     يتلاشى بصرياً للداخل عبر opacity بلا أي تأخير في توفّر المعلومة. */
+  .bd{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1.5fr 1fr;justify-content:center;gap:16px;padding:14px 26px 0;overflow-y:auto;animation:fadeIn var(--dur-fade) ease both}
   .bd::-webkit-scrollbar{width:0}
   .col{display:flex;flex-direction:column;gap:14px;min-width:0}
   /* عمود بلا بطاقات (كل مفاتيحه مطفأة من الإعدادات) لا يُرندَر إطلاقاً
@@ -125,7 +142,7 @@
   .bd.no-right{grid-template-columns:1fr 1.5fr}
   .bd.solo-center{grid-template-columns:minmax(0,520px)}
 
-  .box{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:20px;padding:22px 18px;text-align:center;min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center}
+  .box{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:20px;padding:22px 18px;text-align:center;min-width:0;flex:1;display:flex;flex-direction:column;justify-content:center;animation:fadeUp var(--dur-enter) ease both}
 
   /* left stat cards */
   .st-h{font-size:15.5px;font-weight:700;color:var(--muted);text-align:center;margin-bottom:12px}
@@ -155,7 +172,7 @@
      (خلفية الشاشة) ثابت. */
   .tap{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:22px;padding:24px 22px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:0}
   .tap h2{font-size:31px;font-weight:800;margin-bottom:14px}
-  .nfc{position:relative;width:230px;height:230px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;transition:transform .16s}
+  .nfc{position:relative;width:230px;height:230px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;transition:transform var(--dur-press) var(--ease-brand)}
   .nfc:active{transform:scale(.96)}
   .halo{position:absolute;width:190px;height:190px;border-radius:50%;background:radial-gradient(circle,rgba(45,123,244,.16),rgba(45,123,244,.05) 55%,transparent 72%);animation:breathe 3s ease-in-out infinite}
   @keyframes breathe{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.13);opacity:1}}
@@ -169,9 +186,9 @@
   .or{display:flex;align-items:center;gap:14px;width:100%;max-width:430px;margin:16px 0 12px}
   .or span{font-size:15px;color:var(--muted-2);font-weight:600}
   .or i{flex:1;height:1px;background:var(--line)}
-  .pbtn{width:100%;max-width:430px;background:var(--surface);border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform .16s,border-color .2s,box-shadow .2s,background-color .3s ease}
+  .pbtn{width:100%;max-width:430px;background:var(--surface);border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform var(--dur-press) var(--ease-brand),border-color .2s,box-shadow .2s,background-color .3s ease}
   .pbtn:hover{border-color:var(--blue);box-shadow:0 8px 22px rgba(45,123,244,.1)}
-  .pbtn:active{transform:scale(.98)}
+  .pbtn:active{transform:scale(.97)}
   .inv-row{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
   .inv-chip{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:var(--blue-soft);border-radius:14px;padding:9px 16px}
   .inv-chip small{font-size:13px;font-weight:600;color:var(--muted)}
@@ -181,7 +198,9 @@
   .coupon-btn:active{opacity:.65}
 
   /* right column */
-  .rb{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:20px;padding:22px 18px;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center}
+  .rb{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:20px;padding:22px 18px;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:center;animation:fadeUp var(--dur-enter) ease both}
+  .rb:nth-child(2){animation-delay:.06s}.rb:nth-child(3){animation-delay:.12s}
+  .box:nth-child(2){animation-delay:.06s}
   .rb-i{width:54px;height:54px;border-radius:15px;background:var(--blue-soft);backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow-sm);display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
   .rb b{display:block;font-size:19.5px;font-weight:800;line-height:1.45;margin-bottom:8px}
   .rb small{display:block;font-size:14px;color:var(--muted);line-height:1.65}
@@ -197,8 +216,16 @@
 
   /* ===== KEYPAD OVERLAY ===== */
   #layer{position:static;flex:0 0 auto}
-  .ov{position:absolute;inset:0;background:var(--overlay-bg-soft);z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;opacity:0;transition:opacity .25s ease,background-color .3s ease}
+  .ov{position:absolute;inset:0;background:var(--overlay-bg-soft);z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;opacity:0;transition:opacity var(--dur-panel) var(--ease-brand),background-color .3s ease}
   .ov.show{opacity:1}
+  /* حركة "استقرار" خفيفة لمحتوى اللوحة نفسه (لا للخلفية الشفافة .ov —
+     تحريكها بـtransform قد يفتح فجوة على حواف الشاشة أثناء التحويل)،
+     بنفس مدة/منحنى فتح الطبقة أعلاه — موحّدة مع حركة فتح الشيت في تطبيق
+     العميل (index.html)، مع فارق الشكل الهندسي فقط: هناك شيت ينزلق من
+     أسفل الشاشة (مناسب لهاتف يُمسَك باليد)، وهنا لوحة/مربع يتمركز
+     ويستقر في مكانه (مناسب لشاشة تابلت أفقية ثابتة لا شيت سفلي لها). */
+  .kp,.pinbox,.adm,.menu-stage{transition:transform var(--dur-panel) var(--ease-brand);transform:scale(.98) translateY(8px)}
+  .ov.show .kp,.ov.show .pinbox,.ov.show .adm,.ov.show .menu-stage{transform:scale(1) translateY(0)}
   .kp{width:100%;max-width:470px;text-align:center}
   .kp h2{font-size:29px;font-weight:800;margin-bottom:8px}
   .kp p{font-size:16.5px;color:var(--muted);margin-bottom:22px}
@@ -210,8 +237,8 @@
   @keyframes blink{50%{opacity:0}}
   .warn{font-size:14px;color:#DC2626;font-weight:700;margin-bottom:10px;min-height:20px;contain:content}
   .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;direction:ltr}
-  .k{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:20px 0;font-size:27px;font-weight:800;min-height:66px;transition:transform .12s,background .15s,border-color .3s ease}
-  .k:active{transform:scale(.94);background:var(--panel)}
+  .k{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:20px 0;font-size:27px;font-weight:800;min-height:66px;transition:transform var(--dur-press) var(--ease-brand),background .15s,border-color .3s ease}
+  .k:active{transform:scale(.96);background:var(--panel)}
   .k.go{background:var(--navy);color:#fff;border-color:var(--navy);font-size:19px}
   .k.go:disabled{opacity:.34}
   .k.cl{background:var(--panel);color:var(--muted);font-size:18px}
@@ -219,7 +246,7 @@
   .close.inline{position:static;flex-shrink:0}
 
   /* ===== SUCCESS ===== */
-  .ok{position:absolute;inset:0;background:var(--overlay-bg);z-index:25;display:flex;align-items:center;justify-content:center;padding:26px;animation:fade .3s ease both;transition:background-color .3s ease}
+  .ok{position:absolute;inset:0;background:var(--overlay-bg);z-index:25;display:flex;align-items:center;justify-content:center;padding:26px;animation:fadeIn var(--dur-panel) ease both;transition:background-color .3s ease}
   .ok-in{text-align:center;max-width:760px;width:100%}
   .ok-c{width:118px;height:118px;border-radius:50%;background:var(--check-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:pop .55s cubic-bezier(.22,1.5,.36,1) both;transition:background-color .3s ease}
   @keyframes pop{0%{opacity:0;transform:scale(.4)}100%{opacity:1;transform:scale(1)}}
@@ -233,7 +260,7 @@
      ثلاثة (هذا بالضبط ما كان يكسر محاذاة قطاعات النقاط). العرض الثابت
      244px = نفس عرض بطاقة قطاع الصحة (760px داخل .ok-in ÷ 3 أعمدة). */
   .got{display:flex;flex-wrap:wrap;justify-content:center;gap:14px}
-  .g{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:17px;padding:19px 13px;width:244px;flex-shrink:0;animation:rise .4s ease both}
+  .g{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:1px solid var(--glass-border);box-shadow:var(--glass-shadow);border-radius:17px;padding:19px 13px;width:244px;flex-shrink:0;animation:fadeUp var(--dur-enter) ease both}
   .g:nth-child(2){animation-delay:.1s}.g:nth-child(3){animation-delay:.2s}
   .g-i{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1px solid var(--glass-border)}
   .g b{display:block;font-size:16px;font-weight:800;margin-bottom:4px}
@@ -250,8 +277,11 @@
   .tno b{font-size:42px;font-weight:800;color:var(--blue);direction:ltr;line-height:1.15}
   .timer{margin-top:18px;font-size:13.5px;color:var(--muted-2)}
 
-  @keyframes fade{from{opacity:0}to{opacity:1}}
-  @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  /* نفس حركة/مسافة ظهور البطاقات في index.html حرفياً (fadeUp، 14px) —
+     تُستخدَم هنا لكل بطاقات المحتوى عند تحميل الشاشة (.g هنا، وbox/rb
+     أدناه)، بدل مسافة/اسم مختلفين محليين. */
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
 
   /* ===== ADMIN PIN (demo only) ===== */
   .pinbox{width:100%;max-width:380px;text-align:center}
@@ -277,8 +307,13 @@
   .adm-f input:focus{outline:none;border-color:var(--blue)}
   #fBizBranch{font-size:13px}
   .adm-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:6px}
-  .adm-testbtn{background:var(--navy);color:#fff;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:800;transition:transform .12s}
-  .adm-testbtn:active{transform:scale(.96)}
+  .adm-testbtn{background:var(--navy);color:#fff;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:800;transition:transform var(--dur-press) var(--ease-brand);display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  /* مؤشر تحميل دوّار بنفس منحنى/مدة الدوران المستخدَمين في مؤشر السحب
+     للتحديث (pull-to-refresh) في تطبيق العميل — الاستخدام الوحيد لحالة
+     "جارٍ التحميل" في شاشة الكاشير (اختبار الاتصال بنظام الكاشير). */
+  .spinner{width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;flex-shrink:0;animation:spin var(--dur-spin) linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .adm-testbtn:active{transform:scale(.97)}
   .adm-testbtn:disabled{opacity:.55}
   .conn-badge{font-size:13.5px;font-weight:800;padding:7px 14px;border-radius:99px;background:var(--surface);border:1.5px solid var(--line);color:var(--muted);transition:background-color .3s ease,border-color .3s ease}
   .conn-badge.connected{color:#22A87A;border-color:#22A87A}
@@ -294,7 +329,7 @@
   .logo-preview img{width:100%;height:100%;object-fit:cover}
   .logo-remove{background:transparent;color:#DC2626;font-size:12.5px;font-weight:700;padding:8px 10px}
   .adm-ft{display:flex;gap:12px;padding:16px 30px;border-top:1px solid var(--line);flex-shrink:0}
-  .adm-ft button{flex:1;border-radius:16px;padding:15px;font-size:15.5px;font-weight:800;transition:transform .14s,background-color .3s ease}
+  .adm-ft button{flex:1;border-radius:16px;padding:15px;font-size:15.5px;font-weight:800;transition:transform var(--dur-press) var(--ease-brand),background-color .3s ease}
   .adm-ft button:active{transform:scale(.97)}
   .adm-ft .save{background:var(--navy);color:#fff}
   .adm-ft .cancel{background:var(--surface);color:var(--muted);border:1.5px solid var(--line)}
@@ -305,8 +340,8 @@
   .card-tog-row{display:flex;align-items:center;justify-content:flex-start;gap:16px;margin-bottom:16px}
   .card-tog-row:last-child{margin-bottom:0}
   .card-tog-label{font-size:13.5px;font-weight:700;color:var(--ink);flex-shrink:0}
-  .flip-sw{width:56px;height:34px;border-radius:99px;background:var(--switch-off-bg);border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background .18s}
-  .flip-sw .flip-knob{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s}
+  .flip-sw{width:56px;height:34px;border-radius:99px;background:var(--switch-off-bg);border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background var(--dur-toggle)}
+  .flip-sw .flip-knob{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform var(--dur-toggle) var(--ease-bounce)}
   .flip-sw.on{background:var(--blue)}
   .flip-sw.on .flip-knob{transform:translateX(-22px)}
   .menu-file-sub{margin-inline-start:18px}
@@ -316,7 +351,7 @@
      الشاشتان الحاليتان (إدخال الجوال/main، والتأكيد/success) لا تتأثران
      إطلاقاً؛ هذه شاشة إضافية جديدة تُستبدَل بالشاشة الرئيسية (main) عند
      بدء عملية شراء فعلية من نقطة البيع مستقبلاً. */
-  .idle{flex:1;min-height:0;display:flex;flex-direction:column;padding:26px 34px 30px;position:relative;overflow:hidden}
+  .idle{flex:1;min-height:0;display:flex;flex-direction:column;padding:26px 34px 30px;position:relative;overflow:hidden;animation:fadeIn var(--dur-fade) ease both}
   .idle::before{content:"";position:absolute;top:-90px;right:-90px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(45,123,244,.10),transparent 70%);pointer-events:none}
   .idle::after{content:"";position:absolute;bottom:-110px;left:-70px;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(201,154,46,.09),transparent 70%);pointer-events:none}
   .idle-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-shrink:0;position:relative;z-index:1}
@@ -324,7 +359,7 @@
   .idle-date{font-size:15px;font-weight:700;color:var(--muted)}
   .idle-time{font-size:28px;font-weight:800;color:var(--ink);direction:ltr;line-height:1.1}
   .idle-noj{display:flex;align-items:center;gap:14px;direction:ltr}
-  .idle-noj-btn{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .14s;border-radius:13px;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .idle-noj-btn{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform var(--dur-press) var(--ease-brand);border-radius:13px;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
   .idle-noj-btn:active{transform:scale(.9)}
   .noj-ring{position:absolute;inset:-7px;width:58px;height:58px;pointer-events:none;transform:rotate(-90deg);opacity:0;transition:opacity .15s}
   .noj-ring circle{fill:none;stroke:var(--blue);stroke-width:3;stroke-linecap:round;stroke-dasharray:157;stroke-dashoffset:157}
@@ -344,7 +379,7 @@
   .idle-note b{display:block;font-size:16.5px;font-weight:800;line-height:1.6}
   .idle-note small{display:block;font-size:13px;color:var(--muted-2);margin-top:6px;direction:ltr;line-height:1.5}
   .idle-ft{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;z-index:1}
-  .idle-menu-btn{width:100%;max-width:420px;background:linear-gradient(135deg,var(--menu-grad-a),var(--menu-grad-b));border:1px solid var(--menu-border);box-shadow:0 4px 14px var(--menu-shadow);border-radius:999px;padding:10px 20px;display:flex;align-items:center;gap:14px;transition:transform .14s,border-color .3s ease,box-shadow .3s ease}
+  .idle-menu-btn{width:100%;max-width:420px;background:linear-gradient(135deg,var(--menu-grad-a),var(--menu-grad-b));border:1px solid var(--menu-border);box-shadow:0 4px 14px var(--menu-shadow);border-radius:999px;padding:10px 20px;display:flex;align-items:center;gap:14px;transition:transform var(--dur-press) var(--ease-brand),border-color .3s ease,box-shadow .3s ease}
   .idle-menu-btn:active{transform:scale(.97)}
   .idle-menu-ico{width:48px;height:48px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px var(--menu-ico-shadow);transition:background-color .3s ease,box-shadow .3s ease}
   .idle-menu-txt{flex:1;min-width:0;text-align:right}
@@ -358,8 +393,8 @@
   .menu-ov{align-items:stretch;justify-content:stretch;padding:0;background:#000}
   .menu-stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative;touch-action:pan-y;overflow:hidden}
   .menu-img{max-width:92%;max-height:92%;object-fit:contain;border-radius:6px;-webkit-user-drag:none;pointer-events:none;user-select:none}
-  .menu-arrow{position:absolute;top:50%;transform:translateY(-50%);width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(0,0,0,.22);transition:opacity .15s,transform .12s}
-  .menu-arrow:active{transform:translateY(-50%) scale(.92)}
+  .menu-arrow{position:absolute;top:50%;transform:translateY(-50%);width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(0,0,0,.22);transition:opacity .15s,transform var(--dur-press) var(--ease-brand)}
+  .menu-arrow:active{transform:translateY(-50%) scale(.9)}
   .menu-arrow-l{left:22px}
   .menu-arrow-r{right:22px}
   .menu-count{position:absolute;top:22px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.55);color:#fff;font-size:14px;font-weight:700;padding:6px 16px;border-radius:99px;z-index:2;direction:ltr}
@@ -426,7 +461,11 @@
     .rb b{font-size:17px}
     .k{padding:15px 0;min-height:56px;font-size:24px}
   }
-  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  /* animation-iteration-count:1 ضروري هنا لا اختياري: بلا هذا السطر تبقى
+     الحركات اللا-منتهية (halo/ring/car/noj-ring...) "لا نهائية" فعلياً
+     رغم تقصير مدتها إلى .01ms، فتتكرر بسرعة تشبه الوميض بدل التوقف —
+     نفس القاعدة المستخدَمة في index.html لنفس السبب. */
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 
   /* بديل للمتصفحات التي لا تدعم backdrop-filter: تُعاد المتغيرات الزجاجية
      إلى قيمها المصمتة الأصلية فتظهر خلفية نظيفة بلا أي ضبابية مفقودة،
@@ -1933,7 +1972,8 @@ function bindAdmin(){
       return;
     }
     if(w)w.textContent='';
-    testBtn.disabled=true;testBtn.textContent='جارٍ الاختبار...';
+    testBtn.disabled=true;
+    testBtn.innerHTML='<span class="spinner"></span> جارٍ الاختبار...';
     setTimeout(function(){
       DRAFT.posConnected=true;
       testBtn.disabled=false;testBtn.textContent='اختبار الاتصال';
