@@ -28,6 +28,21 @@
     --glass-shadow-sm:0 2px 8px rgba(18,35,92,.05);
     --glass-blur:16px;
     --glass-blur-sm:8px;
+    /* زجاج سائل خاص بشريط التنقل السفلي وحده — أكثر شفافية وتشبعاً من
+       --glass-bg العام أعلاه (الذي تستخدمه بقية البطاقات كما هو)، ليعطي
+       إحساس الكبسولة العائمة. تتبدّل هذه القيم في حالتي التمرير
+       (.scrolling) والوضع الداكن (html.dark) أدناه. */
+    --nav-bg:rgba(255,255,255,.55);
+    --nav-bg-scroll:rgba(255,255,255,.4);
+    --nav-border:rgba(255,255,255,.6);
+    --nav-blur:22px;
+    --nav-blur-scroll:30px;
+    --nav-sat:180%;
+    --nav-highlight:rgba(255,255,255,.5);
+    --nav-icon-on:var(--navy);
+    --nav-icon-off:#64748B;
+    --nav-active-bg:rgba(59,130,246,.14);
+    --nav-press-bg:rgba(245,158,11,.2);
     /* رموز الحركة الموحّدة مع شاشة الكاشير (kiosk.html) — نفس القيم
        حرفياً في كلا الملفين (لا يمكن مشاركة ملف CSS فعلي بين ملفّي HTML
        مستقلّين كاملين، فالتوحيد هنا هو تطابق القيم، لا مصدر واحد فعلي؛
@@ -43,6 +58,22 @@
     --dur-enter:.34s;
     --dur-toggle:.22s;
     --dur-spin:.7s;
+  }
+  /* نسخة داكنة من متغيرات الشريط السفلي فقط — لا يوجد بعد وضع ليلي كامل
+     للتطبيق (بخلاف kiosk.html)، فهذه معدّة لتفعيل مستقبلي عبر إضافة
+     class="dark" على <html>؛ لا تُفعَّل تلقائياً حالياً حتى لا يظهر
+     الشريط داكناً فوق تطبيق ما زال فاتحاً بالكامل. الألوان مطابقة لدرجة
+     الأزرق/الرمادي المستخدمة في الوضع الداكن لشاشة الكاشير لتبقى الهوية
+     موحّدة بين المنتجين إذا فُعّل لاحقاً. */
+  html.dark{
+    --nav-bg:rgba(28,30,38,.55);
+    --nav-bg-scroll:rgba(28,30,38,.42);
+    --nav-border:rgba(255,255,255,.12);
+    --nav-highlight:rgba(255,255,255,.14);
+    --nav-icon-on:#9FBBFF;
+    --nav-icon-off:#9AA3B5;
+    --nav-active-bg:rgba(159,187,255,.16);
+    --nav-press-bg:rgba(245,158,11,.24);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;overflow-x:hidden}
@@ -247,9 +278,16 @@
   .mtotal b{font-size:14px}
   .mtotal s{text-decoration:none;font-size:22px;font-weight:900;direction:ltr}
 
-  .nav{position:fixed;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom));margin:0 auto;width:calc(100% - 32px);max-width:448px;background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:32px;display:flex;padding:8px;z-index:50;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:0 14px 32px rgba(18,35,92,.16),0 2px 8px rgba(18,35,92,.06)}
-  .nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:20px}
-  .nav button.on{background:rgba(59,130,246,.14)}
+  .nav{position:fixed;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom));margin:0 auto;width:calc(100% - 32px);max-width:448px;background:var(--nav-bg);border:1px solid var(--nav-border);border-radius:32px;display:flex;padding:8px;z-index:50;backdrop-filter:blur(var(--nav-blur)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur)) saturate(var(--nav-sat));box-shadow:0 14px 32px rgba(18,35,92,.16),0 2px 8px rgba(18,35,92,.06),inset 0 1px 0 var(--nav-highlight);transition:background var(--dur-panel) ease,border-color var(--dur-panel) ease,backdrop-filter var(--dur-panel) ease}
+  /* أثناء التمرير: مزيد من الشفافية والضبابية فتتسرّب ألوان المحتوى
+     المار تحت الكبسولة بوضوح أكبر (بقع لونية ناعمة داخل الزجاج). */
+  .nav.scrolling{background:var(--nav-bg-scroll);backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat))}
+  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:20px}
+  /* دائرة الضغط اللحظية (كهرمانية) منفصلة عن دائرة التبويب النشط الدائمة
+     (زرقاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت هنا حالياً". */
+  .nav button:active{background:var(--nav-press-bg)}
+  .nav button.on{background:var(--nav-active-bg)}
+  .nav button.on:active{background:var(--nav-active-bg)}
   .nav span{font-size:10px;font-weight:600}
 
   .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;transition:.3s;z-index:70;pointer-events:none}
@@ -483,9 +521,10 @@
   .sheet .mrow:nth-child(5){animation-delay:.22s}
 
   /* nav active lift */
-  .nav button svg{transition:transform .22s cubic-bezier(.34,1.56,.64,1)}
+  .nav button svg{transition:transform var(--dur-toggle) var(--ease-bounce)}
   .nav button.on svg{transform:translateY(-2px) scale(1.08)}
-  .nav button:active svg{transform:scale(.88)}
+  .nav button:active svg{transform:scale(1.14)}
+  .nav button.on:active svg{transform:translateY(-2px) scale(1.18)}
 
   /* skeleton shimmer utility */
   .shimmer{background:linear-gradient(90deg,var(--line) 25%,#F6F8FF 50%,var(--line) 75%);background-size:200% 100%;animation:shimmer 1.3s linear infinite}
@@ -509,7 +548,10 @@
       --glass-bg:var(--card); --glass-border:var(--line);
       --glass-sheet-bg:var(--card);
       --glass-shadow:none; --glass-shadow-sm:none;
+      --nav-bg:var(--card); --nav-bg-scroll:var(--card); --nav-border:var(--line);
+      --nav-highlight:transparent;
     }
+    html.dark{--nav-bg:#20242C; --nav-bg-scroll:#20242C; --nav-border:#333844; --nav-highlight:transparent}
     .inv-ico{background:#EEF3FF}
     .loy-ico{background:#E7F7EF}
     .loy-badge{background:var(--orange)}
@@ -1827,6 +1869,19 @@ function logoutFlow(){
   renderAuth();
 }
 
+/* أثناء التمرير: زيادة شفافية/ضبابية شريط التنقل مؤقتاً (.scrolling)،
+   وإزالتها بعد توقّف التمرير بفترة قصيرة. مُسجَّل مرة واحدة فقط على
+   window (لا على عنصر الشريط نفسه، الذي يُعاد إنشاء محتواه الداخلي في
+   كل render لكن يبقى هو نفس العنصر)، فلا حاجة لإعادة الربط مع كل render. */
+var __navScrollTimer=null;
+window.addEventListener('scroll',function(){
+  var navEl=document.querySelector('.nav');
+  if(!navEl)return;
+  navEl.classList.add('scrolling');
+  clearTimeout(__navScrollTimer);
+  __navScrollTimer=setTimeout(function(){navEl.classList.remove('scrolling')},220);
+},{passive:true});
+
 /* ================= APP RENDER ================= */
 function render(){
   document.getElementById('view').innerHTML=(V[S.tab]||home)();
@@ -1843,7 +1898,7 @@ function render(){
   var navEl=document.getElementById('nav');
   navEl.innerHTML=NAV.map(function(n){
     var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
-    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'#12235C':'#64748B',on?2.1:1.8)+'<span style="color:'+(on?'#12235C':'#64748B')+'">'+n.l+'</span></button>'}).join('');
+    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'var(--nav-icon-on)':'var(--nav-icon-off)',on?2.1:1.8)+'<span style="color:'+(on?'var(--nav-icon-on)':'var(--nav-icon-off)')+'">'+n.l+'</span></button>'}).join('');
   // إخفاء الشريط السفلي أثناء فتح أي نافذة منبثقة (.ov/.sheet) — كان
   // ظاهرًا خلف خلفية النافذة شبه الشفافة (glass) فيبدو متسربًا فوق أسفل
   // محتواها. أوثق حل: إخفاؤه فعليًا بدل الاعتماد على ترتيب z-index وحده.
