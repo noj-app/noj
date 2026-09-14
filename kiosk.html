@@ -22,6 +22,59 @@
     --glass-shadow-sm:0 2px 8px rgba(15,35,80,.05);
     --glass-blur:16px;
     --glass-blur-sm:8px;
+    /* رموز إضافية (ليست جزءاً من الطابع الزجاجي) لأي خلفية مصمتة كانت
+       مكتوبة بقيمة ثابتة (#fff) داخل المكوّنات بدل متغيّر — ضرورية لتبديل
+       الوضع الليلي لاحقاً بلا لمس كل مكوّن على حدة. */
+    --navy-text:var(--navy);
+    --surface:#fff;
+    --overlay-bg:#fff;
+    --overlay-bg-soft:rgba(255,255,255,.97);
+    --screen-bg:linear-gradient(160deg,#FFFFFF 0%,#FBFCFE 45%,#EFF3FB 100%);
+    --switch-off-bg:#D8DCE3;
+    --check-soft:#E7F7EF;
+    /* بطاقة "المنيو" في شاشة الخمول بدرجات دافئة خاصة بها لا تتبع باقي
+       الرموز المحايدة أعلاه. */
+    --menu-grad-a:#FBF3E9; --menu-grad-b:#F3E3CE; --menu-border:#EAD8BE;
+    --menu-shadow:rgba(107,74,47,.1); --menu-ico-shadow:rgba(107,74,47,.14);
+    --menu-text:#6B4A2F; --menu-text-2:#B08968;
+    /* لوحة الشعار: تبقى فاتحة دوماً بصرف النظر عن الوضع — أي شعار مرفوع
+       من التاجر (قد يكون داكناً بخلفية شفافة) يجب أن يظل واضحاً حتى في
+       الوضع الليلي، فلا تُعرَّف هذه القيمة داخل :root.dark إطلاقاً. */
+    --logo-plate:#fff;
+  }
+  /* الوضع الليلي: رمادي داكن (#1A1D24) بدل الأسود الخالص لتخفيف التباين
+     الحاد على عين تنظر للشاشة طويلاً، ونصوص بيضاء مائلة للرمادي لا بيضاء
+     ناصعة. الألوان المميّزة (blue/gold/teal) تبقى كما هي في كلا الوضعين
+     — واضحة على خلفية فاتحة أو داكنة بلا حاجة لتغييرها، فقط الأسطح
+     المحايدة (خلفيات/حدود/نصوص) تتبدّل. */
+  :root.dark{
+    --navy-text:#9FBBFF;
+    --ink:#E6E9F0;
+    --blue-soft:rgba(45,123,244,.16);
+    --gold-soft:rgba(201,154,46,.16);
+    --bg:#1A1D24; --panel:#22262F; --line:#333844;
+    --muted:#9AA3B5; --muted-2:#6E7689;
+    --glass-bg:rgba(38,42,51,.7);
+    --glass-border:rgba(255,255,255,.08);
+    --glass-shadow:0 8px 28px rgba(0,0,0,.35);
+    --glass-shadow-sm:0 2px 8px rgba(0,0,0,.25);
+    --surface:#262A33;
+    --overlay-bg:#1A1D24;
+    --overlay-bg-soft:rgba(26,29,36,.97);
+    --screen-bg:linear-gradient(160deg,#1A1D24 0%,#1D2027 45%,#20242C 100%);
+    --switch-off-bg:#3A3F4B;
+    --check-soft:rgba(34,168,122,.18);
+    --menu-grad-a:#3A2E1E; --menu-grad-b:#2E2416; --menu-border:#4A3B26;
+    --menu-shadow:rgba(0,0,0,.3); --menu-ico-shadow:rgba(0,0,0,.25);
+    --menu-text:#E8C99A; --menu-text-2:#B69568;
+  }
+  /* انتقال ناعم موحّد بين الوضعين لكل الأسطح التي لا تملك أصلاً انتقالاً
+     خاصاً بها (البطاقات/اللوحات/الطبقات) — العناصر التي لها انتقال مسبق
+     لأغراض أخرى (hover/active) عُدِّلت في قواعدها مباشرة بدل تكرارها هنا،
+     تفادياً لاستبدال transition الأصلي كاملاً (القاعدة الأحدث تستبدل كل
+     القيمة لا تدمج معها). */
+  .screen,.box,.rb,.g,.tap,.adm-sec,.idle,.disp,.tno,.q-ico,.st-i,.rb-i,.g-i,.ft-i .ic,.inv-chip{
+    transition:background-color .3s ease,border-color .3s ease,box-shadow .3s ease,color .3s ease
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
   html,body{margin:0;height:100%}
@@ -34,15 +87,19 @@
   /* تدرّج خفيف جداً (بين أبيض ولون اللوحة panel نفسه) — ضروري لظهور تأثير
      backdrop-filter على البطاقات فوقه؛ لا يقل سطوعه في أي نقطة عن اللوحة
      الأصلية، فلا يؤثر على تباين النص. */
-  .screen{flex:1;background:linear-gradient(160deg,#FFFFFF 0%,#FBFCFE 45%,#EFF3FB 100%);border-radius:26px;display:flex;flex-direction:column;overflow:hidden;position:relative}
+  .screen{flex:1;background:var(--screen-bg);border-radius:26px;display:flex;flex-direction:column;overflow:hidden;position:relative;transition:background-color .3s ease}
 
   /* ===== HEADER ===== */
   .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:22px 30px 6px;flex-shrink:0}
   .noj{display:flex;align-items:center;gap:11px;direction:ltr;flex-shrink:0}
   .noj,.noj *{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
-  .noj-m{width:46px;height:46px;border-radius:13px;border:3.5px solid var(--navy);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;flex-shrink:0}
+  .noj-m{width:46px;height:46px;border-radius:13px;border:3.5px solid var(--navy-text);color:var(--navy-text);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;flex-shrink:0;transition:border-color .3s ease,color .3s ease,background-color .3s ease}
+  /* خلفية فاتحة خفيفة خلف شعار NOJ ("N") في الوضع الليلي فقط، فوق الحد
+     المتوهّج الفاتح أصلاً — تمنع أي احتمال لضياع الشعار على الخلفية
+     الداكنة، تماماً كما تُحفَظ شعارات المتجر المرفوعة بلوحة ثابتة. */
+  :root.dark .noj-m{background:rgba(255,255,255,.06)}
   .noj-t b{display:block;font-size:31px;font-weight:800;letter-spacing:-.5px;line-height:1}
-  .noj-t small{display:block;font-size:9.5px;letter-spacing:1.9px;color:var(--navy);margin-top:4px;font-weight:600}
+  .noj-t small{display:block;font-size:9.5px;letter-spacing:1.9px;color:var(--navy-text);margin-top:4px;font-weight:600}
 
   .tagline{flex:1;text-align:center;padding-top:4px;min-width:0}
   .tagline p{font-size:23px;font-weight:800;line-height:1.55}
@@ -105,14 +162,14 @@
   .ring{position:absolute;width:150px;height:150px;border:2.5px solid rgba(45,123,244,.4);border-radius:50%;opacity:0;animation:ripple 2.6s cubic-bezier(.2,.6,.3,1) infinite}
   .ring.r2{animation-delay:.85s}.ring.r3{animation-delay:1.7s}
   @keyframes ripple{0%{transform:scale(.92);opacity:.75}100%{transform:scale(1.52);opacity:0}}
-  .ph{width:104px;height:172px;border-radius:19px;border:4.5px solid var(--navy);background:#fff;position:relative;z-index:2;display:flex;align-items:center;justify-content:center;animation:hover 3s ease-in-out infinite}
+  .ph{width:104px;height:172px;border-radius:19px;border:4.5px solid var(--navy-text);background:var(--surface);position:relative;z-index:2;display:flex;align-items:center;justify-content:center;animation:hover 3s ease-in-out infinite;transition:border-color .3s ease,background-color .3s ease}
   @keyframes hover{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
   .ph::before{content:"";position:absolute;top:8px;left:50%;transform:translateX(-50%);width:30px;height:4px;border-radius:99px;background:var(--line)}
   .tap-sub{font-size:19px;font-weight:600;color:var(--muted);margin-top:12px;text-align:center}
   .or{display:flex;align-items:center;gap:14px;width:100%;max-width:430px;margin:16px 0 12px}
   .or span{font-size:15px;color:var(--muted-2);font-weight:600}
   .or i{flex:1;height:1px;background:var(--line)}
-  .pbtn{width:100%;max-width:430px;background:#fff;border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform .16s,border-color .2s,box-shadow .2s}
+  .pbtn{width:100%;max-width:430px;background:var(--surface);border:1.5px solid var(--line);border-radius:15px;padding:19px 22px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:21px;font-weight:800;transition:transform .16s,border-color .2s,box-shadow .2s,background-color .3s ease}
   .pbtn:hover{border-color:var(--blue);box-shadow:0 8px 22px rgba(45,123,244,.1)}
   .pbtn:active{transform:scale(.98)}
   .inv-row{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;justify-content:center;margin-bottom:16px}
@@ -140,7 +197,7 @@
 
   /* ===== KEYPAD OVERLAY ===== */
   #layer{position:static;flex:0 0 auto}
-  .ov{position:absolute;inset:0;background:rgba(255,255,255,.97);z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;opacity:0;transition:opacity .25s ease}
+  .ov{position:absolute;inset:0;background:var(--overlay-bg-soft);z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;opacity:0;transition:opacity .25s ease,background-color .3s ease}
   .ov.show{opacity:1}
   .kp{width:100%;max-width:470px;text-align:center}
   .kp h2{font-size:29px;font-weight:800;margin-bottom:8px}
@@ -148,12 +205,12 @@
   .disp{background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));border:2.5px solid var(--glass-border);box-shadow:var(--glass-shadow-sm);border-radius:18px;padding:20px;display:flex;align-items:center;justify-content:center;gap:13px;direction:ltr;margin-bottom:8px}
   .disp .cc{font-size:25px;font-weight:800;color:var(--muted)}
   .disp .dg{font-size:33px;font-weight:800;letter-spacing:3px;min-height:42px;display:flex;align-items:center;contain:content}
-  .disp .dg .plc{color:#C9CFDD}
-  .car{width:3px;height:30px;background:var(--navy);margin-right:2px;animation:blink 1s step-end infinite}
+  .disp .dg .plc{color:var(--muted-2)}
+  .car{width:3px;height:30px;background:var(--navy-text);margin-right:2px;animation:blink 1s step-end infinite}
   @keyframes blink{50%{opacity:0}}
   .warn{font-size:14px;color:#DC2626;font-weight:700;margin-bottom:10px;min-height:20px;contain:content}
   .keys{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;direction:ltr}
-  .k{background:#fff;border:1.5px solid var(--line);border-radius:16px;padding:20px 0;font-size:27px;font-weight:800;min-height:66px;transition:transform .12s,background .15s}
+  .k{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;padding:20px 0;font-size:27px;font-weight:800;min-height:66px;transition:transform .12s,background .15s,border-color .3s ease}
   .k:active{transform:scale(.94);background:var(--panel)}
   .k.go{background:var(--navy);color:#fff;border-color:var(--navy);font-size:19px}
   .k.go:disabled{opacity:.34}
@@ -162,9 +219,9 @@
   .close.inline{position:static;flex-shrink:0}
 
   /* ===== SUCCESS ===== */
-  .ok{position:absolute;inset:0;background:#fff;z-index:25;display:flex;align-items:center;justify-content:center;padding:26px;animation:fade .3s ease both}
+  .ok{position:absolute;inset:0;background:var(--overlay-bg);z-index:25;display:flex;align-items:center;justify-content:center;padding:26px;animation:fade .3s ease both;transition:background-color .3s ease}
   .ok-in{text-align:center;max-width:760px;width:100%}
-  .ok-c{width:118px;height:118px;border-radius:50%;background:#E7F7EF;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:pop .55s cubic-bezier(.22,1.5,.36,1) both}
+  .ok-c{width:118px;height:118px;border-radius:50%;background:var(--check-soft);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:pop .55s cubic-bezier(.22,1.5,.36,1) both;transition:background-color .3s ease}
   @keyframes pop{0%{opacity:0;transform:scale(.4)}100%{opacity:1;transform:scale(1)}}
   .ok-c svg path{stroke-dasharray:40;stroke-dashoffset:40;animation:draw .5s ease .3s forwards}
   @keyframes draw{to{stroke-dashoffset:0}}
@@ -205,7 +262,7 @@
   .pindot.filled{background:var(--navy);border-color:var(--navy)}
 
   /* ===== ADMIN SETTINGS SCREEN (demo only) ===== */
-  .admin{background:#fff;z-index:40;padding:0;align-items:stretch;justify-content:stretch}
+  .admin{background:var(--overlay-bg);z-index:40;padding:0;align-items:stretch;justify-content:stretch;transition:background-color .3s ease}
   .adm{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
   .adm-hd{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:20px 30px;border-bottom:1px solid var(--line);flex-shrink:0}
   .adm-hd-t{display:flex;align-items:center;gap:10px}
@@ -216,32 +273,39 @@
   .adm-sec h3{font-size:13.5px;font-weight:800;color:var(--muted);margin-bottom:12px}
   .adm-f{display:block;font-size:13px;font-weight:700;color:var(--muted);margin-bottom:14px}
   .adm-f:last-child{margin-bottom:0}
-  .adm-f input{display:block;width:100%;margin-top:6px;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl}
+  .adm-f input{display:block;width:100%;margin-top:6px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl;transition:background-color .3s ease,border-color .3s ease,color .3s ease}
   .adm-f input:focus{outline:none;border-color:var(--blue)}
   #fBizBranch{font-size:13px}
   .adm-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:6px}
   .adm-testbtn{background:var(--navy);color:#fff;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:800;transition:transform .12s}
   .adm-testbtn:active{transform:scale(.96)}
   .adm-testbtn:disabled{opacity:.55}
-  .conn-badge{font-size:13.5px;font-weight:800;padding:7px 14px;border-radius:99px;background:#fff;border:1.5px solid var(--line);color:var(--muted)}
+  .conn-badge{font-size:13.5px;font-weight:800;padding:7px 14px;border-radius:99px;background:var(--surface);border:1.5px solid var(--line);color:var(--muted);transition:background-color .3s ease,border-color .3s ease}
   .conn-badge.connected{color:#22A87A;border-color:#22A87A}
   .adm-note{font-size:12.5px;color:var(--muted-2);margin-top:10px;line-height:1.6}
-  .logo-preview{width:56px;height:56px;border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur-sm));-webkit-backdrop-filter:blur(var(--glass-blur-sm));border:1.5px solid var(--glass-border);box-shadow:var(--glass-shadow-sm);flex-shrink:0}
+  /* لوحة معاينة الشعار في الإعدادات تبقى فاتحة ثابتة (--logo-plate) بصرف
+     النظر عن الوضع، لا شبه شفافة داكنة — كي تبقى الصورة المرفوعة نفسها
+     مقروءة عند معاينتها حتى في الوضع الليلي. */
+  .logo-preview{width:56px;height:56px;border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--logo-plate);border:1.5px solid var(--glass-border);box-shadow:var(--glass-shadow-sm);flex-shrink:0}
+  /* شعار المتجر المرفوع في الهيدر/شاشة الخمول (خارج الإعدادات) — نفس
+     مبدأ --logo-plate: خلفية فاتحة ثابتة تحمي وضوح الشعار في الوضع
+     الليلي، بلا حدود واضحة هنا (الشعار نفسه يملأ اللوحة تماماً). */
+  .logo-plate{background:var(--logo-plate);display:flex;align-items:center;justify-content:center}
   .logo-preview img{width:100%;height:100%;object-fit:cover}
   .logo-remove{background:transparent;color:#DC2626;font-size:12.5px;font-weight:700;padding:8px 10px}
   .adm-ft{display:flex;gap:12px;padding:16px 30px;border-top:1px solid var(--line);flex-shrink:0}
-  .adm-ft button{flex:1;border-radius:16px;padding:15px;font-size:15.5px;font-weight:800;transition:transform .14s}
+  .adm-ft button{flex:1;border-radius:16px;padding:15px;font-size:15.5px;font-weight:800;transition:transform .14s,background-color .3s ease}
   .adm-ft button:active{transform:scale(.97)}
   .adm-ft .save{background:var(--navy);color:#fff}
-  .adm-ft .cancel{background:#fff;color:var(--muted);border:1.5px solid var(--line)}
+  .adm-ft .cancel{background:var(--surface);color:var(--muted);border:1.5px solid var(--line)}
 
   .sw{display:flex;flex-wrap:wrap;gap:7px}
-  .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);white-space:nowrap}
+  .sw button{padding:9px 16px;border-radius:99px;font-size:13px;font-weight:700;color:var(--muted);background:var(--surface);border:1px solid var(--line);white-space:nowrap;transition:background-color .3s ease,border-color .3s ease,color .3s ease}
   .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
   .card-tog-row{display:flex;align-items:center;justify-content:flex-start;gap:16px;margin-bottom:16px}
   .card-tog-row:last-child{margin-bottom:0}
   .card-tog-label{font-size:13.5px;font-weight:700;color:var(--ink);flex-shrink:0}
-  .flip-sw{width:56px;height:34px;border-radius:99px;background:#D8DCE3;border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background .18s}
+  .flip-sw{width:56px;height:34px;border-radius:99px;background:var(--switch-off-bg);border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background .18s}
   .flip-sw .flip-knob{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s}
   .flip-sw.on{background:var(--blue)}
   .flip-sw.on .flip-knob{transform:translateX(-22px)}
@@ -267,7 +331,7 @@
   .idle-noj-btn.pressing .noj-ring{opacity:1}
   .idle-noj-btn.pressing .noj-ring circle{stroke-dashoffset:0;transition:stroke-dashoffset 1.5s linear}
   .idle-noj-txt b{display:block;font-size:27px;font-weight:800;letter-spacing:-.5px;line-height:1}
-  .idle-noj-txt small{display:block;font-size:8.5px;letter-spacing:1.7px;color:var(--navy);margin-top:4px;font-weight:600}
+  .idle-noj-txt small{display:block;font-size:8.5px;letter-spacing:1.7px;color:var(--navy-text);margin-top:4px;font-weight:600}
   .idle-sep{width:1px;height:36px;background:var(--line);flex-shrink:0}
   .idle-hd-msg{direction:rtl;text-align:right;max-width:230px}
   .idle-hd-msg b{display:block;font-size:14.5px;font-weight:800;line-height:1.4}
@@ -280,12 +344,12 @@
   .idle-note b{display:block;font-size:16.5px;font-weight:800;line-height:1.6}
   .idle-note small{display:block;font-size:13px;color:var(--muted-2);margin-top:6px;direction:ltr;line-height:1.5}
   .idle-ft{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px;position:relative;z-index:1}
-  .idle-menu-btn{width:100%;max-width:420px;background:linear-gradient(135deg,#FBF3E9,#F3E3CE);border:1px solid #EAD8BE;box-shadow:0 4px 14px rgba(107,74,47,.1);border-radius:999px;padding:10px 20px;display:flex;align-items:center;gap:14px;transition:transform .14s}
+  .idle-menu-btn{width:100%;max-width:420px;background:linear-gradient(135deg,var(--menu-grad-a),var(--menu-grad-b));border:1px solid var(--menu-border);box-shadow:0 4px 14px var(--menu-shadow);border-radius:999px;padding:10px 20px;display:flex;align-items:center;gap:14px;transition:transform .14s,border-color .3s ease,box-shadow .3s ease}
   .idle-menu-btn:active{transform:scale(.97)}
-  .idle-menu-ico{width:48px;height:48px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px rgba(107,74,47,.14)}
+  .idle-menu-ico{width:48px;height:48px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px var(--menu-ico-shadow);transition:background-color .3s ease,box-shadow .3s ease}
   .idle-menu-txt{flex:1;min-width:0;text-align:right}
-  .idle-menu-txt b{display:block;font-size:17px;font-weight:800;color:#6B4A2F;line-height:1.25}
-  .idle-menu-txt small{display:block;font-size:12.5px;font-weight:600;color:#B08968;margin-top:2px}
+  .idle-menu-txt b{display:block;font-size:17px;font-weight:800;color:var(--menu-text);line-height:1.25}
+  .idle-menu-txt small{display:block;font-size:12.5px;font-weight:600;color:var(--menu-text-2);margin-top:2px}
   .idle-menu-chev{flex-shrink:0;display:flex;align-items:center;justify-content:center}
   .idle-devnext{margin-top:4px;font-size:13px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:10px 20px;border-radius:99px;transition:transform .12s,background .15s}
   .idle-devnext:active{transform:scale(.95);background:var(--line)}
@@ -308,7 +372,7 @@
   .menu-empty small{font-size:14px;opacity:.75}
 
   /* ===== MENU FILE (رفع ملف المنيو داخل إعدادات الجهاز) ===== */
-  .adm-f select{display:block;width:100%;margin-top:6px;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl}
+  .adm-f select{display:block;width:100%;margin-top:6px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl;transition:background-color .3s ease,border-color .3s ease,color .3s ease}
   .adm-f select:focus{outline:none;border-color:var(--blue)}
   .menu-thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .menu-thumb{position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1px solid var(--line);flex-shrink:0}
@@ -373,7 +437,6 @@
       --glass-bg:var(--panel); --glass-border:var(--line);
       --glass-shadow:none; --glass-shadow-sm:none;
     }
-    .logo-preview{background:#fff}
   }
 </style>
 </head>
@@ -637,7 +700,7 @@ function leftoverOkItem(c){
 var ADMIN_PIN='1234';
 var SETTINGS_KEY='noj_kiosk_settings';
 
-var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',showMenuBtn:true,menuImages:[],cardToggles:{}};
+var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',showMenuBtn:true,menuImages:[],cardToggles:{},darkMode:false};
 function loadSettings(){
   try{
     var raw=localStorage.getItem(SETTINGS_KEY);
@@ -659,6 +722,18 @@ var SETTINGS=(function(){
   if(!T[merged.sector])merged.sector=DEFAULT_SETTINGS.sector;
   return merged;
 })();
+/* يبدّل مجموعة متغيرات الألوان الليلية/النهارية عبر كلاس واحد على
+   <html> — كل لون في الصفحة مبنيّ على متغيّر CSS (انظر :root/:root.dark
+   أعلى الملف)، فيتبدّل المظهر بالكامل فوراً (الشاشات الثلاث ولوحة
+   الإعدادات نفسها معاً، أينما ظهرت) بانتقال ناعم واحد (transition على
+   الخلفيات/الحدود/الظلال في القواعد المعنية) بلا أي وميض، ودون أي حاجة
+   لإعادة رندر أي عنصر HTML — مجرّد تبديل كلاس. تُستدعى فور تحميل الصفحة
+   بقيمة SETTINGS.darkMode المحفوظة، وحياً أثناء التعديل من شاشة
+   الإعدادات (DRAFT.darkMode) قبل الحفظ، لتظهر المعاينة فوراً. */
+function applyTheme(on){
+  document.documentElement.classList.toggle('dark',!!on);
+}
+applyTheme(SETTINGS.darkMode);
 function escAttr(s){
   return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
@@ -668,8 +743,13 @@ function currentBiz(){
   var branch=SETTINGS.bizBranch||'';
   var name=branch?bareName+' - '+branch:bareName;
   var slogan=SETTINGS.bizSlogan?SETTINGS.bizSlogan:t.slogan;
+  /* الشعار المرفوع (خلاف أيقونة القطاع الافتراضية) يُغلَّف بلوحة فاتحة
+     ثابتة (.logo-plate) بصرف النظر عن الوضع الليلي — قد يكون الشعار
+     نفسه داكناً بخلفية شفافة فيختفي تماماً على شاشة داكنة بلا هذه
+     اللوحة. أيقونات القطاعات الافتراضية (t.logo) ملوَّنة أصلاً وواضحة
+     في الوضعين معاً، فلا حاجة لتغليفها. */
   var logo=SETTINGS.bizLogo?
-    '<img src="'+escAttr(SETTINGS.bizLogo)+'" alt="'+escAttr(name)+'" style="width:60px;height:60px;border-radius:16px;object-fit:cover;flex-shrink:0">':
+    '<div class="logo-plate" style="width:60px;height:60px;border-radius:16px;overflow:hidden;flex-shrink:0"><img src="'+escAttr(SETTINGS.bizLogo)+'" alt="'+escAttr(name)+'" style="width:100%;height:100%;object-fit:cover;display:block"></div>':
     t.logo;
   return {name:name,bareName:bareName,branch:branch,slogan:slogan,logo:logo};
 }
@@ -1429,6 +1509,10 @@ function openAdminSettings(){
 }
 function closeAdmin(){
   DRAFT=null;S.view='main';
+  /* أي معاينة حية للوضع الليلي لم تُحفَظ (بدّلها المستخدم ثم خرج بلا
+     ضغط "حفظ") تُتجاهَل هنا بإعادة تطبيق القيمة المحفوظة فعلياً في
+     SETTINGS — نفس مبدأ تجاهل أي تعديل DRAFT آخر غير محفوظ. */
+  applyTheme(SETTINGS.darkMode);
   renderLayer();
 }
 function settingsScreen(){
@@ -1470,6 +1554,12 @@ function settingsScreen(){
       '<button data-m="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
       '<button data-m="live" class="'+(d.mode==='live'?'on':'')+'">مباشر</button>'+
      '</div></div>'+
+     '<div class="adm-sec"><h3>المظهر</h3>'+
+      '<div class="card-tog-row">'+
+       '<span class="card-tog-label">الوضع الليلي</span>'+
+       '<div id="darkModeToggleWrap">'+darkModeToggleHtml(d)+'</div>'+
+      '</div>'+
+     '</div>'+
     '</div>'+
     '<div class="adm-ft"><button class="cancel" id="adminExit2">خروج من الإعدادات</button>'+
     '<button class="save" id="adminSave">حفظ</button></div>'+
@@ -1742,6 +1832,32 @@ function bindMenuBtnToggle(){
   };
   alignToggleLabels();
 }
+/* ================= المظهر (الوضع الليلي) =================
+   مفتاح واحد عام للجهاز كله (لا لكل قطاع)، بنفس مكوّن .flip-sw وأسلوب
+   المحاذاة المستخدَمين في بقية مفاتيح الإعدادات. يُطبَّق حياً فور
+   الضغط (معاينة فورية عبر applyTheme(DRAFT.darkMode)، بانتقال ناعم عبر
+   CSS transition لا أي إعادة رندر) قبل الحفظ — بخلاف باقي حقول DRAFT
+   التي لا يظهر أثرها إلا بعد "حفظ"، لأن هذا حقل بصري بحت يستفيد من
+   معاينة فورية كأي مفتاح تبديل مظهر معروف. الخروج بلا حفظ يُعيد تطبيق
+   القيمة المحفوظة فعلياً (انظر closeAdmin ومؤقت خمول الإعدادات) تماشياً
+   مع مبدأ "لا يُطبَّق أي تعديل غير محفوظ" على بقية الحقول. */
+function darkModeToggleHtml(d){
+  return '<button type="button" class="flip-sw'+(d.darkMode?' on':'')+'" id="darkModeToggle" role="switch" aria-checked="'+d.darkMode+'" aria-label="الوضع الليلي"><span class="flip-knob"></span></button>';
+}
+function renderDarkModeToggle(){
+  var wrap=document.getElementById('darkModeToggleWrap');
+  if(wrap)wrap.innerHTML=darkModeToggleHtml(DRAFT);
+  bindDarkModeToggle();
+}
+function bindDarkModeToggle(){
+  var sw=document.getElementById('darkModeToggle');
+  if(sw)sw.onclick=function(){
+    DRAFT.darkMode=!DRAFT.darkMode;
+    applyTheme(DRAFT.darkMode);
+    renderDarkModeToggle();
+  };
+  alignToggleLabels();
+}
 function bindAdmin(){
   var exit1=document.getElementById('adminExit');
   if(exit1)exit1.onclick=closeAdmin;
@@ -1757,6 +1873,7 @@ function bindAdmin(){
 
   bindIdleSectionAdmin();
   bindCardTogglesAdmin();
+  bindDarkModeToggle();
 
   var pickLogoBtn=document.getElementById('pickLogoBtn');
   var fBizLogo=document.getElementById('fBizLogo');
@@ -1842,6 +1959,7 @@ function resetAdminIdle(){
   if(S.view==='pin'||S.view==='settings'){
     adminIdleTimer=setTimeout(function(){
       DRAFT=null;S.pin='';S.pinErr='';S.view='main';
+      applyTheme(SETTINGS.darkMode);
       renderLayer();
     },60000);
   }
