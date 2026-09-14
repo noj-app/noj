@@ -417,8 +417,14 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
                            فقط إن كانت true أو كان topCard.kind==='unit'
                            (فالقطاع الطبي يعرض بطاقته الخاصة دوماً بصرف
                            النظر عن هذا العلم، لأنها ليست عن نقاط أصلاً).
-     hasQueue           — بطاقة رقم الانتظار (queueCard) لا تُرندَر إطلاقاً
-                           إن كانت false، لا تُخفى بصرياً فقط.
+     hasQueue           — الحارس الهيكلي المطلق لبطاقة رقم الانتظار
+                           (queueCard): لا تُرندَر إطلاقاً إن كانت false،
+                           لا تُخفى بصرياً فقط. فوقه أيضاً مفتاح التاجر
+                           المشتق من leftoverOkItem(c) — القطاع الطبي
+                           فقط حالياً (okItems[1]، id='queueNumber') —
+                           فبطاقة واحدة (queueCard) ومفتاح واحد يحكمانها
+                           معاً على الشاشتين الثانية والثالثة، بلا فجوة
+                           ولا ازدواج.
      showInvoiceAmount  — عرض مبلغ الفاتورة أعلى بطاقة "ضع جوالك هنا"
                            (invoiceAmount هو القيمة التجريبية المعروضة).
      showCouponBtn      — زر "لديك كوبون خصم؟" (لا آلية كوبونات حقيقية
@@ -452,10 +458,12 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
    دون لمس sectorCardToggles أو شاشة الإعدادات. القيمة الفعلية المحفوظة
    (تشغيل/إطفاء) تعيش في SETTINGS.cardToggles[id] (مفتاح مسطّح واحد
    للجهاز كله، لا لكل قطاع على حدة) وتُقرأ عبر cardOn(id) — الغياب يعني
-   مفعّل افتراضياً. بطاقة "ضع جوالك هنا" وبطاقتا "نوع العيادة"/"راقب
-   دورك" (القطاع الطبي) ليست جزءاً من okItems/small2/loyaltyPoints
-   إطلاقاً، فلا تظهر لها مفاتيح ولا يمكن إخفاؤها — انظر sectorCardToggles
-   أسفل تعريف T لتفاصيل الاشتقاق.
+   مفعّل افتراضياً. بطاقة "ضع جوالك هنا" وبطاقة "نوع العيادة" (topCard
+   kind==='unit') فقط ليستا جزءاً من okItems/small2/loyaltyPoints
+   إطلاقاً، فلا تظهر لهما مفاتيح ولا يمكن إخفاؤهما. أما بطاقة "راقب
+   دورك" (queueCard) فتخضع الآن لمفتاح leftoverOkItem كبقية البطاقات —
+   انظر sectorCardToggles وleftoverOkItem أسفل تعريف T لتفاصيل الاشتقاق،
+   وrightCol/leftCol لتفاصيل أين يُرندَر كل عنصر "فائض" من okItems.
    إضافة قطاع جديد = مُدخل واحد هنا بلا تعديل أي دالة عرض. وميزة خاصة
    بقطاع واحد فقط (كإدارة الدين/الآجل المخطَّط لها لاحقاً لقطاع البقالة)
    تُضاف كحقل إضافي على كائن ذلك القطاع وحده (مثال: grocery.creditEnabled)
@@ -591,10 +599,13 @@ var T={
    الترتيب: فاتورتك (okItems[0]، ثابت دوماً) ← نقاط الولاء (إن hasPoints)
    ← البطاقة الثانوية اليمنى (small2، إن لم تكن أصلاً من ضمن okItems،
    كحال "عروضنا" في المقاهي/المطاعم/البقالة) ← بقية عناصر okItems كما
-   وردت (كحال "رقم دورك"/"موعدك القادم" في القطاع الطبي، أو "رقم طلبك"/
-   "رقم طاولتك" في المقاهي/المطاعم). بطاقة "ضع جوالك هنا" وبطاقتا "نوع
-   العيادة"/"راقب دورك" ليست جزءاً من أي من هذه الحقول، فلا تظهر لهما
-   مفاتيح أبداً — تماماً كالتصميم السابق، لكن بلا قائمة يدوية مكرَّرة. */
+   وردت (كحال "رقم دورك" في القطاع الطبي، أو "رقم طلبك"/"رقم طاولتك" في
+   المقاهي/المطاعم). كل مفتاح هنا له بالضرورة بطاقة مرئية مقابلة تحكمها
+   نفس id على الشاشتين الثانية والثالثة معاً (انظر leftCol/rightCol
+   وleftoverOkItem) — يستحيل بنيوياً وجود مفتاح بلا بطاقة أو العكس، فكلا
+   الطرفين يُشتقان من نفس okItems/small2/hasPoints. بطاقة "ضع جوالك هنا"
+   وبطاقة "نوع العيادة" (topCard kind==='unit') فقط ليستا جزءاً من أي
+   من هذه الحقول، فلا تظهر لهما مفاتيح أبداً — ثابتتان دوماً. */
 function sectorCardToggles(key){
   var c=T[key];
   if(!c||!c.okItems||!c.okItems.length)return [];
@@ -604,6 +615,18 @@ function sectorCardToggles(key){
   if(c.small2&&!inOkItems)list.push({id:c.small2.id,label:c.small2.title});
   c.okItems.slice(1).forEach(function(o){list.push({id:o.id,label:o.b})});
   return list;
+}
+/* عنصر okItems "الفائض" — أول عنصر بعد فاتورتك (index 0) وليس هو نفسه
+   small2 — إن وُجد. يمثّل بطاقة إضافية واحدة يجب أن تكون مرئية فعلياً
+   على الشاشة الثانية بمفتاح toggle واحد يحكم ظهورها على الشاشتين
+   الثانية والثالثة معاً (لا فجوة كحال "رقم طلبك" الذي ظهر مفتاحه سابقاً
+   في الإعدادات بلا أي بطاقة مقابلة على الشاشة الثانية). تُرندَر عبر
+   leftCol كبديل بطاقة الدور (queueCard) في القطاعات ذات hasQueue —
+   فهناك عنصر واجهة جاهز أصلاً يمثّلها؛ وإلا تُرندَر كبطاقة rb عامة
+   إضافية في rightCol (المقاهي/المطاعم)، إذ لا عنصر واجهة آخر يمثّلها. */
+function leftoverOkItem(c){
+  var extra=c.okItems.slice(1).filter(function(o){return !c.small2||o.id!==c.small2.id});
+  return extra[0]||null;
 }
 
 /* ================= DEVICE SETTINGS (persisted) =================
@@ -781,7 +804,8 @@ function header(){
    فحذف صندوق من الـHTML يجعل البقية تتمدد تلقائياً بلا أي فراغ. بطاقة
    الولاء تُرندَر إن كان القطاع من نوع "unit" (عيادة، لا مفهوم نقاط له
    أصلاً) أو إن كان hasPoints مفعّلاً؛ بطاقة الدور تُرندَر فقط إن كان
-   hasQueue مفعّلاً. */
+   hasQueue مفعّلاً، وتخضع أيضاً لمفتاح leftoverOkItem (رقم دورك) —
+   بطاقة واحدة، مفتاح واحد، على الشاشتين الثانية والثالثة معاً. */
 function leftCol(){
   var c=C(),t=c.topCard;
   var boxes='';
@@ -790,7 +814,10 @@ function leftCol(){
      النظر عن أي إعداد؛ بطاقة النقاط (hasPoints) تخضع لمفتاح
      loyaltyPoints المشتق من الإعدادات. */
   if(t.kind==='unit'||(c.hasPoints&&cardOn('loyaltyPoints')))boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(c)+'</div>';
-  if(c.hasQueue)boxes+='<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>';
+  if(c.hasQueue){
+    var qItem=leftoverOkItem(c);
+    if(!qItem||cardOn(qItem.id))boxes+='<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>';
+  }
   return boxes?'<div class="col">'+boxes+'</div>':'';
 }
 /* لون اسم NOJ الأزرق الموحّد في أي نص "من تطبيق NOJ" — نفس الأسلوب
@@ -881,7 +908,14 @@ function rightCol(){
   var small2=cardOn(c.small2.id)?
    '<div class="rb"><div class="rb-i">'+ic(c.small2.icon,26,'#2D7BF4')+'</div>'+
    '<b>'+c.small2.title+'</b><small>'+c.small2.note+'</small></div>':'';
-  var boxes=digitalInvoice+small2;
+  /* عنصر okItems الفائض (مثال: "رقم طلبك"/"رقم طاولتك" في المقاهي/
+     المطاعم) — لا يُرندَر هنا إن كان القطاع من ذوي hasQueue، فهناك
+     يذهب إلى queueCard في leftCol بدلاً منه (انظر leftoverOkItem). */
+  var extraItem=c.hasQueue?null:leftoverOkItem(c);
+  var extra=(extraItem&&cardOn(extraItem.id))?
+   '<div class="rb"><div class="rb-i">'+ic(extraItem.i,26,extraItem.c)+'</div>'+
+   '<b>'+extraItem.b+'</b><small>'+extraItem.s+'</small></div>':'';
+  var boxes=digitalInvoice+small2+extra;
   return boxes?'<div class="col right">'+boxes+'</div>':'';
 }
 
