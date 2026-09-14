@@ -240,7 +240,7 @@
   .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
   .card-tog-row{display:flex;align-items:center;justify-content:flex-start;gap:16px;margin-bottom:16px}
   .card-tog-row:last-child{margin-bottom:0}
-  .card-tog-label{font-size:13.5px;font-weight:700;color:var(--ink)}
+  .card-tog-label{font-size:13.5px;font-weight:700;color:var(--ink);flex-shrink:0}
   .flip-sw{width:56px;height:34px;border-radius:99px;background:#D8DCE3;border:none;position:relative;flex-shrink:0;padding:0;cursor:pointer;transition:background .18s}
   .flip-sw .flip-knob{position:absolute;top:3px;right:3px;width:28px;height:28px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:transform .18s}
   .flip-sw.on{background:var(--blue)}
@@ -1563,6 +1563,23 @@ function bindCardTogglesAdmin(){
       renderCardTogglesAdmin();
     };
   });
+  alignToggleLabels();
+}
+/* توحيد كل مفاتيح toggle الظاهرة فعلياً في شاشة الإعدادات (مفتاح
+   إظهار المنيو + مفاتيح بطاقات الشاشة الثانية معاً) على عمود رأسي
+   واحد: تُقاس أطول عبارة عنوان معروضة حالياً — ديناميكياً حسب القطاع
+   المختار وحالة القسم، لا رقم ثابت في الكود — ثم يُعطى كل عنوان نفس
+   العرض الثابت (أطول نص)، فتصطف كل المفاتيح مباشرة بعده بنفس المسافة.
+   النصوص الأقصر يبقى بينها وبين مفتاحها فراغ متبقٍ، وهذا مقصود. تُستدعى
+   من نهاية كل من bindCardTogglesAdmin وbindMenuBtnToggle، فتُعاد حسابها
+   تلقائياً مع كل تبديل قطاع أو تبديل مفتاح أو فتح أولي لشاشة الإعدادات. */
+function alignToggleLabels(){
+  var labels=[].slice.call(document.querySelectorAll('.card-tog-label'));
+  if(!labels.length)return;
+  labels.forEach(function(l){l.style.width='auto'});
+  var max=0;
+  labels.forEach(function(l){if(l.scrollWidth>max)max=l.scrollWidth});
+  labels.forEach(function(l){l.style.width=max+'px'});
 }
 /* ================= MENU FILE ADMIN (رفع ملف المنيو) =================
    يعمل على DRAFT.menuImages (نسخة مسودة) مثل باقي حقول شاشة الإعدادات
@@ -1684,6 +1701,7 @@ function bindMenuBtnToggle(){
     renderMenuBtnToggle();
     renderMenuFileSection();
   };
+  alignToggleLabels();
 }
 function bindAdmin(){
   var exit1=document.getElementById('adminExit');
