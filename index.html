@@ -28,6 +28,21 @@
     --glass-shadow-sm:0 2px 8px rgba(18,35,92,.05);
     --glass-blur:16px;
     --glass-blur-sm:8px;
+    /* رموز الحركة الموحّدة مع شاشة الكاشير (kiosk.html) — نفس القيم
+       حرفياً في كلا الملفين (لا يمكن مشاركة ملف CSS فعلي بين ملفّي HTML
+       مستقلّين كاملين، فالتوحيد هنا هو تطابق القيم، لا مصدر واحد فعلي؛
+       أي تعديل مستقبلي على مدة/منحنى الحركة يجب أن يتكرر في كلا
+       :root). القيم هنا هي الاستخدام الفعلي الأكثر تكراراً في هذا
+       الملف نفسه أصلاً (transform .16s cubic-bezier(.22,.9,.3,1) على
+       كل العناصر التفاعلية، وcubic-bezier(.34,1.4,.64,1) لمفتاح .sw). */
+    --ease-brand:cubic-bezier(.22,.9,.3,1);
+    --ease-bounce:cubic-bezier(.34,1.4,.64,1);
+    --dur-press:.16s;
+    --dur-fade:.2s;
+    --dur-panel:.32s;
+    --dur-enter:.34s;
+    --dur-toggle:.22s;
+    --dur-spin:.7s;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;height:100%;overflow-x:hidden}
@@ -42,7 +57,7 @@
   .wordmark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:max-content;direction:ltr;line-height:1;text-align:center}
   .head-right{display:flex;align-items:center;gap:8px}
   .mark{width:44px;height:44px;border-radius:12px;border:3px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;direction:ltr;flex-shrink:0;color:var(--navy);padding:0}
-  .back-circle{width:44px;height:44px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--glass-shadow-sm);transition:transform .16s cubic-bezier(.22,.9,.3,1)}
+  .back-circle{width:44px;height:44px;border-radius:50%;background:var(--card);display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--glass-shadow-sm);transition:transform var(--dur-press) var(--ease-brand)}
   .back-circle:active{transform:scale(.9)}
   .wordmark b{font-size:30px;font-weight:800;letter-spacing:-.5px}
   .tagline{display:block;font-size:9px;letter-spacing:2.4px;color:var(--navy);margin-top:2px;direction:ltr}
@@ -250,8 +265,8 @@
   .st{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:16px;padding:14px 8px;text-align:center;backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));box-shadow:var(--glass-shadow-sm)}
   .st b{display:block;font-size:18px;font-weight:800}
   .st small{display:block;font-size:11px;color:var(--muted);margin-top:3px}
-  .sw{width:42px;height:25px;border-radius:99px;background:var(--line);position:relative;flex-shrink:0;transition:background .22s}
-  .sw::after{content:"";position:absolute;top:3px;right:3px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform .22s cubic-bezier(.34,1.4,.64,1)}
+  .sw{width:42px;height:25px;border-radius:99px;background:var(--line);position:relative;flex-shrink:0;transition:background var(--dur-toggle)}
+  .sw::after{content:"";position:absolute;top:3px;right:3px;width:19px;height:19px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform var(--dur-toggle) var(--ease-bounce)}
   .sw.on{background:var(--green)}
   .sw.on::after{transform:translateX(-17px)}
   .logout{width:100%;padding:14px;border-radius:16px;background:#FEF2F2;color:#DC2626;font-weight:700;font-size:14px;margin-top:14px}
@@ -261,7 +276,7 @@
   .auth{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;overflow-y:auto}
   .auth-inner{max-width:480px;width:100%;margin:0 auto;padding:0 24px 40px;display:flex;flex-direction:column;min-height:100%}
   .auth-brand{text-align:center;padding:56px 0 8px}
-  .auth-mark{width:72px;height:72px;border-radius:20px;border:4px solid var(--navy);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:800;margin:0 auto 14px;direction:ltr;animation:popIn .5s cubic-bezier(.22,.9,.3,1) both}
+  .auth-mark{width:72px;height:72px;border-radius:20px;border:4px solid var(--navy);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:800;margin:0 auto 14px;direction:ltr;animation:popIn .5s var(--ease-brand) both}
   .auth.enter .auth-mark{animation:none}
   .auth-brand b{font-size:34px;font-weight:800;letter-spacing:-.5px;direction:ltr;display:block}
   .auth-brand span{font-size:10px;letter-spacing:2.6px;color:var(--navy);direction:ltr;display:block;margin-top:3px}
@@ -336,7 +351,7 @@
 
   /* login screen rises to meet the mark */
   .auth.enter .auth-brand{animation:brandSettle .3s cubic-bezier(.22,1.2,.36,1) .17s both}
-  .auth.enter .auth-body{animation:bodyRise .28s cubic-bezier(.22,.9,.3,1) .24s both}
+  .auth.enter .auth-body{animation:bodyRise .28s var(--ease-brand) .24s both}
 
   @keyframes liftAway{to{opacity:0;transform:translateY(-26px) scale(.94)}}
   @keyframes auraFade{to{opacity:0;transform:scale(1.5)}}
@@ -377,8 +392,8 @@
   @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 
   /* view enters + staggered children */
-  #view{animation:fadeIn .22s ease both}
-  #view > *{animation:fadeUp .38s cubic-bezier(.22,.9,.3,1) both}
+  #view{animation:fadeIn var(--dur-fade) ease both}
+  #view > *{animation:fadeUp .38s var(--ease-brand) both}
   #view > *:nth-child(1){animation-delay:.02s}
   #view > *:nth-child(2){animation-delay:.07s}
   #view > *:nth-child(3){animation-delay:.12s}
@@ -387,13 +402,13 @@
   #view > *:nth-child(6){animation-delay:.27s}
   #view > *:nth-child(7){animation-delay:.32s}
 
-  .tiles .tile{animation:popIn .4s cubic-bezier(.22,.9,.3,1) both}
+  .tiles .tile{animation:popIn .4s var(--ease-brand) both}
   .tiles .tile:nth-child(1){animation-delay:.10s}
   .tiles .tile:nth-child(2){animation-delay:.16s}
   .tiles .tile:nth-child(3){animation-delay:.22s}
   .tiles .tile:nth-child(4){animation-delay:.28s}
 
-  .list .row,.list .rw,.list .rwd{animation:fadeUp .34s ease both}
+  .list .row,.list .rw,.list .rwd{animation:fadeUp var(--dur-enter) ease both}
   .list .row:nth-child(1),.list .rw:nth-child(1),.list .rwd:nth-child(1){animation-delay:.06s}
   .list .row:nth-child(2),.list .rw:nth-child(2),.list .rwd:nth-child(2){animation-delay:.12s}
   .list .row:nth-child(3),.list .rw:nth-child(3),.list .rwd:nth-child(3){animation-delay:.18s}
@@ -401,7 +416,7 @@
   .list .row:nth-child(5),.list .rw:nth-child(5),.list .rwd:nth-child(5){animation-delay:.30s}
   .list .row:nth-child(6),.list .rw:nth-child(6),.list .rwd:nth-child(6){animation-delay:.36s}
 
-  .loy-grid .loy-card{animation:fadeUp .34s ease both}
+  .loy-grid .loy-card{animation:fadeUp var(--dur-enter) ease both}
   .loy-grid .loy-card:nth-child(1){animation-delay:.06s}
   .loy-grid .loy-card:nth-child(2){animation-delay:.11s}
   .loy-grid .loy-card:nth-child(3){animation-delay:.16s}
@@ -409,13 +424,13 @@
   .loy-grid .loy-card:nth-child(5){animation-delay:.26s}
   .loy-grid .loy-card:nth-child(6){animation-delay:.31s}
 
-  .msec-grid .msec{animation:fadeUp .34s ease both}
+  .msec-grid .msec{animation:fadeUp var(--dur-enter) ease both}
   .msec-grid .msec:nth-child(1){animation-delay:.06s}
   .msec-grid .msec:nth-child(2){animation-delay:.11s}
   .msec-grid .msec:nth-child(3){animation-delay:.16s}
 
   /* press feedback */
-  .tile,.row,.box,.hero-btn,.btn,.rw button,.loy-card,.msec,.nav button,.bell,.sec-head button{transition:transform .16s cubic-bezier(.22,.9,.3,1),box-shadow .2s ease,background .2s ease,opacity .2s ease}
+  .tile,.row,.box,.hero-btn,.btn,.rw button,.loy-card,.msec,.nav button,.bell,.sec-head button{transition:transform var(--dur-press) var(--ease-brand),box-shadow .2s ease,background .2s ease,opacity .2s ease}
   .tile:active,.row:active,.hero-btn:active,.rw button:active,.loy-card:active,.msec:active,.sec-head button:active{transform:scale(.96)}
   .btn:active{transform:scale(.97)}
   .bell:active{transform:scale(.9)}
@@ -423,21 +438,21 @@
   .row:hover{background:#FAFBFF}
 
   /* hero */
-  .hero{animation:fadeUp .45s cubic-bezier(.22,.9,.3,1) both}
-  .hero-amount{animation:popIn .5s cubic-bezier(.22,.9,.3,1) .08s both}
+  .hero{animation:fadeUp .45s var(--ease-brand) both}
+  .hero-amount{animation:popIn .5s var(--ease-brand) .08s both}
   .spark path{stroke-dasharray:420;stroke-dashoffset:420;animation:drawLine 1.4s cubic-bezier(.3,.8,.3,1) .25s forwards}
   .spark circle{animation:fadeIn .3s ease 1.5s both,floatY 3s ease-in-out 1.8s infinite}
   .bell i{animation:pulseDot 2.2s ease-in-out infinite}
 
   /* charts */
-  .bfill{animation:growBar .7s cubic-bezier(.22,.9,.3,1) both;transform-origin:bottom}
+  .bfill{animation:growBar .7s var(--ease-brand) both;transform-origin:bottom}
   .bcol:nth-child(1) .bfill{animation-delay:.05s}
   .bcol:nth-child(2) .bfill{animation-delay:.12s}
   .bcol:nth-child(3) .bfill{animation-delay:.19s}
   .bcol:nth-child(4) .bfill{animation-delay:.26s}
   .bcol:nth-child(5) .bfill{animation-delay:.33s}
   .bcol:nth-child(6) .bfill{animation-delay:.40s}
-  .donut{animation:popIn .55s cubic-bezier(.22,.9,.3,1) .1s both}
+  .donut{animation:popIn .55s var(--ease-brand) .1s both}
   .donut-mid{animation:fadeIn .4s ease .45s both}
   .lg{animation:fadeUp .3s ease both}
   .lg:nth-child(1){animation-delay:.20s}
@@ -447,19 +462,19 @@
   .lg:nth-child(5){animation-delay:.44s}
 
   /* progress fills sweep in */
-  .fill,.loy-fill{animation:sweep .8s cubic-bezier(.22,.9,.3,1) .15s both}
-  .loy-badge{animation:popIn .5s cubic-bezier(.22,.9,.3,1) .2s both}
+  .fill,.loy-fill{animation:sweep .8s var(--ease-brand) .15s both}
+  .loy-badge{animation:popIn .5s var(--ease-brand) .2s both}
 
   /* queue */
-  .qnum{animation:popIn .5s cubic-bezier(.22,.9,.3,1) .1s both}
+  .qnum{animation:popIn .5s var(--ease-brand) .1s both}
   .qstate{animation:fadeIn .4s ease .3s both}
-  .qtop.now .qnum{animation:popIn .5s cubic-bezier(.22,.9,.3,1) both,floatY 2s ease-in-out .5s infinite}
-  .now-alert{animation:popIn .4s cubic-bezier(.22,.9,.3,1) both,ringPulse 2s ease-out .4s infinite}
+  .qtop.now .qnum{animation:popIn .5s var(--ease-brand) both,floatY 2s ease-in-out .5s infinite}
+  .now-alert{animation:popIn .4s var(--ease-brand) both,ringPulse 2s ease-out .4s infinite}
   #qbtn:active svg{animation:spinOnce .5s ease}
 
   /* modal sheet */
-  .ov{animation:fadeIn .2s ease both}
-  .sheet{animation:slideUpSheet .32s cubic-bezier(.22,.9,.3,1) both}
+  .ov{animation:fadeIn var(--dur-fade) ease both}
+  .sheet{animation:slideUpSheet var(--dur-panel) var(--ease-brand) both}
   .sheet .mrow{animation:fadeUp .28s ease both}
   .sheet .mrow:nth-child(1){animation-delay:.06s}
   .sheet .mrow:nth-child(2){animation-delay:.10s}
@@ -481,7 +496,7 @@
   .ptr.dragging{transition:none}
   .ptr.show{transform:translateY(0);opacity:1}
   .ptr-ico{width:34px;height:34px;border-radius:50%;background:var(--card);box-shadow:var(--glass-shadow-sm);display:flex;align-items:center;justify-content:center}
-  .ptr.loading .ptr-ico svg{animation:spinOnce .7s linear infinite}
+  .ptr.loading .ptr-ico svg{animation:spinOnce var(--dur-spin) linear infinite}
 
   @media (prefers-reduced-motion: reduce){
     *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
