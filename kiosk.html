@@ -425,9 +425,9 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
                            خلفه بعد — عنصر مؤقت بانتظار ربط فعلي).
      showDigitalInvoice — بطاقة "استقبل فاتورتك الإلكترونية" اليمنى، وهي
                           نفس بطاقة "فاتورتك" التي يتحكم بها التاجر عبر
-                          مفتاح invoiceArrived في cardToggles؛ الحارس
-                          المطلق هنا (هيكلي)، ومفتاح التاجر فوقه (cardOn)
-                          — كلاهما يجب أن يتحقق لتظهر البطاقة.
+                          مفتاح okItems[0].id (invoiceArrived دوماً)؛
+                          الحارس المطلق هنا (هيكلي)، ومفتاح التاجر فوقه
+                          (cardOn) — كلاهما يجب أن يتحقق لتظهر البطاقة.
      idleMenuBtn        — إعداد زر المنيو في شاشة الخمول، أو null إن لم
                            يملك القطاع زر قائمة إطلاقاً (الحارس المطلق:
                            لا يُرندَر بصرف النظر عن SETTINGS.showMenuBtn).
@@ -442,19 +442,20 @@ function icF(n,s,c){return '<svg width="'+(s||22)+'" height="'+(s||22)+'" viewBo
                            إطلاقاً). قيمة تجريبية ثابتة الآن؛ نقطة الربط
                            الحقيقية المستقبلية: تُستبدَل باسم الطبيب
                            الفعلي المسنَد لهذه الزيارة من نظام المنشأة.
-     cardToggles        — قائمة بطاقات الشاشة الثانية/الثالثة القابلة
-                           للتشغيل/الإطفاء يدوياً من الإعدادات لهذا
-                           القطاع (id + label بنفس عنوان البطاقة الظاهر
-                           حرفياً)، مصدرها الوحيد هنا فتتغيّر تلقائياً مع
-                           القطاع بلا أي قائمة منفصلة. القيمة الفعلية
-                           المحفوظة (تشغيل/إطفاء) تعيش في
-                           SETTINGS.cardToggles[id] (مفتاح مسطّح واحد
-                           للجهاز كله، لا لكل قطاع على حدة) وتُقرأ عبر
-                           cardOn(id) — الغياب يعني مفعّل افتراضياً، فلا
-                           حاجة لأي تصفير عند تبديل القطاع. بطاقة "ضع
-                           جوالك هنا" وبطاقتا "نوع العيادة"/"راقب دورك"
-                           (القطاع الطبي) ليست في هذه القائمة إطلاقاً،
-                           فلا مفتاح لها ولا يمكن إخفاؤها.
+   لا يوجد حقل cardToggles منفصل على T: قائمة مفاتيح الإعدادات القابلة
+   للتشغيل/الإطفاء لكل قطاع تُشتق آلياً بدالة sectorCardToggles(key) من
+   okItems/hasPoints/topCard.label/small2 نفسها — أي حقول العرض الفعلية
+   أعلاه — فلا يوجد مصدران منفصلان قد يختلفان (كان هذا خللاً سابقاً: ظهر
+   مفتاح لبطاقة لا وجود لها فعلياً في قطاع البقالة بعد أن أُضيفت قائمة
+   cardToggles يدوياً بمعزل عن okItems الفعلية). إضافة بطاقة جديدة أو
+   قطاع جديد = تعديل okItems/small2/hasPoints فقط، فيظهر مفتاحها تلقائياً
+   دون لمس sectorCardToggles أو شاشة الإعدادات. القيمة الفعلية المحفوظة
+   (تشغيل/إطفاء) تعيش في SETTINGS.cardToggles[id] (مفتاح مسطّح واحد
+   للجهاز كله، لا لكل قطاع على حدة) وتُقرأ عبر cardOn(id) — الغياب يعني
+   مفعّل افتراضياً. بطاقة "ضع جوالك هنا" وبطاقتا "نوع العيادة"/"راقب
+   دورك" (القطاع الطبي) ليست جزءاً من okItems/small2/loyaltyPoints
+   إطلاقاً، فلا تظهر لها مفاتيح ولا يمكن إخفاؤها — انظر sectorCardToggles
+   أسفل تعريف T لتفاصيل الاشتقاق.
    إضافة قطاع جديد = مُدخل واحد هنا بلا تعديل أي دالة عرض. وميزة خاصة
    بقطاع واحد فقط (كإدارة الدين/الآجل المخطَّط لها لاحقاً لقطاع البقالة)
    تُضاف كحقل إضافي على كائن ذلك القطاع وحده (مثال: grocery.creditEnabled)
@@ -482,11 +483,6 @@ var T={
     {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {id:'queueNumber',i:'bell',c:'#C99A2E',b:'رقم دورك',s:'ستصلك تنبيهات قبل دورك'},
     {id:'nextAppt',i:'cal',c:'#0F6E6E',b:'موعدك القادم',s:'احجزه من التطبيق مباشرة'}
-  ],
-  cardToggles:[
-    {id:'invoiceArrived',label:'فاتورتك'},
-    {id:'queueNumber',label:'رقم دورك'},
-    {id:'nextAppt',label:'موعدك القادم'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
@@ -517,12 +513,6 @@ var T={
     {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {id:'orderNumber',i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
-  cardToggles:[
-    {id:'invoiceArrived',label:'فاتورتك'},
-    {id:'loyaltyPoints',label:'نقاط مكتسبة من فاتورتك'},
-    {id:'offers',label:'عروضنا'},
-    {id:'orderNumber',label:'رقم طلبك'}
-  ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
   idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cup'},
@@ -552,12 +542,6 @@ var T={
     {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {id:'orderNumber',i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
-  cardToggles:[
-    {id:'invoiceArrived',label:'فاتورتك'},
-    {id:'loyaltyPoints',label:'نقاط مكتسبة من فاتورتك'},
-    {id:'offers',label:'عروضنا'},
-    {id:'orderNumber',label:'رقم طاولتك'}
-  ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
   idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'},
@@ -583,15 +567,13 @@ var T={
     {i:'gift',b:'نقاط ولاء ومكافآت',s:'اجمع النقاط واستبدلها'},
     {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
   ],
+  /* بلا عنصر ثانٍ في okItems (لا "رقم طلب" لقطاع البقالة أصلاً): العنصر
+     الذي كان هنا سابقاً بعنوان "رقم فاتورتك" كان يكرر بطاقة .tno السفلية
+     (ticketLabel:'رقم فاتورتك' + رقم الفاتورة) دون أي فائدة إضافية —
+     أُزيل بدل إبقائه مكرَّراً بلا داعٍ في الشاشة الثالثة وفي قائمة
+     مفاتيح الإعدادات معاً. */
   okItems:[
-    {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {id:'orderNumber',i:'bell',c:'#0F6E6E',b:'رقم فاتورتك',s:'راجعها من التطبيق في أي وقت'}
-  ],
-  cardToggles:[
-    {id:'invoiceArrived',label:'فاتورتك'},
-    {id:'loyaltyPoints',label:'نقاط مكتسبة من فاتورتك'},
-    {id:'offers',label:'عروضنا'},
-    {id:'orderNumber',label:'رقم فاتورتك'}
+    {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
@@ -602,6 +584,27 @@ var T={
   pointsRate:1, doctorName:null
  }
 };
+
+/* قائمة مفاتيح الإعدادات القابلة للتشغيل/الإطفاء لقطاع معيّن — تُشتق
+   آلياً من بيانات العرض الفعلية لذلك القطاع في T (okItems/hasPoints/
+   topCard.label/small2)، لا من قائمة منفصلة قد تخرج عن التزامن معها.
+   الترتيب: فاتورتك (okItems[0]، ثابت دوماً) ← نقاط الولاء (إن hasPoints)
+   ← البطاقة الثانوية اليمنى (small2، إن لم تكن أصلاً من ضمن okItems،
+   كحال "عروضنا" في المقاهي/المطاعم/البقالة) ← بقية عناصر okItems كما
+   وردت (كحال "رقم دورك"/"موعدك القادم" في القطاع الطبي، أو "رقم طلبك"/
+   "رقم طاولتك" في المقاهي/المطاعم). بطاقة "ضع جوالك هنا" وبطاقتا "نوع
+   العيادة"/"راقب دورك" ليست جزءاً من أي من هذه الحقول، فلا تظهر لهما
+   مفاتيح أبداً — تماماً كالتصميم السابق، لكن بلا قائمة يدوية مكرَّرة. */
+function sectorCardToggles(key){
+  var c=T[key];
+  if(!c||!c.okItems||!c.okItems.length)return [];
+  var list=[{id:c.okItems[0].id,label:c.okItems[0].b}];
+  if(c.hasPoints)list.push({id:'loyaltyPoints',label:c.topCard.label});
+  var inOkItems=c.okItems.some(function(o){return c.small2&&o.id===c.small2.id});
+  if(c.small2&&!inOkItems)list.push({id:c.small2.id,label:c.small2.title});
+  c.okItems.slice(1).forEach(function(o){list.push({id:o.id,label:o.b})});
+  return list;
+}
 
 /* ================= DEVICE SETTINGS (persisted) =================
    إعدادات الجهاز المحمية (القطاع، بيانات المنشأة، ربط نظام الكاشير،
@@ -782,9 +785,10 @@ function header(){
 function leftCol(){
   var c=C(),t=c.topCard;
   var boxes='';
-  /* بطاقة "نوع العيادة" (kind==='unit') ليست في cardToggles إطلاقاً
-     فتظهر دوماً بصرف النظر عن أي مفتاح؛ بطاقة النقاط (hasPoints) تخضع
-     أيضاً لمفتاح loyaltyPoints من الإعدادات. */
+  /* بطاقة "نوع العيادة" (kind==='unit') ليست جزءاً من okItems/small2
+     إطلاقاً فلا يشتق لها sectorCardToggles أي مفتاح، وتظهر دوماً بصرف
+     النظر عن أي إعداد؛ بطاقة النقاط (hasPoints) تخضع لمفتاح
+     loyaltyPoints المشتق من الإعدادات. */
   if(t.kind==='unit'||(c.hasPoints&&cardOn('loyaltyPoints')))boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(c)+'</div>';
   if(c.hasQueue)boxes+='<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>';
   return boxes?'<div class="col">'+boxes+'</div>':'';
@@ -1526,18 +1530,19 @@ function bindMenuFileSection(){
   };
 }
 /* ================= CARD TOGGLES ADMIN (بطاقات الشاشة الثانية) =========
-   قائمة المفاتيح ومصدرها الوحيد T[sector].cardToggles (id+label)، تتغيّر
-   تلقائياً مع القطاع بلا أي قائمة منفصلة هنا. القيمة الفعلية (تشغيل/
-   إطفاء) تُقرأ من DRAFT.cardToggles[id] أثناء التحرير (نفس مبدأ باقي
-   حقول DRAFT، لا تُطبَّق إلا بالحفظ) — الغياب يعني مفعّل افتراضياً، فلا
-   حاجة لتصفير أي شيء عند تبديل القطاع. قطاع بلا cardToggles (لا يوجد
-   حالياً، لكن للمستقبل) لا يعرض هذا القسم إطلاقاً. */
+   قائمة المفاتيح ومصدرها الوحيد sectorCardToggles(sector) (مشتقة آلياً
+   من بيانات عرض القطاع الفعلية في T، انظر تعريفها فوق DEVICE SETTINGS)،
+   تتغيّر تلقائياً مع القطاع بلا أي قائمة منفصلة هنا أو في T. القيمة
+   الفعلية (تشغيل/إطفاء) تُقرأ من DRAFT.cardToggles[id] أثناء التحرير
+   (نفس مبدأ باقي حقول DRAFT، لا تُطبَّق إلا بالحفظ) — الغياب يعني مفعّل
+   افتراضياً، فلا حاجة لتصفير أي شيء عند تبديل القطاع. قطاع بلا okItems
+   (لا يوجد حالياً) لا يعرض هذا القسم إطلاقاً. */
 function cardOnDraft(d,id){
   var v=d.cardToggles&&d.cardToggles[id];
   return v!==false;
 }
 function cardTogglesAdminHtml(d){
-  var list=(T[d.sector]||{}).cardToggles;
+  var list=sectorCardToggles(d.sector);
   if(!list||!list.length)return '';
   return '<div class="adm-sec"><h3>بطاقات الشاشة الثانية</h3>'+
    list.map(function(item){
