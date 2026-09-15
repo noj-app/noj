@@ -287,7 +287,10 @@
   .nav.scrolling{background:var(--nav-bg-scroll);backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat))}
   /* الشكل المتوهج/المتحرك يحيط بالأيقونة والتسمية معاً كوحدة واحدة (الزر
      نفسه)، لا بالأيقونة وحدها — يطابق المرجع البصري. */
-  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:20px;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
+  /* border-radius:50% (لا قيمة px ثابتة) فتصبح خلفية التفعيل/الضغط
+     بيضاوية الاستدارة الكاملة تحيط بالأيقونة والتسمية معاً، بلا أي زاوية
+     مستقيمة، كما في المرجع. */
+  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border-radius:50%;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
   .nav-ico-wrap{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
   /* الدائرة/الشكل اللحظي الكهرماني عند الضغط منفصل عن حالة التبويب النشط
      الدائمة (زرقاء أو ذهبية للولاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت
@@ -647,9 +650,10 @@ function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewB
    تغيير شكل الأيقونات الخطية (home/store/gift/pie/grid) المستخدمة
    بنفس الأسماء في بطاقات وشاشات أخرى من التطبيق. */
 const PF={
- /* سقف عريض مقوّس (منحنى Q واحد بلا رأس مدبب) يتصل مباشرة بجسم شبه مربع
-    بزوايا سفلية مستديرة فقط — بلا باب أو نوافذ، كتلة واحدة ممتلئة. */
- home:'<path d="M3.5,11.5 Q12,3 20.5,11.5 L20.5,19 Q20.5,21 18.5,21 L5.5,21 Q3.5,21 3.5,19 Z"/>',
+ /* سقف مثلث عريض بحواف مستقيمة وقمة مستديرة فقط (انحناءة Q صغيرة عند
+    الرأس)، فوق جسم مربع بزوايا سفلية حادة مستقيمة — بلا باب أو نوافذ،
+    كتلة واحدة ممتلئة. */
+ home:'<path d="M4,11 L11,4.2 Q12,3 13,4.2 L20,11 L20,21 L4,21 Z"/>',
  /* مظلة مموّجة (scallop) مرسومة بأقواس SVG حقيقية لا خطوط منكسرة، فوق
     جدار بفتحة باب. */
  store:'<path d="M3,4 L21,4 L21,9 A2.25,2.25 0 0,1 16.5,9 A2.25,2.25 0 0,1 12,9 A2.25,2.25 0 0,1 7.5,9 A2.25,2.25 0 0,1 3,9 Z"/><path fill-rule="evenodd" d="M4 11.5H20V20H4Z M9.5 20V15H14.5V20Z"/>',
