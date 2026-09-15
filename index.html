@@ -635,6 +635,19 @@ const P={
 };
 function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="none" stroke="'+(c||'currentColor')+'" stroke-width="'+(w||1.8)+'" stroke-linecap="round" stroke-linejoin="round">'+(P[n]||'')+'</svg>'}
 
+/* أيقونات مصمتة (filled/solid) — لشريط التنقل السفلي فقط، حيث الشكل
+   المرجعي المطلوب مملوء وليس خطياً. مجموعة منفصلة عن P/ic أعلاه لتفادي
+   تغيير شكل الأيقونات الخطية (home/store/gift/pie/grid) المستخدمة
+   بنفس الأسماء في بطاقات وشاشات أخرى من التطبيق. */
+const PF={
+ home:'<path d="M12 3L21 10V21H3V10Z"/>',
+ store:'<path d="M3 4H21L21 7L19 9L17 7L15 9L13 7L11 9L9 7L7 9L5 7L3 9Z"/><path fill-rule="evenodd" d="M4 9H20V20H4Z M9.5 20V13H14.5V20Z"/>',
+ star:'<path d="M12 3.5l2.5 5.6 6.1.6-4.6 4.1 1.4 6-5.4-3-5.4 3 1.4-6L3.4 9.7l6.1-.6z"/>',
+ bars:'<rect x="4.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="8.5" width="4" height="11.5" rx="1"/><rect x="15.5" y="4" width="4" height="16" rx="1"/>',
+ dots:'<circle cx="6" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="18" cy="12" r="1.9"/>'
+};
+function icFill(n,s,c){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="'+(c||'currentColor')+'" stroke="none">'+(PF[n]||'')+'</svg>'}
+
 /* ================= SUPABASE ================= */
 // Official CDN ESM import (dynamic form so this classic <script> tag never
 // needs to become type="module"). This is the one explicitly-approved
@@ -715,7 +728,7 @@ let MERCHANT_CLINICS={};
 // صحّة فقط: مواعيد العميل القادمة لدى هذا المركز — {[merchantId]:
 // [{id,clinicName,doctorName,scheduledAt}]}.
 let MERCHANT_APPOINTMENTS={};
-const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاجري',i:'store'},{id:'loyalty',l:'الولاء',i:'gift'},{id:'reports',l:'التقارير',i:'pie'},{id:'more',l:'المزيد',i:'grid'}];
+const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاجري',i:'store'},{id:'loyalty',l:'الولاء',i:'star'},{id:'reports',l:'التقارير',i:'bars'},{id:'more',l:'المزيد',i:'dots'}];
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
 let QUEUE={ticket:null,label:'',merchantId:null,unitName:null};
@@ -1898,7 +1911,7 @@ function render(){
   var navEl=document.getElementById('nav');
   navEl.innerHTML=NAV.map(function(n){
     var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
-    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+ic(n.i,22,on?'var(--nav-icon-on)':'var(--nav-icon-off)',on?2.1:1.8)+'<span style="color:'+(on?'var(--nav-icon-on)':'var(--nav-icon-off)')+'">'+n.l+'</span></button>'}).join('');
+    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+icFill(n.i,22,on?'var(--nav-icon-on)':'var(--nav-icon-off)')+'<span style="color:'+(on?'var(--nav-icon-on)':'var(--nav-icon-off)')+'">'+n.l+'</span></button>'}).join('');
   // إخفاء الشريط السفلي أثناء فتح أي نافذة منبثقة (.ov/.sheet) — كان
   // ظاهرًا خلف خلفية النافذة شبه الشفافة (glass) فيبدو متسربًا فوق أسفل
   // محتواها. أوثق حل: إخفاؤه فعليًا بدل الاعتماد على ترتيب z-index وحده.
