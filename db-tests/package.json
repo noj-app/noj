@@ -1,0 +1,12 @@
+{
+  "name": "noj-db-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Postgres tests for the supabase-migration-*.sql files in the repo root — race conditions, idempotency, RLS.",
+  "scripts": {
+    "test": "node run_tests.js && node regression_check.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  }
+}
