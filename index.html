@@ -42,6 +42,8 @@
     --nav-icon-on:var(--navy);
     --nav-icon-off:#64748B;
     --nav-active-bg:rgba(59,130,246,.14);
+    --nav-active-glow:rgba(59,130,246,.35);
+    --nav-active-scale:1.08;
     --nav-press-bg:rgba(245,158,11,.2);
     /* رموز الحركة الموحّدة مع شاشة الكاشير (kiosk.html) — نفس القيم
        حرفياً في كلا الملفين (لا يمكن مشاركة ملف CSS فعلي بين ملفّي HTML
@@ -73,6 +75,7 @@
     --nav-icon-on:#9FBBFF;
     --nav-icon-off:#9AA3B5;
     --nav-active-bg:rgba(159,187,255,.16);
+    --nav-active-glow:rgba(159,187,255,.4);
     --nav-press-bg:rgba(245,158,11,.24);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -282,13 +285,24 @@
   /* أثناء التمرير: مزيد من الشفافية والضبابية فتتسرّب ألوان المحتوى
      المار تحت الكبسولة بوضوح أكبر (بقع لونية ناعمة داخل الزجاج). */
   .nav.scrolling{background:var(--nav-bg-scroll);backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat))}
-  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:20px}
+  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px 8px;border-radius:20px}
+  /* دائرة الأيقونة عنصر مستقل عن نص التبويب (بدل خلفية الزر كله) بحيث
+     تكون دائرة نظيفة حول الأيقونة فقط، والتسمية تبقى خارجها أسفلها —
+     يطابق هذا المرجع البصري المطلوب. */
+  .nav-ico-wrap{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
   /* دائرة الضغط اللحظية (كهرمانية) منفصلة عن دائرة التبويب النشط الدائمة
-     (زرقاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت هنا حالياً". */
-  .nav button:active{background:var(--nav-press-bg)}
-  .nav button.on{background:var(--nav-active-bg)}
-  .nav button.on:active{background:var(--nav-active-bg)}
-  .nav span{font-size:10px;font-weight:600}
+     (زرقاء أو ذهبية للولاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت هنا حالياً". */
+  .nav button:active .nav-ico-wrap{background:var(--nav-press-bg);transform:scale(1.14)}
+  .nav button.on .nav-ico-wrap{background:var(--nav-active-bg);color:var(--nav-icon-on);box-shadow:0 0 14px 3px var(--nav-active-glow);transform:scale(var(--nav-active-scale));animation:navSelectPulse var(--dur-panel) var(--ease-bounce) both}
+  .nav button.on:active .nav-ico-wrap{transform:scale(calc(var(--nav-active-scale) + .06))}
+  /* لون خاص لتبويب "الولاء" عند تفعيله (ذهبي/كهرماني) بدل الأزرق الموحّد
+     لباقي التبويبات — يطابق المرجع البصري، وحجم دائرته أكبر قليلاً
+     (--nav-active-scale أعلى) من باقي التبويبات النشطة. */
+  .nav button[data-tab="loyalty"]{--nav-icon-on:#B8860B;--nav-active-bg:rgba(184,134,11,.16);--nav-active-glow:rgba(184,134,11,.45);--nav-active-scale:1.2}
+  html.dark .nav button[data-tab="loyalty"]{--nav-icon-on:#E8C879;--nav-active-bg:rgba(232,200,121,.18);--nav-active-glow:rgba(232,200,121,.5)}
+  @keyframes navSelectPulse{0%{transform:scale(1);box-shadow:0 0 0 0 transparent}55%{transform:scale(calc(var(--nav-active-scale) + .1))}100%{transform:scale(var(--nav-active-scale));box-shadow:0 0 14px 3px var(--nav-active-glow)}}
+  .nav-label{font-size:10px;font-weight:600;color:var(--nav-icon-off);transition:color var(--dur-press) ease}
+  .nav button.on .nav-label{color:var(--nav-icon-on)}
 
   .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;transition:.3s;z-index:70;pointer-events:none}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -520,12 +534,6 @@
   .sheet .mrow:nth-child(4){animation-delay:.18s}
   .sheet .mrow:nth-child(5){animation-delay:.22s}
 
-  /* nav active lift */
-  .nav button svg{transition:transform var(--dur-toggle) var(--ease-bounce)}
-  .nav button.on svg{transform:translateY(-2px) scale(1.08)}
-  .nav button:active svg{transform:scale(1.14)}
-  .nav button.on:active svg{transform:translateY(-2px) scale(1.18)}
-
   /* skeleton shimmer utility */
   .shimmer{background:linear-gradient(90deg,var(--line) 25%,#F6F8FF 50%,var(--line) 75%);background-size:200% 100%;animation:shimmer 1.3s linear infinite}
   .sk-txt{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -641,12 +649,19 @@ function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewB
    بنفس الأسماء في بطاقات وشاشات أخرى من التطبيق. */
 const PF={
  home:'<path d="M12 3L21 10V21H3V10Z"/>',
- store:'<path d="M3 4H21L21 7L19 9L17 7L15 9L13 7L11 9L9 7L7 9L5 7L3 9Z"/><path fill-rule="evenodd" d="M4 9H20V20H4Z M9.5 20V13H14.5V20Z"/>',
+ /* مظلة مموّجة (scallop) مرسومة بأقواس SVG حقيقية لا خطوط منكسرة، فوق
+    جدار بفتحة باب. */
+ store:'<path d="M3,4 L21,4 L21,9 A2.25,2.25 0 0,1 16.5,9 A2.25,2.25 0 0,1 12,9 A2.25,2.25 0 0,1 7.5,9 A2.25,2.25 0 0,1 3,9 Z"/><path fill-rule="evenodd" d="M4 11.5H20V20H4Z M9.5 20V15H14.5V20Z"/>',
  star:'<path d="M12 3.5l2.5 5.6 6.1.6-4.6 4.1 1.4 6-5.4-3-5.4 3 1.4-6L3.4 9.7l6.1-.6z"/>',
- bars:'<rect x="4.5" y="13" width="4" height="7" rx="1"/><rect x="10" y="8.5" width="4" height="11.5" rx="1"/><rect x="15.5" y="4" width="4" height="16" rx="1"/>',
+ bars:'<rect x="4.5" y="13" width="4" height="7" rx="1.4"/><rect x="10" y="8.5" width="4" height="11.5" rx="1.4"/><rect x="15.5" y="4" width="4" height="16" rx="1.4"/>',
  dots:'<circle cx="6" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="18" cy="12" r="1.9"/>'
 };
-function icFill(n,s,c){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="'+(c||'currentColor')+'" stroke="none">'+(PF[n]||'')+'</svg>'}
+/* سماكة الحد الخاصة بكل أيقونة لتدوير حوافها (fill+stroke بنفس اللون مع
+   round join/cap يُنعّم الزوايا الحادة بلا إعادة رسم كل مسار بأقواس).
+   قيمة صغيرة للمحل حتى لا "تبتلع" أسنان المظلة المموّجة نفسها، وأصغر
+   للنجمة حتى لا تتورّم رؤوسها الضيقة. */
+const PF_STROKE={home:1.3,store:.4,star:.7,bars:1.3,dots:1.3};
+function icFill(n,s,c){var col=c||'currentColor',sw=PF_STROKE[n]!=null?PF_STROKE[n]:1;return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="'+col+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linejoin="round" stroke-linecap="round">'+(PF[n]||'')+'</svg>'}
 
 /* ================= SUPABASE ================= */
 // Official CDN ESM import (dynamic form so this classic <script> tag never
@@ -1911,7 +1926,7 @@ function render(){
   var navEl=document.getElementById('nav');
   navEl.innerHTML=NAV.map(function(n){
     var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
-    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'">'+icFill(n.i,22,on?'var(--nav-icon-on)':'var(--nav-icon-off)')+'<span style="color:'+(on?'var(--nav-icon-on)':'var(--nav-icon-off)')+'">'+n.l+'</span></button>'}).join('');
+    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'"><span class="nav-ico-wrap">'+icFill(n.i,22)+'</span><span class="nav-label">'+n.l+'</span></button>'}).join('');
   // إخفاء الشريط السفلي أثناء فتح أي نافذة منبثقة (.ov/.sheet) — كان
   // ظاهرًا خلف خلفية النافذة شبه الشفافة (glass) فيبدو متسربًا فوق أسفل
   // محتواها. أوثق حل: إخفاؤه فعليًا بدل الاعتماد على ترتيب z-index وحده.
