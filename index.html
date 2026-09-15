@@ -285,24 +285,23 @@
   /* أثناء التمرير: مزيد من الشفافية والضبابية فتتسرّب ألوان المحتوى
      المار تحت الكبسولة بوضوح أكبر (بقع لونية ناعمة داخل الزجاج). */
   .nav.scrolling{background:var(--nav-bg-scroll);backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat))}
-  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 4px 8px;border-radius:20px}
-  /* دائرة الأيقونة عنصر مستقل عن نص التبويب (بدل خلفية الزر كله) بحيث
-     تكون دائرة نظيفة حول الأيقونة فقط، والتسمية تبقى خارجها أسفلها —
-     يطابق هذا المرجع البصري المطلوب. */
-  .nav-ico-wrap{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
-  /* دائرة الضغط اللحظية (كهرمانية) منفصلة عن دائرة التبويب النشط الدائمة
-     (زرقاء أو ذهبية للولاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت هنا حالياً". */
-  .nav button:active .nav-ico-wrap{background:var(--nav-press-bg);transform:scale(1.14)}
-  .nav button.on .nav-ico-wrap{background:var(--nav-active-bg);color:var(--nav-icon-on);box-shadow:0 0 14px 3px var(--nav-active-glow);transform:scale(var(--nav-active-scale));animation:navSelectPulse var(--dur-panel) var(--ease-bounce) both}
-  .nav button.on:active .nav-ico-wrap{transform:scale(calc(var(--nav-active-scale) + .06))}
+  /* الشكل المتوهج/المتحرك يحيط بالأيقونة والتسمية معاً كوحدة واحدة (الزر
+     نفسه)، لا بالأيقونة وحدها — يطابق المرجع البصري. */
+  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:20px;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
+  .nav-ico-wrap{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
+  /* الدائرة/الشكل اللحظي الكهرماني عند الضغط منفصل عن حالة التبويب النشط
+     الدائمة (زرقاء أو ذهبية للولاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت
+     هنا حالياً". */
+  .nav button:active{background:var(--nav-press-bg);transform:scale(1.06)}
+  .nav button.on{background:var(--nav-active-bg);color:var(--nav-icon-on);box-shadow:0 0 14px 3px var(--nav-active-glow);transform:scale(var(--nav-active-scale));animation:navSelectPulse var(--dur-panel) var(--ease-bounce) both}
+  .nav button.on:active{transform:scale(calc(var(--nav-active-scale) + .04))}
   /* لون خاص لتبويب "الولاء" عند تفعيله (ذهبي/كهرماني) بدل الأزرق الموحّد
-     لباقي التبويبات — يطابق المرجع البصري، وحجم دائرته أكبر قليلاً
+     لباقي التبويبات — يطابق المرجع البصري، وحجمه أكبر قليلاً
      (--nav-active-scale أعلى) من باقي التبويبات النشطة. */
-  .nav button[data-tab="loyalty"]{--nav-icon-on:#B8860B;--nav-active-bg:rgba(184,134,11,.16);--nav-active-glow:rgba(184,134,11,.45);--nav-active-scale:1.2}
+  .nav button[data-tab="loyalty"]{--nav-icon-on:#B8860B;--nav-active-bg:rgba(184,134,11,.16);--nav-active-glow:rgba(184,134,11,.45);--nav-active-scale:1.14}
   html.dark .nav button[data-tab="loyalty"]{--nav-icon-on:#E8C879;--nav-active-bg:rgba(232,200,121,.18);--nav-active-glow:rgba(232,200,121,.5)}
-  @keyframes navSelectPulse{0%{transform:scale(1);box-shadow:0 0 0 0 transparent}55%{transform:scale(calc(var(--nav-active-scale) + .1))}100%{transform:scale(var(--nav-active-scale));box-shadow:0 0 14px 3px var(--nav-active-glow)}}
-  .nav-label{font-size:10px;font-weight:600;color:var(--nav-icon-off);transition:color var(--dur-press) ease}
-  .nav button.on .nav-label{color:var(--nav-icon-on)}
+  @keyframes navSelectPulse{0%{transform:scale(1);box-shadow:0 0 0 0 transparent}55%{transform:scale(calc(var(--nav-active-scale) + .07))}100%{transform:scale(var(--nav-active-scale));box-shadow:0 0 14px 3px var(--nav-active-glow)}}
+  .nav-label{font-size:10px;font-weight:600;color:inherit}
 
   .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;transition:.3s;z-index:70;pointer-events:none}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -648,19 +647,24 @@ function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewB
    تغيير شكل الأيقونات الخطية (home/store/gift/pie/grid) المستخدمة
    بنفس الأسماء في بطاقات وشاشات أخرى من التطبيق. */
 const PF={
- home:'<path d="M12 3L21 10V21H3V10Z"/>',
+ /* سقف عريض مقوّس (منحنى Q واحد بلا رأس مدبب) يتصل مباشرة بجسم شبه مربع
+    بزوايا سفلية مستديرة فقط — بلا باب أو نوافذ، كتلة واحدة ممتلئة. */
+ home:'<path d="M3.5,11.5 Q12,3 20.5,11.5 L20.5,19 Q20.5,21 18.5,21 L5.5,21 Q3.5,21 3.5,19 Z"/>',
  /* مظلة مموّجة (scallop) مرسومة بأقواس SVG حقيقية لا خطوط منكسرة، فوق
     جدار بفتحة باب. */
  store:'<path d="M3,4 L21,4 L21,9 A2.25,2.25 0 0,1 16.5,9 A2.25,2.25 0 0,1 12,9 A2.25,2.25 0 0,1 7.5,9 A2.25,2.25 0 0,1 3,9 Z"/><path fill-rule="evenodd" d="M4 11.5H20V20H4Z M9.5 20V15H14.5V20Z"/>',
  star:'<path d="M12 3.5l2.5 5.6 6.1.6-4.6 4.1 1.4 6-5.4-3-5.4 3 1.4-6L3.4 9.7l6.1-.6z"/>',
- bars:'<rect x="4.5" y="13" width="4" height="7" rx="1.4"/><rect x="10" y="8.5" width="4" height="11.5" rx="1.4"/><rect x="15.5" y="4" width="4" height="16" rx="1.4"/>',
+ /* ثلاثة أعمدة فقط بمسافات ضيقة بينها وأطراف علوية مستديرة (السفلية تبقى
+    حادة لأنها ترتكز على خط الأساس)، مرسومة كل عمود بمساره الخاص بدل
+    rect+rx حتى لا تستدير الزوايا السفلية أيضاً. */
+ bars:'<path d="M5.7,13 A1.4,1.4 0 0 1 7.1,11.6 H8.7 A1.4,1.4 0 0 1 10.1,13 V20 H5.7 Z"/><path d="M10.3,9 A1.4,1.4 0 0 1 11.7,7.6 H13.3 A1.4,1.4 0 0 1 14.7,9 V20 H10.3 Z"/><path d="M14.9,5 A1.4,1.4 0 0 1 16.3,3.6 H17.9 A1.4,1.4 0 0 1 19.3,5 V20 H14.9 Z"/>',
  dots:'<circle cx="6" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="18" cy="12" r="1.9"/>'
 };
 /* سماكة الحد الخاصة بكل أيقونة لتدوير حوافها (fill+stroke بنفس اللون مع
    round join/cap يُنعّم الزوايا الحادة بلا إعادة رسم كل مسار بأقواس).
    قيمة صغيرة للمحل حتى لا "تبتلع" أسنان المظلة المموّجة نفسها، وأصغر
    للنجمة حتى لا تتورّم رؤوسها الضيقة. */
-const PF_STROKE={home:1.3,store:.4,star:.7,bars:1.3,dots:1.3};
+const PF_STROKE={home:1.3,store:.4,star:.7,bars:0,dots:1.3};
 function icFill(n,s,c){var col=c||'currentColor',sw=PF_STROKE[n]!=null?PF_STROKE[n]:1;return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="'+col+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linejoin="round" stroke-linecap="round">'+(PF[n]||'')+'</svg>'}
 
 /* ================= SUPABASE ================= */
