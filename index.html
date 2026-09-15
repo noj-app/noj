@@ -287,11 +287,11 @@
   .nav.scrolling{background:var(--nav-bg-scroll);backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat))}
   /* الشكل المتوهج/المتحرك يحيط بالأيقونة والتسمية معاً كوحدة واحدة (الزر
      نفسه)، لا بالأيقونة وحدها — يطابق المرجع البصري. */
-  /* border-radius:50% (لا قيمة px ثابتة) فتصبح خلفية التفعيل/الضغط
-     بيضاوية الاستدارة الكاملة تحيط بالأيقونة والتسمية معاً، بلا أي زاوية
-     مستقيمة، كما في المرجع. */
-  .nav button{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:10px 6px;border-radius:50%;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
-  .nav-ico-wrap{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
+  /* aspect-ratio:1 + border-radius:50% معاً = دائرة حقيقية (عرض=ارتفاع)
+     لا بيضاوية، تحيط بالأيقونة والتسمية معاً كوحدة واحدة. الفجوة والحشو
+     مصغّران قليلاً حتى يتّسع محتوى الأيقونة+النص داخل الدائرة بتناسق. */
+  .nav button{position:relative;flex:1;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:4px;border-radius:50%;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
+  .nav-ico-wrap{width:22px;height:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   /* الدائرة/الشكل اللحظي الكهرماني عند الضغط منفصل عن حالة التبويب النشط
      الدائمة (زرقاء أو ذهبية للولاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت
      هنا حالياً". */
@@ -649,27 +649,19 @@ function ic(n,s,c,w){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewB
    المرجعي المطلوب مملوء وليس خطياً. مجموعة منفصلة عن P/ic أعلاه لتفادي
    تغيير شكل الأيقونات الخطية (home/store/gift/pie/grid) المستخدمة
    بنفس الأسماء في بطاقات وشاشات أخرى من التطبيق. */
+/* أيقونات مكتبة Phosphor Icons (@phosphor-icons/core)، وزن fill (bold
+   لـ dots-three تحديداً كما طُلب)، منسوخة حرفياً بلا أي تعديل على
+   مساراتها من node_modules/@phosphor-icons/core/assets/{fill,bold}/
+   ‎{house,storefront,star,chart-bar}-fill.svg و dots-three-bold.svg —
+   شبكة viewBox 256x256 الأصلية للمكتبة، لا 24x24 كبقية أيقونات الملف. */
 const PF={
- /* سقف مثلث عريض بحواف مستقيمة وقمة مستديرة فقط (انحناءة Q صغيرة عند
-    الرأس)، فوق جسم مربع بزوايا سفلية حادة مستقيمة — بلا باب أو نوافذ،
-    كتلة واحدة ممتلئة. */
- home:'<path d="M4,11 L11,4.2 Q12,3 13,4.2 L20,11 L20,21 L4,21 Z"/>',
- /* مظلة مموّجة (scallop) مرسومة بأقواس SVG حقيقية لا خطوط منكسرة، فوق
-    جدار بفتحة باب. */
- store:'<path d="M3,4 L21,4 L21,9 A2.25,2.25 0 0,1 16.5,9 A2.25,2.25 0 0,1 12,9 A2.25,2.25 0 0,1 7.5,9 A2.25,2.25 0 0,1 3,9 Z"/><path fill-rule="evenodd" d="M4 11.5H20V20H4Z M9.5 20V15H14.5V20Z"/>',
- star:'<path d="M12 3.5l2.5 5.6 6.1.6-4.6 4.1 1.4 6-5.4-3-5.4 3 1.4-6L3.4 9.7l6.1-.6z"/>',
- /* ثلاثة أعمدة فقط بمسافات ضيقة بينها وأطراف علوية مستديرة (السفلية تبقى
-    حادة لأنها ترتكز على خط الأساس)، مرسومة كل عمود بمساره الخاص بدل
-    rect+rx حتى لا تستدير الزوايا السفلية أيضاً. */
- bars:'<path d="M5.7,13 A1.4,1.4 0 0 1 7.1,11.6 H8.7 A1.4,1.4 0 0 1 10.1,13 V20 H5.7 Z"/><path d="M10.3,9 A1.4,1.4 0 0 1 11.7,7.6 H13.3 A1.4,1.4 0 0 1 14.7,9 V20 H10.3 Z"/><path d="M14.9,5 A1.4,1.4 0 0 1 16.3,3.6 H17.9 A1.4,1.4 0 0 1 19.3,5 V20 H14.9 Z"/>',
- dots:'<circle cx="6" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="18" cy="12" r="1.9"/>'
+ home:'<path d="M224,120v96a8,8,0,0,1-8,8H160a8,8,0,0,1-8-8V164a4,4,0,0,0-4-4H108a4,4,0,0,0-4,4v52a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V120a16,16,0,0,1,4.69-11.31l80-80a16,16,0,0,1,22.62,0l80,80A16,16,0,0,1,224,120Z"/>',
+ store:'<path d="M231.69,93.81,217.35,43.6A16.07,16.07,0,0,0,202,32H54A16.07,16.07,0,0,0,38.65,43.6L24.31,93.81A7.94,7.94,0,0,0,24,96v16a40,40,0,0,0,16,32v72a8,8,0,0,0,8,8H208a8,8,0,0,0,8-8V144a40,40,0,0,0,16-32V96A7.94,7.94,0,0,0,231.69,93.81ZM88,112a24,24,0,0,1-35.12,21.26,7.88,7.88,0,0,0-1.82-1.06A24,24,0,0,1,40,112v-8H88Zm64,0a24,24,0,0,1-48,0v-8h48Zm64,0a24,24,0,0,1-11.07,20.2,8.08,8.08,0,0,0-1.8,1.05A24,24,0,0,1,168,112v-8h48Z"/>',
+ star:'<path d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/>',
+ bars:'<path d="M232,208a8,8,0,0,1-8,8H32a8,8,0,0,1,0-16h8V136a8,8,0,0,1,8-8H72a8,8,0,0,1,8,8v64H96V88a8,8,0,0,1,8-8h32a8,8,0,0,1,8,8V200h16V40a8,8,0,0,1,8-8h40a8,8,0,0,1,8,8V200h8A8,8,0,0,1,232,208Z"/>',
+ dots:'<path d="M144,128a16,16,0,1,1-16-16A16,16,0,0,1,144,128ZM60,112a16,16,0,1,0,16,16A16,16,0,0,0,60,112Zm136,0a16,16,0,1,0,16,16A16,16,0,0,0,196,112Z"/>'
 };
-/* سماكة الحد الخاصة بكل أيقونة لتدوير حوافها (fill+stroke بنفس اللون مع
-   round join/cap يُنعّم الزوايا الحادة بلا إعادة رسم كل مسار بأقواس).
-   قيمة صغيرة للمحل حتى لا "تبتلع" أسنان المظلة المموّجة نفسها، وأصغر
-   للنجمة حتى لا تتورّم رؤوسها الضيقة. */
-const PF_STROKE={home:1.3,store:.4,star:.7,bars:0,dots:1.3};
-function icFill(n,s,c){var col=c||'currentColor',sw=PF_STROKE[n]!=null?PF_STROKE[n]:1;return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 24 24" fill="'+col+'" stroke="'+col+'" stroke-width="'+sw+'" stroke-linejoin="round" stroke-linecap="round">'+(PF[n]||'')+'</svg>'}
+function icFill(n,s,c){return '<svg width="'+(s||20)+'" height="'+(s||20)+'" viewBox="0 0 256 256" fill="'+(c||'currentColor')+'">'+(PF[n]||'')+'</svg>'}
 
 /* ================= SUPABASE ================= */
 // Official CDN ESM import (dynamic form so this classic <script> tag never
