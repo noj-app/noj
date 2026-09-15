@@ -285,26 +285,29 @@
   /* أثناء التمرير: مزيد من الشفافية والضبابية فتتسرّب ألوان المحتوى
      المار تحت الكبسولة بوضوح أكبر (بقع لونية ناعمة داخل الزجاج). */
   .nav.scrolling{background:var(--nav-bg-scroll);backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat));-webkit-backdrop-filter:blur(var(--nav-blur-scroll)) saturate(var(--nav-sat))}
-  /* الشكل المتوهج/المتحرك يحيط بالأيقونة والتسمية معاً كوحدة واحدة (الزر
-     نفسه)، لا بالأيقونة وحدها — يطابق المرجع البصري. */
-  /* aspect-ratio:1 + border-radius:50% معاً = دائرة حقيقية (عرض=ارتفاع)
-     لا بيضاوية، تحيط بالأيقونة والتسمية معاً كوحدة واحدة. الفجوة والحشو
-     مصغّران قليلاً حتى يتّسع محتوى الأيقونة+النص داخل الدائرة بتناسق. */
-  .nav button{position:relative;flex:1;aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:4px;border-radius:50%;color:var(--nav-icon-off);transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce),color var(--dur-press) ease}
-  .nav-ico-wrap{width:22px;height:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  /* الزر نفسه هدف لمس بعرض كامل (بلا شكل مرئي)؛ الدائرة الفعلية عنصر
+     داخلي (.nav-pill) بقطر ثابت يلائم حجم الأيقونة+النص فقط بدل أن
+     يتمدد مع عرض الزر الكامل — aspect-ratio:1 مع عرض/ارتفاع ثابتين
+     يضمن دائرة حقيقية بالحجم المناسب لا بيضاوية ولا كبيرة زيادة. */
+  .nav button{position:relative;flex:1;display:flex;align-items:center;justify-content:center;color:var(--nav-icon-off)}
+  .nav-pill{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:54px;aspect-ratio:1;border-radius:50%;transition:background var(--dur-press) var(--ease-brand),box-shadow var(--dur-press) var(--ease-brand),transform var(--dur-toggle) var(--ease-bounce)}
+  .nav-ico-wrap{width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   /* الدائرة/الشكل اللحظي الكهرماني عند الضغط منفصل عن حالة التبويب النشط
      الدائمة (زرقاء أو ذهبية للولاء) — تمييز بصري بين "ضغطتَ للتو" و"أنت
      هنا حالياً". */
-  .nav button:active{background:var(--nav-press-bg);transform:scale(1.06)}
-  .nav button.on{background:var(--nav-active-bg);color:var(--nav-icon-on);box-shadow:0 0 14px 3px var(--nav-active-glow);transform:scale(var(--nav-active-scale));animation:navSelectPulse var(--dur-panel) var(--ease-bounce) both}
-  .nav button.on:active{transform:scale(calc(var(--nav-active-scale) + .04))}
+  .nav button:active .nav-pill{background:var(--nav-press-bg);transform:scale(1.06)}
+  .nav button.on .nav-pill{background:var(--nav-active-bg);color:var(--nav-icon-on);box-shadow:0 0 14px 3px var(--nav-active-glow);transform:scale(var(--nav-active-scale));animation:navSelectPulse var(--dur-panel) var(--ease-bounce) both}
+  .nav button.on:active .nav-pill{transform:scale(calc(var(--nav-active-scale) + .04))}
   /* لون خاص لتبويب "الولاء" عند تفعيله (ذهبي/كهرماني) بدل الأزرق الموحّد
      لباقي التبويبات — يطابق المرجع البصري، وحجمه أكبر قليلاً
      (--nav-active-scale أعلى) من باقي التبويبات النشطة. */
   .nav button[data-tab="loyalty"]{--nav-icon-on:#B8860B;--nav-active-bg:rgba(184,134,11,.16);--nav-active-glow:rgba(184,134,11,.45);--nav-active-scale:1.14}
   html.dark .nav button[data-tab="loyalty"]{--nav-icon-on:#E8C879;--nav-active-bg:rgba(232,200,121,.18);--nav-active-glow:rgba(232,200,121,.5)}
   @keyframes navSelectPulse{0%{transform:scale(1);box-shadow:0 0 0 0 transparent}55%{transform:scale(calc(var(--nav-active-scale) + .07))}100%{transform:scale(var(--nav-active-scale));box-shadow:0 0 14px 3px var(--nav-active-glow)}}
-  .nav-label{font-size:10px;font-weight:600;color:inherit}
+  .nav-label{font-size:9.5px;font-weight:600;color:inherit}
+  /* أعمدة التقارير: انعكاس أفقي بحت (بلا تعديل مسار) للأيقونة الأصلية
+     كما هي، فيصبح العمود الأول أطول والأخير أقصر بدل تصاعدي. */
+  .nav button[data-tab="reports"] .nav-ico-wrap svg{transform:scaleX(-1)}
 
   .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;transition:.3s;z-index:70;pointer-events:none}
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -1926,7 +1929,7 @@ function render(){
   var navEl=document.getElementById('nav');
   navEl.innerHTML=NAV.map(function(n){
     var on=S.tab===n.id||(n.id==='home'&&['queue','invoices','spending'].indexOf(S.tab)>-1)||(n.id==='merchants'&&S.tab==='merchantDetail');
-    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'"><span class="nav-ico-wrap">'+icFill(n.i,22)+'</span><span class="nav-label">'+n.l+'</span></button>'}).join('');
+    return '<button class="'+(on?'on':'')+'" data-tab="'+n.id+'"><span class="nav-pill"><span class="nav-ico-wrap">'+icFill(n.i,20)+'</span><span class="nav-label">'+n.l+'</span></span></button>'}).join('');
   // إخفاء الشريط السفلي أثناء فتح أي نافذة منبثقة (.ov/.sheet) — كان
   // ظاهرًا خلف خلفية النافذة شبه الشفافة (glass) فيبدو متسربًا فوق أسفل
   // محتواها. أوثق حل: إخفاؤه فعليًا بدل الاعتماد على ترتيب z-index وحده.
