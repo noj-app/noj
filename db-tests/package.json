@@ -2,9 +2,9 @@
   "name": "noj-db-tests",
   "version": "1.0.0",
   "private": true,
-  "description": "Local Postgres tests for supabase-migration-lockdown-direct-writes.sql — RLS lockdown, cancel_appointment ownership, redeem_reward race-condition and search_path-hijack safety after its SECURITY DEFINER conversion.",
+  "description": "Local Postgres tests for the supabase-migration-*.sql files in the repo root — race conditions, idempotency, RLS lockdown, and regression checks.",
   "scripts": {
-    "test": "node run_lockdown_tests.js"
+    "test": "node run_tests.js && node run_lockdown_tests.js && node regression_check.js"
   },
   "dependencies": {
     "pg": "^8.23.0"
