@@ -18,13 +18,14 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | `supabase-migration-merchant-features.sql` | — | ترقية إضافية: علما تفعيل الحجز/الانتظار لكل تاجر + دالة إحصاء انتظار مجمَّعة بلا هوية — راجع "متاجري وصفحة المتجر" أعلاه |
 | `supabase-migration-health-center.sql` | — | ترقية إضافية: جدولا `clinics`/`appointments` + دالة عيادات مركز صحي حية + مركز تجريبي كامل — راجع "تسمية قسم الحجز حسب القطاع، ومركز صحي كامل" أعلاه |
 | `supabase-migration-cleanup-demo-data.sql` | — | ترقية إضافية (رجعية الأثر فقط): تحذف تجار "مواصلات" والتجار المكرَّرين لكل قطاع من مشروع مزروع مسبقاً، فيتبقى تاجر واحد فقط لكل قطاع (خمسة إجمالاً) — لا حاجة لها في مشروع لم يُزرع بعد، راجع "بيانات تجريبية" أدناه |
+| `supabase-migration-lockdown-direct-writes.sql` | — | **إصلاح أمني (مُدمَج ومُطبَّق بالفعل)**: تمنع أي تحديث مباشر من العميل على `merchant_loyalty`, `appointments`, `profiles`, `queue_tickets` (كانت سياسات RLS تتحقق من ملكية الصف فقط، لا من القيمة الجديدة) وتحوّل الكتابة إلى دوال `SECURITY DEFINER` ضيقة (`redeem_reward`, `cancel_appointment`) — راجع تعليقات الملف للتفاصيل الكاملة |
 | `supabase-migration-branches-devices.sql` | — | ترقية إضافية (بنية التاجر ← الفروع ← الأجهزة لإعدادات كاشير مستقبلية): تضيف `branches`/`branch_settings`/`devices`/`merchant_members`، بمزامنة تلقائية دائمة من `merchants` (لا تُعدَّل `merchants` نفسها) — راجع `db-tests/README.md` |
-| `supabase-migration-point-ledger.sql` | — | ترقية إضافية: تضيف `point_transactions` (سجل حركات النقاط القابل للمراجعة)، وتُعدِّل `redeem_reward()` لتكتب فيه ضمن نفس المعاملة — يتطلب `supabase-migration-branches-devices.sql` أولاً |
+| `supabase-migration-point-ledger.sql` | — | ترقية إضافية: تضيف `point_transactions` (سجل حركات النقاط القابل للمراجعة)، وتُعدِّل `redeem_reward()` لتكتب فيه ضمن نفس المعاملة (فوق تحويلها إلى `SECURITY DEFINER` من ملف القفل الأمني أعلاه) — يتطلب `supabase-migration-branches-devices.sql` أولاً |
 | `supabase-migration-loyalty-rate-expiry.sql` | — | ترقية إضافية: تضيف `merchants.points_rate` (معامل نقاط قابل للتغيير لكل تاجر) و`merchants.points_expiry_days` (سياسة انتهاء صلاحية، اختيارية) |
 | `supabase-migration-consent-privacy.sql` | — | ترقية إضافية (امتثال نظام حماية البيانات الشخصية): موافقة معالجة البيانات لكل عميل + إنفاذها قبل أي حركة كسب نقاط، وطلب حذف البيانات (بصمة الجوال + تمويه الرقم بلا حذف السجل) — يتطلب `supabase-migration-point-ledger.sql` أولاً |
 | `supabase-migration-phone-format.sql` | — | ترقية إضافية: دالة توحيد صيغة رقم الجوال السعودي + قيد شكل صارم على `profiles.phone` — يتطلب `supabase-migration-consent-privacy.sql` أولاً |
 | `supabase-migration-timezone.sql` | — | ترقية إضافية: دالة `riyadh_today()` لأي منطق مستقبلي يعتمد على حدود اليوم بتوقيت السعودية |
-| `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه — راجع `db-tests/README.md` |
+| `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه، بما فيها ملف القفل الأمني — راجع `db-tests/README.md` |
 | `manifest.json` | — | بيان تثبيت `index.html` فقط (الاسم، الأيقونات، ألوان الهوية) |
 | `sw.js` | — | Service Worker يخزّن ملفات `index.html` مؤقتاً للعمل بلا اتصال (الواجهة فقط — البيانات الحيّة تحتاج اتصالاً بـ Supabase) |
 | `icons/` | — | أيقونات `index.html` (PNG مولّدة بأحجام 192 و512 وأيقونة maskable) |

@@ -51,6 +51,7 @@ async function admin(fn) {
       'supabase-schema.sql', 'supabase-migration-merchant-features.sql',
       'supabase-migration-merchant-loyalty.sql', 'supabase-migration-health-center.sql',
       'supabase-migration-fix-profile-reclaim.sql', 'supabase-migration-cleanup-demo-data.sql',
+      'supabase-migration-lockdown-direct-writes.sql',
       'supabase-migration-branches-devices.sql', 'supabase-migration-point-ledger.sql',
       'supabase-migration-loyalty-rate-expiry.sql', 'supabase-migration-consent-privacy.sql',
       'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
@@ -105,6 +106,47 @@ async function admin(fn) {
       [DEMO_PROFILE, MATAM, rewardId]
     ));
     check('race: exactly one redeem ledger row was written (not two, not zero)', Number(afterLedger.rows[0].count) === 1);
+  }
+
+  // =========================================================================
+  // 1b) After merging the lockdown fix (#73) with this branch's own ledger
+  //     work: redeem_reward() must end up SECURITY DEFINER with search_path
+  //     pinned (point-ledger.sql's own create-or-replace, applied after
+  //     lockdown's, is what actually wins — this guards against either file
+  //     silently regressing the other back to SECURITY INVOKER), the client
+  //     still cannot UPDATE merchant_loyalty directly, and cannot INSERT a
+  //     fabricated ledger row directly either (the whole reason the old
+  //     "insert own redeem transactions" policy was removed).
+  // =========================================================================
+  {
+    const funcRow = await admin(c => c.query(
+      `select prosecdef, proconfig from pg_proc where proname = 'redeem_reward'`
+    ));
+    check('merged: redeem_reward() is SECURITY DEFINER', funcRow.rows[0].prosecdef === true);
+    check('merged: redeem_reward() has search_path pinned to public',
+      (funcRow.rows[0].proconfig || []).some(c => c === 'search_path=public'));
+
+    const uid2 = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [uid2]));
+    await asUser(uid2, c => c.query('select claim_or_create_profile($1)', ['577777777']));
+
+    let directUpdate = null;
+    try {
+      await asUser(uid2, c => c.query(`update merchant_loyalty set points=999999 where merchant_id=$1`, [MATAM]));
+      directUpdate = 'ok';
+    } catch (e) { directUpdate = 'fail:' + e.message; }
+    check('merged: client still cannot UPDATE merchant_loyalty directly', directUpdate !== 'ok' && /permission denied/i.test(directUpdate));
+
+    let directLedgerInsert = null;
+    try {
+      const prof = await admin(c => c.query(`select id from profiles where auth_user_id=$1`, [uid2]));
+      await asUser(uid2, c => c.query(
+        `insert into point_transactions (user_id, merchant_id, type, points_delta, source) values ($1,$2,'redeem',-1,'app_session')`,
+        [prof.rows[0].id, MATAM]
+      ));
+      directLedgerInsert = 'ok';
+    } catch (e) { directLedgerInsert = 'fail:' + e.message; }
+    check('merged: client cannot INSERT a fabricated redeem row into point_transactions directly', directLedgerInsert !== 'ok' && /permission denied/i.test(directLedgerInsert));
   }
 
   // =========================================================================

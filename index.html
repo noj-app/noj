@@ -2154,8 +2154,9 @@ function bind(){
     toast('تعديل المواعيد غير متاح في هذه النسخة التجريبية');
   }});
 
-  // "إلغاء" موعد: فعلي — يحدّث appointments.status ثم يحذف السطر من
-  // #apptList فقط (لا render() كامل للصفحة).
+  // "إلغاء" موعد: فعلي — عبر cancel_appointment() RPC (لا تحديث مباشر على
+  // appointments؛ الجدول مقفل أمام أي كتابة مباشرة من العميل) ثم يحذف
+  // السطر من #apptList فقط (لا render() كامل للصفحة).
   [].forEach.call(document.querySelectorAll('[data-cancel-appt]'),function(b){b.onclick=async function(){
     var apptId=b.getAttribute('data-cancel-appt');
     var mid=S.selMerchant;
@@ -2163,7 +2164,7 @@ function bind(){
     try{
       var sb=await getSb();
       if(!sb) throw new Error('supabase-client-unavailable');
-      var res=await sb.from('appointments').update({status:'cancelled'}).eq('id',apptId);
+      var res=await sb.rpc('cancel_appointment',{p_appointment_id:apptId});
       if(res.error) throw res.error;
       MERCHANT_APPOINTMENTS[mid]=(MERCHANT_APPOINTMENTS[mid]||[]).filter(function(a){return a.id!==apptId});
       var listEl=document.getElementById('apptList');

@@ -8,7 +8,12 @@
 -- transaction, so the ledger and the balance can never drift apart.
 --
 -- Requires supabase-migration-branches-devices.sql to already be applied
--- (point_transactions.branch_id/device_id reference it).
+-- (point_transactions.branch_id/device_id reference it), and
+-- supabase-migration-lockdown-direct-writes.sql to already be applied
+-- (the security fix that made redeem_reward() SECURITY DEFINER in the
+-- first place — this file's own redeem_reward() below is written as
+-- SECURITY DEFINER to match, regardless of which of the two files runs
+-- last, so this table is never left with an INVOKER redeem_reward().
 --
 -- ADDITIVE / SAFE: no existing table/column/row is altered or dropped.
 -- redeem_reward()'s signature and return type are unchanged (create or
@@ -95,41 +100,36 @@ create policy "select own point transactions"
     where p.id = point_transactions.user_id and p.auth_user_id = auth.uid()
   ));
 
--- redeem_reward() below is SECURITY INVOKER (deliberately — see its own
--- comment), so its ledger insert runs with the CALLER's own privileges and
--- needs a real grant + policy, same as the existing "insert own
--- redemptions" policy on public.redemptions already does for that table.
--- Scoped to type='redeem' ONLY, and only for the caller's own claimed
--- profile: a client can never insert an 'earn'/'opening_balance'/'adjust'
--- row this way, and a 'redeem' row here still requires whatever future
--- function/trigger validates the balance — this policy only says WHO may
--- attempt the insert, not that it is unconditionally trusted.
-drop policy if exists "insert own redeem transactions" on public.point_transactions;
-create policy "insert own redeem transactions"
-  on public.point_transactions for insert
-  with check (
-    type = 'redeem'
-    and exists (
-      select 1 from public.profiles p
-      where p.id = point_transactions.user_id and p.auth_user_id = auth.uid()
-    )
-  );
-
--- no update/delete policy for anon/authenticated at all, and no insert
--- policy for any other transaction type: 'earn'/'opening_balance'/'adjust'
--- rows are written only by a SECURITY DEFINER function or an admin/service
--- role, never directly by client code.
-grant select, insert on public.point_transactions to anon, authenticated;
+-- redeem_reward() below is SECURITY DEFINER (per supabase-migration-
+-- lockdown-direct-writes.sql's fix, applied earlier in the file order —
+-- see that file for why: an INVOKER function's own grant is exactly what
+-- let a client bypass it entirely and write the value directly). Its
+-- ledger insert therefore runs with the FUNCTION OWNER's privileges, not
+-- the caller's — no client-facing INSERT grant or policy is needed, or
+-- wanted: an insert policy here, however narrowly scoped to type='redeem'
+-- and the caller's own profile, would let a client fabricate a 'redeem'
+-- ledger row with no matching balance deduction ever happening, which
+-- defeats the one purpose this table exists for. No insert policy is
+-- created; the table is read-only to clients.
+--
+-- no update/delete/insert policy for anon/authenticated at all: every row
+-- ('earn'/'opening_balance'/'redeem'/'adjust') is written only by a
+-- SECURITY DEFINER function or an admin/service role, never directly by
+-- client code.
+grant select on public.point_transactions to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. redeem_reward(): unchanged signature/behavior from the customer's
 --    point of view, but now writes the ledger row in the SAME transaction
---    as the balance deduction — one commits, or neither does.
+--    as the balance deduction — one commits, or neither does. SECURITY
+--    DEFINER + pinned search_path, matching supabase-migration-lockdown-
+--    direct-writes.sql's discipline for every function that touches
+--    merchant_loyalty — see that file for the full rationale.
 -- ---------------------------------------------------------------------------
 create or replace function public.redeem_reward(p_reward_id uuid)
 returns public.merchant_loyalty
 language plpgsql
-security invoker
+security definer
 set search_path = public
 as $$
 declare
