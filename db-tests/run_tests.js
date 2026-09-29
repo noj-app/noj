@@ -54,6 +54,7 @@ async function admin(fn) {
       'supabase-migration-lockdown-direct-writes.sql',
       'supabase-migration-branches-devices.sql', 'supabase-migration-point-ledger.sql',
       'supabase-migration-loyalty-rate-expiry.sql', 'supabase-migration-consent-privacy.sql',
+      'supabase-migration-app-consent.sql',
     ].map(f => path.join(REPO_ROOT, f)),
   ];
   for (const f of filesBeforePhoneFormat) {
@@ -316,6 +317,56 @@ async function admin(fn) {
       earnGrandfathered = 'ok';
     } catch (e) { earnGrandfathered = 'fail:' + e.message; }
     check('consent: pre-existing (grandfathered) profile can still earn', earnGrandfathered === 'ok');
+  }
+
+  // =========================================================================
+  // 4b) grant_app_consent(): the actual key for the door consent-privacy.sql
+  //     built but never gave any UI a way to open — index.html now calls
+  //     this after every login for a profile with no active consent.
+  // =========================================================================
+  {
+    const consentUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [consentUid]));
+    const prof = await asUser(consentUid, c => c.query('select * from claim_or_create_profile($1) as p', ['522222220']));
+    const pid = prof.rows[0].id;
+
+    let earnBeforeConsent = null;
+    try {
+      await admin(c => c.query(
+        `insert into point_transactions (user_id, merchant_id, type, points_delta, source) values ($1,$2,'earn',10,'kiosk_manual')`,
+        [pid, MATAM]
+      ));
+      earnBeforeConsent = 'ok';
+    } catch (e) { earnBeforeConsent = 'fail:' + e.message; }
+    check('grant_app_consent: a brand-new profile has no consent yet, earn is rejected', earnBeforeConsent !== 'ok');
+
+    const grantRes = await asUser(consentUid, c => c.query('select * from grant_app_consent()'));
+    const granted = grantRes.rows[0];
+    check('grant_app_consent: records consent_type=data_processing, channel=app', granted.consent_type === 'data_processing' && granted.channel === 'app');
+    check('grant_app_consent: text_version is the fixed server-side constant', granted.text_version === 'app-consent-v1-2026-09');
+
+    let earnAfterConsent = null;
+    try {
+      await admin(c => c.query(
+        `insert into point_transactions (user_id, merchant_id, type, points_delta, source) values ($1,$2,'earn',10,'kiosk_manual')`,
+        [pid, MATAM]
+      ));
+      earnAfterConsent = 'ok';
+    } catch (e) { earnAfterConsent = 'fail:' + e.message; }
+    check('grant_app_consent: earn now succeeds for this same profile', earnAfterConsent === 'ok');
+
+    const grantAgain = await asUser(consentUid, c => c.query('select * from grant_app_consent()'));
+    check('grant_app_consent: calling it again returns the SAME existing row (idempotent)', grantAgain.rows[0].id === granted.id);
+    const consentCount = await admin(c => c.query('select count(*) from profile_consents where profile_id=$1', [pid]));
+    check('grant_app_consent: no duplicate consent row was created on the second call', Number(consentCount.rows[0].count) === 1);
+
+    // a second, unrelated profile granting its own consent must get its OWN
+    // row — never shared with or affecting the first profile's.
+    const otherConsentUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otherConsentUid]));
+    await asUser(otherConsentUid, c => c.query('select claim_or_create_profile($1)', ['522222221']));
+    const otherGrant = await asUser(otherConsentUid, c => c.query('select * from grant_app_consent()'));
+    check('grant_app_consent: a different profile gets its own separate consent row', otherGrant.rows[0].id !== granted.id);
   }
 
   // =========================================================================

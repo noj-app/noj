@@ -25,6 +25,7 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | `supabase-migration-consent-privacy.sql` | — | ترقية إضافية (امتثال نظام حماية البيانات الشخصية): موافقة معالجة البيانات لكل عميل + إنفاذها قبل أي حركة كسب نقاط، وطلب حذف البيانات (بصمة الجوال + تمويه الرقم بلا حذف السجل) — يتطلب `supabase-migration-point-ledger.sql` أولاً |
 | `supabase-migration-phone-format.sql` | — | ترقية إضافية: دالة توحيد صيغة رقم الجوال السعودي + قيد شكل صارم على `profiles.phone` — يتطلب `supabase-migration-consent-privacy.sql` أولاً |
 | `supabase-migration-timezone.sql` | — | ترقية إضافية: دالة `riyadh_today()` لأي منطق مستقبلي يعتمد على حدود اليوم بتوقيت السعودية |
+| `supabase-migration-app-consent.sql` | — | ترقية إضافية: `grant_app_consent()` — المفتاح الفعلي لبوابة الموافقة التي بناها `supabase-migration-consent-privacy.sql` بلا واجهة تستدعيها؛ يستدعيها `index.html` الآن بعد كل دخول لعميل بلا موافقة نشطة (راجع "موافقتك على معالجة بياناتك" في `index.html`) — يتطلب `supabase-migration-consent-privacy.sql` أولاً |
 | `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه، بما فيها ملف القفل الأمني — راجع `db-tests/README.md` |
 | `manifest.json` | — | بيان تثبيت `index.html` فقط (الاسم، الأيقونات، ألوان الهوية) |
 | `sw.js` | — | Service Worker يخزّن ملفات `index.html` مؤقتاً للعمل بلا اتصال (الواجهة فقط — البيانات الحيّة تحتاج اتصالاً بـ Supabase) |

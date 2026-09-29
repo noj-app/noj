@@ -608,6 +608,7 @@
   </div>
   <div id="view"></div>
 </div>
+<div id="consentOv"></div>
 <div class="ptr" id="ptr"><div class="ptr-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#12235C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0114-5"/><path d="M20 12a8 8 0 01-14 5"/><path d="M18 3v5h-5"/><path d="M6 21v-5h5"/></svg></div></div>
 
 <nav class="nav" id="nav"></nav>
@@ -762,6 +763,12 @@ S.confirmRedeem=null;
 // true أثناء إعادة الجلب بسحب الشاشة للأسفل (pull to refresh) — يُبقي
 // المحتوى الحالي ظاهرًا ويعرض مؤشر التحميل العلوي فقط، بلا هياكل تحميل.
 S.refreshing=false;
+// true إن لم يكن لدى الملف الشخصي الحالي موافقة معالجة بيانات نشطة (تُضبط
+// من loginAndLoad بعد كل دخول ناجح) — تعرض ورقة الموافقة، لكن لا تمنع أي
+// تصفّح أو تفاعل آخر في التطبيق إطلاقاً. consentDetailsOpen يتحكم فقط
+// بإظهار/إخفاء الشرح الكامل داخل نفس الورقة.
+S.showConsent=false;
+S.consentDetailsOpen=false;
 
 function formatDate(iso){
   var d=new Date(iso);
@@ -887,6 +894,18 @@ async function loginAndLoad(phone){
     PROFILE={id:prof.id,name:prof.name,phone:prof.phone,tier:prof.tier};
 
     await loadUserData(prof.id);
+
+    // موافقة معالجة البيانات: تُفحص بعد كل دخول ناجح، لا مرة واحدة فقط في
+    // حياة العميل — إن رفض/أجّل سابقاً، ولا تزال بلا صف نشط، تُعرض له
+    // الورقة من جديد في الدخول التالي (انظر consentSheet في APP RENDER).
+    // فشل هذا الفحص نفسه (مثلاً انقطاع اتصال) لا يوقف تسجيل الدخول —
+    // الأسوأ أن الورقة لا تظهر هذه المرة، لا أن يتعطل الدخول كله لأجلها.
+    try{
+      var consentRes=await sb.from('profile_consents').select('id')
+        .eq('profile_id',prof.id).eq('consent_type','data_processing').is('revoked_at',null).limit(1);
+      S.showConsent=!consentRes.error&&(!consentRes.data||!consentRes.data.length);
+    }catch(e){console.error('NOJ consent check error:',e)}
+
     return true;
   }catch(e){
     console.error('NOJ Supabase error:',e);
@@ -1612,6 +1631,29 @@ function more(){
   '<div class="note">NOJ — من الدفع تبدأ علاقتك المالية. هذه نسخة تجريبية توضح المرحلة الأولى من المنصة.</div>';
 }
 
+/* نص الموافقة على معالجة البيانات (data_processing) — مسوَّدة أولى تحتاج
+   مراجعة قانونية/امتثال قبل اعتمادها نهائياً، لا نصاً معتمداً. text_version
+   في grant_app_consent() (SQL) ثابتة منفصلة بالكامل عن هذا النص — تغيير أي
+   منهما لا يُغيّر الآخر تلقائياً؛ عدّل كليهما معاً عند أي تحديث فعلي للصياغة. */
+var CONSENT_SHORT_TEXT='لعرض فواتيرك ورصيد نقاطك وتحديثهما، تحتاج NOJ لمعالجة رقم جوالك وبيانات مشترياتك ونقاط ولائك لدى كل تاجر تتعامل معه عبر المنصة. دون موافقتك يمكنك تصفح التطبيق كما هو، لكن لن تُكسَب لك نقاط جديدة.';
+var CONSENT_FULL_TEXT='<b>ما الذي نجمعه:</b> رقم جوالك، الفواتير والمشتريات المرتبطة به، ورصيد النقاط والمكافآت لدى كل تاجر مستقل ضمن منصة NOJ.<br><br>'+
+  '<b>لماذا:</b> لعرض تاريخ مشترياتك، حساب نقاط الولاء وتحديثها، وتمكينك من استبدال المكافآت.<br><br>'+
+  '<b>كيف تُحفَظ:</b> بياناتك مرتبطة برقم جوالك فقط، ولا تُشارَك مع أي جهة خارج تشغيل خدمة NOJ.<br><br>'+
+  '<b>حقوقك:</b> لك الحق في طلب الاطلاع على بياناتك أو حذفها في أي وقت بالتواصل مع فريق الدعم؛ حذف البيانات لا يمحو سجل الفواتير المرتبط بتجار آخرين حيث تستوجب الأنظمة المحاسبية الاحتفاظ به.<br><br>'+
+  'هذه الموافقة خاصة بمعالجة البيانات لتشغيل الخدمة فقط، ولا تشمل الرسائل التسويقية (تُدار من إعداد منفصل في الإشعارات).';
+function consentSheet(){
+  var moreBtn='<button id="consentMoreBtn" style="background:none;border:none;color:var(--blue);font-weight:700;font-size:13px;padding:0;margin-top:10px;cursor:pointer">'+(S.consentDetailsOpen?'إخفاء التفاصيل':'قراءة التفاصيل كاملة قبل الموافقة')+'</button>';
+  var more=S.consentDetailsOpen?('<div style="font-size:12.5px;color:var(--muted);line-height:1.9;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">'+CONSENT_FULL_TEXT+'</div>'):'';
+  return '<div class="ov" id="ovConsent"><div class="sheet" id="sheetConsent">'+
+    '<div class="sheet-head"><h3>موافقتك على معالجة بياناتك</h3><button id="clsConsent">'+ic('x',18,'#12235C')+'</button></div>'+
+    '<div class="sheet-body"><div style="font-size:13px;color:var(--muted);line-height:1.8">'+CONSENT_SHORT_TEXT+'</div>'+moreBtn+more+'</div>'+
+    '<div class="sheet-foot" style="display:flex;flex-direction:column;gap:8px">'+
+      '<button class="btn" id="agreeConsent">أوافق</button>'+
+      '<button id="laterConsent" style="background:none;border:none;color:var(--muted);font-size:13px;padding:6px;cursor:pointer">ليس الآن</button>'+
+    '</div>'+
+  '</div></div>';
+}
+
 function clearConfirmSheet(){
   return '<div class="ov" id="ovClear"><div class="sheet" id="sheetClear">'+
     '<div class="sheet-head"><h3>مسح جميع البيانات؟</h3><button id="clsClear">'+ic('x',18,'#12235C')+'</button></div>'+
@@ -1893,6 +1935,7 @@ function logoutFlow(){
   QUEUE={ticket:null,label:'',merchantId:null};
   INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];USER_MERCHANTS=[];MERCHANT_QUEUE_STATS={};
   S.selMerchant=null;
+  S.showConsent=false;S.consentDetailsOpen=false;
   var el=document.getElementById('auth');
   el.style.display='';el.style.opacity='';el.style.transform='';
   document.getElementById('app').style.display='none';
@@ -1933,8 +1976,11 @@ function render(){
   // إخفاء الشريط السفلي أثناء فتح أي نافذة منبثقة (.ov/.sheet) — كان
   // ظاهرًا خلف خلفية النافذة شبه الشفافة (glass) فيبدو متسربًا فوق أسفل
   // محتواها. أوثق حل: إخفاؤه فعليًا بدل الاعتماد على ترتيب z-index وحده.
-  var sheetOpen=!!S.sel||S.showClear||!!S.confirmRedeem;
+  var sheetOpen=!!S.sel||S.showClear||!!S.confirmRedeem||S.showConsent;
   navEl.style.display=sheetOpen?'none':'';
+  // ورقة الموافقة عنصر مستقل عن #view (تظهر بصرف النظر عن التبويب الحالي)
+  // — تُحدَّث هنا دائماً بمعزل عن V[S.tab]() في أعلى الدالة.
+  document.getElementById('consentOv').innerHTML=S.showConsent?consentSheet():'';
   bind();
   var total=CATS.reduce(function(s,c){return s+c.a},0);
   var heroNum=document.getElementById('heroNum');
@@ -1978,6 +2024,36 @@ function bind(){
       S.showClear=false;
       logoutFlow();
       toast('تم مسح البيانات بنجاح');
+    };
+  }
+
+  var ovConsent=document.getElementById('ovConsent');
+  if(ovConsent){
+    // النقر على الخلفية أو "ليس الآن" كلاهما مجرد تأجيل — لا يمنعان
+    // العميل من التصفح، وستعاود الورقة الظهور في الدخول التالي طالما لا
+    // تزال موافقته غير مسجَّلة (نفس فحص loginAndLoad في كل مرة).
+    ovConsent.onclick=function(){S.showConsent=false;render()};
+    document.getElementById('sheetConsent').onclick=function(e){e.stopPropagation()};
+    document.getElementById('clsConsent').onclick=function(){S.showConsent=false;render()};
+    document.getElementById('laterConsent').onclick=function(){S.showConsent=false;render()};
+    var moreBtn=document.getElementById('consentMoreBtn');
+    if(moreBtn)moreBtn.onclick=function(){S.consentDetailsOpen=!S.consentDetailsOpen;render()};
+    document.getElementById('agreeConsent').onclick=async function(){
+      var btn=document.getElementById('agreeConsent');
+      btn.disabled=true;btn.textContent='جارٍ الحفظ...';
+      try{
+        var sb=await getSb();
+        if(!sb)throw new Error('supabase-client-unavailable');
+        var res=await sb.rpc('grant_app_consent');
+        if(res.error)throw res.error;
+        S.showConsent=false;
+        render();
+        toast('شكراً لموافقتك');
+      }catch(e){
+        console.error('NOJ grant_app_consent error:',e);
+        btn.disabled=false;btn.textContent='أوافق';
+        toast('تعذّر حفظ موافقتك، حاول مرة أخرى');
+      }
     };
   }
 
