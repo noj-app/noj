@@ -45,7 +45,7 @@ async function admin(fn) {
   execSync(`su postgres -c "psql -q -c \\"alter role postgres password 'postgres';\\""`);
   // 00_auth_stub.sql lives in this directory; every supabase-*.sql file
   // being tested lives at the repo root, exactly as committed.
-  const files = [
+  const filesBeforePhoneFormat = [
     path.join(__dirname, '00_auth_stub.sql'),
     ...[
       'supabase-schema.sql', 'supabase-migration-merchant-features.sql',
@@ -54,13 +54,61 @@ async function admin(fn) {
       'supabase-migration-lockdown-direct-writes.sql',
       'supabase-migration-branches-devices.sql', 'supabase-migration-point-ledger.sql',
       'supabase-migration-loyalty-rate-expiry.sql', 'supabase-migration-consent-privacy.sql',
-      'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
     ].map(f => path.join(REPO_ROOT, f)),
   ];
-  for (const f of files) {
+  for (const f of filesBeforePhoneFormat) {
+    execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
+  }
+
+  // reproduce, BEFORE phone-format.sql ever runs, the exact live incident:
+  // a guest-session profile whose phone is an empty string (not SQL NULL —
+  // profiles.phone is still `not null` at this point in the chain), created
+  // by claim_or_create_profile() when index.html's loginAndLoad(A.phone)
+  // runs with a lost/never-saved A.phone. phone-format.sql must normalize
+  // this to NULL and succeed, not error like it did on the live project.
+  const uidNoPhone = crypto.randomUUID();
+  await admin(c => c.query('insert into auth.users (id) values ($1)', [uidNoPhone]));
+  await admin(c => c.query(`insert into profiles (phone, auth_user_id) values ('', $1)`, [uidNoPhone]));
+
+  const filesFromPhoneFormat = [
+    'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
+  ].map(f => path.join(REPO_ROOT, f));
+  for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
   }
   console.log('Rebuild done.\n');
+
+  // =========================================================================
+  // 0) THE LIVE INCIDENT: a pre-existing empty-string phone must survive
+  //    phone-format.sql (normalized to NULL, not rejected), and the
+  //    now-nullable, still-unique column must not let a SECOND blank-phone
+  //    guest collide with the first one.
+  // =========================================================================
+  {
+    const row = await admin(c => c.query(
+      `select phone, phone is null as is_null from profiles where auth_user_id = $1`,
+      [uidNoPhone]
+    ));
+    check('phone-format: a pre-existing empty-string phone is normalized to NULL, not rejected', row.rows[0].is_null === true);
+
+    let secondBlankGuestOk = null;
+    try {
+      await admin(c => c.query(`insert into profiles (phone, auth_user_id) values (null, null)`));
+      secondBlankGuestOk = 'ok';
+    } catch (e) { secondBlankGuestOk = 'fail:' + e.message; }
+    check('phone-format: a SECOND blank-phone profile does not collide with the first (NULL <> NULL under UNIQUE)', secondBlankGuestOk === 'ok');
+
+    let emptyStringRejected = null;
+    try {
+      await admin(c => c.query(`insert into profiles (phone, auth_user_id) values ('', null)`));
+      emptyStringRejected = 'ok';
+    } catch (e) { emptyStringRejected = 'fail:' + e.message; }
+    check('phone-format: a NEW empty-string phone is now rejected outright (loud failure, not silent merge)', emptyStringRejected !== 'ok' && /profiles_phone_format_chk/.test(emptyStringRejected));
+
+    const nullChecks = await admin(c => c.query(`select normalize_sa_phone(null) as n1, normalize_sa_phone('') as n2`));
+    check('normalize_sa_phone(NULL) returns NULL without erroring', nullChecks.rows[0].n1 === null);
+    check("normalize_sa_phone('') returns NULL without erroring", nullChecks.rows[0].n2 === null);
+  }
 
   const MATAM = '20000000-0000-0000-0000-000000000001'; // مطعم مذاق
   const DEMO_PROFILE = '11111111-1111-1111-1111-111111111111';
