@@ -670,6 +670,20 @@ async function admin(fn) {
     });
     check('kiosk_lookup_customer_points: an unpaired device is refused entirely', unpairedLookup !== 'ok' && /غير مقارَن/.test(unpairedLookup));
 
+    // a genuinely unregistered visitor (anon key -> self-signed-in anonymous
+    // session, but NEVER called request_device_pairing() at all — no devices
+    // row exists for this auth_user_id whatsoever, not even an unpaired one)
+    // must be refused identically. This is the exact scenario raised about
+    // "can anyone with the public anon key query any phone's balance?" —
+    // empirical proof, not just code-reading, that they cannot.
+    const strangerSessionUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [strangerSessionUid]));
+    const trueStrangerLookup = await asUser(strangerSessionUid, async c => {
+      try { await c.query('select kiosk_lookup_customer_points($1)', ['512345678']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_lookup_customer_points: a session with NO devices row at all (never paired, never even requested) is refused — proves the public anon key alone grants nothing', trueStrangerLookup !== 'ok' && /غير مقارَن/.test(trueStrangerLookup));
+
     const strangerLookup = await asUser(kioskUid, async c => {
       try { await c.query('select kiosk_lookup_customer_points($1)', ['511111110']); return 'ok'; }
       catch (e) { return 'fail:' + e.message; }

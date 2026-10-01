@@ -1514,15 +1514,22 @@ function renderConnFatal(){
    يدوي حالياً (عبر Supabase Studio من طرف التاجر) لا من هذه الشاشة —
    "تحقق الآن" تسأل الخادم فوراً هل اعتُمد الرمز، والاستطلاع التلقائي كل
    15 ثانية يغطي حالة نسيان الضغط على الزر. */
+/* شاشة الإقران: أول ما يراه الكاشير صباحاً إن لم يكن الجهاز مُقارَناً بعد
+   (أو بعد أي تحديث يُعيد تعيين الجهاز) — قد تظهر فجأة بلا سياق سابق، فلا
+   يكفي رمز مجرد. العنوان والنص يوضّحان صراحة: هذه خطوة إعداد عادية لمرة
+   واحدة لا عطل، ومن المسؤول عن حلّها (المسؤول عن الحساب، لا الكاشير
+   نفسه)، وأن الشاشة ستتابع عملها تلقائياً بلا أي تدخّل إضافي بمجرد
+   اكتمال الربط. */
 function pairingScreen(){
   var code=S.pairingCodeLive||'------';
-  return '<div class="idle" style="justify-content:center;align-items:center;text-align:center;gap:16px">'+
-   '<div class="idle-mid" style="align-items:center">'+
+  return '<div class="idle" style="justify-content:center;align-items:center;text-align:center;gap:14px">'+
+   '<div class="idle-mid" style="align-items:center;max-width:420px">'+
     '<div style="width:64px;height:64px;border-radius:18px;background:#12235C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;margin-bottom:10px">N</div>'+
-    '<h1>إقران الجهاز</h1>'+
-    '<p class="idle-slogan">أعطِ هذا الرمز لفريق NOJ أو لمسؤول حسابك لربط هذا الجهاز بفرعك</p>'+
-    '<div style="font-size:52px;font-weight:800;letter-spacing:8px;color:#12235C;margin:20px 0;direction:ltr">'+escAttr(code)+'</div>'+
-    '<button id="pairingRecheckBtn" class="adm-testbtn">تحقق الآن</button>'+
+    '<h1>تجهيز الجهاز لأول مرة</h1>'+
+    '<p class="idle-slogan">هذا الجهاز يحتاج ربطاً لمرة واحدة فقط بفرعك قبل أن يبدأ العمل — هذه خطوة إعداد طبيعية، وليست عطلاً في الجهاز.</p>'+
+    '<div style="font-size:52px;font-weight:800;letter-spacing:8px;color:#12235C;margin:18px 0 6px;direction:ltr">'+escAttr(code)+'</div>'+
+    '<p style="font-size:13px;color:var(--muted);line-height:1.8;margin-bottom:4px">تواصل مع المسؤول عن حساب NOJ لديكم وأعطِه هذا الرمز لإكمال الربط من جهته. ستنتقل هذه الشاشة تلقائياً إلى وضع العمل العادي بمجرد إتمامه، بلا أي خطوة إضافية منك.</p>'+
+    '<button id="pairingRecheckBtn" class="adm-testbtn" style="margin-top:10px">تحقق الآن</button>'+
     '<div class="warn" id="pairingScreenWarn" style="margin-top:12px"></div>'+
    '</div></div>';
 }
