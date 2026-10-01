@@ -733,11 +733,58 @@ function leftoverOkItem(c){
   return extra[0]||null;
 }
 
+/* ================= SUPABASE =================
+   نفس مشروع index.html بالضبط (نفس المفتاح العلني anon — آمن للتضمين،
+   الحماية الفعلية عبر RLS لا سرّية المفتاح)، ونفس أسلوب الاستيراد
+   الديناميكي حتى يبقى هذا السكربت classic بلا type="module". */
+const SUPABASE_URL='https://jqddjswxsacejbqjeehw.supabase.co';
+const SUPABASE_KEY='sb_publishable_tv2luaaynJu1c5Ce9loWFg_GQmMRTD-';
+let __sbPromise=null;
+function getSb(){
+  if(!__sbPromise){
+    __sbPromise=(async function(){
+      if(window.__NOJ_SUPABASE_CLIENT__) return window.__NOJ_SUPABASE_CLIENT__;
+      try{
+        const mod=await import('https://esm.sh/@supabase/supabase-js@2');
+        return mod.createClient(SUPABASE_URL,SUPABASE_KEY);
+      }catch(e){
+        console.error('NOJ kiosk: تعذّر تحميل مكتبة Supabase',e);
+        return null;
+      }
+    })();
+  }
+  return __sbPromise;
+}
+
+/* ================= DEVICE (إقران + سياق الفرع) =================
+   DEVICE لا تُحفَظ هي نفسها محلياً — الجلسة المجهولة تُحفَظ تلقائياً عبر
+   supabase-js نفسه (localStorage الخاص به)، فكل ما نحتاج تخزينه نحن هو
+   "آخر سياق فرع معروف" (DEVICE_CACHE) للعمل حين ينقطع الاتصال لحظياً،
+   مع بقاء قاعدة البيانات المصدر الرسمي دائماً (تُستدعى من جديد في كل
+   إقلاع، لا تُقرأ من الكاش إلا عند فشل الاتصال فعلاً). */
+var DEVICE={branchId:null,merchantId:null,merchantName:null,merchantType:null,pointsRate:null,connError:false};
+var DEVICE_CACHE_KEY='noj_kiosk_device_cache';
+function loadDeviceCache(){
+  try{
+    var raw=localStorage.getItem(DEVICE_CACHE_KEY);
+    if(!raw)return null;
+    var parsed=JSON.parse(raw);
+    return parsed&&typeof parsed==='object'&&parsed.branchId?parsed:null;
+  }catch(e){return null}
+}
+function saveDeviceCache(d){
+  try{localStorage.setItem(DEVICE_CACHE_KEY,JSON.stringify(d))}
+  catch(e){console.error('NOJ kiosk: تعذّر حفظ سياق الجهاز',e)}
+}
+
 /* ================= DEVICE SETTINGS (persisted) =================
    إعدادات الجهاز المحمية (القطاع، بيانات المنشأة، ربط نظام الكاشير،
-   الوضع) — تُحفظ في localStorage فتبقى بعد إعادة تشغيل الجهاز. رمز
-   الدخول (ADMIN_PIN) قيمة تجريبية ثابتة فقط، ولا يوجد أي مفتاح API أو
-   بيانات اعتماد حقيقية في هذا الملف. */
+   الوضع) — تُحفظ في localStorage فتبقى بعد إعادة تشغيل الجهاز، وتُحدَّث
+   من branch_settings في قاعدة البيانات بعد كل إقران/إقلاع ناجح (انظر
+   applyBranchSettingsToLocal) — القاعدة هي المصدر الرسمي، والتخزين
+   المحلي هنا نسخة احتياطية لعمل الشاشة لو انقطع الاتصال لحظياً فقط.
+   رمز الدخول (ADMIN_PIN) قيمة تجريبية ثابتة فقط، ولا يوجد أي مفتاح API
+   أو بيانات اعتماد حقيقية في هذا الملف. */
 var ADMIN_PIN='1234';
 var SETTINGS_KEY='noj_kiosk_settings';
 
@@ -795,7 +842,10 @@ function currentBiz(){
   return {name:name,bareName:bareName,branch:branch,slogan:slogan,logo:logo};
 }
 
-var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:'',page:'idle'};
+/* page تبدأ 'connecting' الآن (لا 'idle' مباشرة) — bootKiosk() في نهاية
+   الملف هي من تقرر الصفحة الفعلية الأولى (pairing/idle) بعد التحقق من
+   حالة الإقران، فلا تظهر شاشة الخمول قبل التأكد أن الجهاز مُقارَن فعلاً. */
+var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:'',page:'connecting',pairingCodeLive:null};
 /* علم تجريبي مؤقت: يظهر زر صغير غير بارز في شاشة الخمول لنقل الشاشة
    يدوياً إلى الشاشة الرئيسية (main)، لأن الربط الفعلي مع نقطة البيع
    (الذي سيتولى هذا الانتقال تلقائياً عند بدء عملية دفع حقيقية) غير
@@ -812,10 +862,16 @@ function cardOn(id){
   return v!==false;
 }
 /* نقاط هذه الفاتورة تحديداً (لا رصيد العميل الكلي) = مبلغ الفاتورة ×
-   معامل التحويل الخاص بالقطاع (c.pointsRate) — معروفة فوراً من لحظة
-   صدور الفاتورة، بلا أي انتظار لتعرّف العميل، تماماً كمبلغ الفاتورة
-   نفسه. لا تُستدعى إلا حين c.hasPoints=true. */
-function invoicePoints(c){return Math.round(parseFloat(c.invoiceAmount)*c.pointsRate)}
+   معامل التحويل — معروفة فوراً من لحظة صدور الفاتورة، بلا أي انتظار
+   لتعرّف العميل، تماماً كمبلغ الفاتورة نفسه. لا تُستدعى إلا حين
+   c.hasPoints=true. المعامل نفسه: DEVICE.pointsRate (الحقيقي من
+   merchants.points_rate) في الوضع المباشر إن كان محمَّلاً فعلاً؛ وإلا
+   (الوضع التجريبي، أو تعذّر تحميله) c.pointsRate الثابت كما كان دائماً
+   — لا تغيير على الوضع التجريبي بأي حال. */
+function invoicePoints(c){
+  var rate=(SETTINGS.mode==='live'&&DEVICE.pointsRate)?DEVICE.pointsRate:c.pointsRate;
+  return Math.round(parseFloat(c.invoiceAmount)*rate);
+}
 
 /* ================= CUSTOMER IDENTIFICATION (الرصيد التراكمي) =========
    بطاقتا الولاء/الدور في الشاشة الرئيسية (leftCol) تعرضان بيانات هذه
@@ -828,30 +884,44 @@ function invoicePoints(c){return Math.round(parseFloat(c.invoiceAmount)*c.points
    - identified  : تم العثور على حساب العميل — CUST.points يحمل رصيده
                    السابق (للقوالب ذات نقاط)، وCUST.queue يحمل رقم دوره
                    الفعلي (يُستخدَم كمصدر أول لرقم التذكرة في success()).
-   - notfound    : لا حساب مرتبط بهذا الرقم — لا بطاقة رصيد في الشاشة
-                   الثالثة حينها. */
-var CUST={status:'guest',points:null,queue:null};
+   - notfound    : لا حساب مرتبط بهذا الرقم (أو تعذّر الاتصال أثناء
+                   البحث — CUST.pointsError تُميِّز الحالتين) — بطاقة
+                   الولاء في الشاشة الثالثة تعرض رسالة توضيحية بدل
+                   الاختفاء التام في هذه الحالة، لا بطاقة رصيد عادية.
+   CUST.added: نقاط هذه الزيارة الفعلية بعد استدعاء kiosk_earn_points
+   (null حتى تكتمل محاولة الكتابة في sendInvoice). CUST.earnFailReason:
+   سبب فشل الكتابة إن فشلت ('notfound'|'consent'|'disabled'|'error')،
+   لعرض رسالة مفهومة للكاشير بدل رقم مُلفَّق. */
+var CUST={status:'guest',points:null,queue:null,pointsError:false,added:null,earnFailReason:null};
 function resetCustomerState(){
-  CUST.status='guest';CUST.points=null;CUST.queue=null;
+  CUST.status='guest';CUST.points=null;CUST.queue=null;CUST.pointsError=false;CUST.added=null;CUST.earnFailReason=null;
 }
 /* دالة معزولة هي المصدر الوحيد لأي رقم نقاط ولاء في الواجهة — ممنوع وضع
    أي رقم ثابت آخر خارجها. تُعيد رصيد العميل السابق (قبل إضافة نقاط هذه
-   الفاتورة — تلك تُحسَب بمعزل عبر invoicePoints(c))، ثم تُجمَع القيمتان
-   في ملخص الرصيد على الشاشة الثالثة. نقطة الربط المستقبلية الحقيقية:
-   استبدل جسم هذه الدالة باستعلام فعلي بمجرد ربط الجهاز بقاعدة بيانات
-   (مثلاً Supabase: select loyalty_points from profiles where phone = phone).
-   تُعيد رقم النقاط عند وجود حساب، أو null عند عدم وجوده. لا تُستدعى
-   إطلاقاً قبل أن يبدأ العميل عملية التعرّف بنفسه. تُستخدَم فقط للقوالب
-   ذات topCard.kind==='points' (المقهى والمطعم). */
-function getLoyaltyPoints(phone){
-  // TODO: نقطة الربط الحقيقي المستقبلي — استبدل السطرين التاليين
-  // باستعلام حقيقي على قاعدة البيانات باستخدام phone.
-  if(SETTINGS.mode==='demo'){
+   الفاتورة — تلك تُحسَب لاحقاً عبر sendInvoice/kiosk_earn_points)، ثم
+   تُجمَع القيمتان في ملخص الرصيد على الشاشة الثالثة. في الوضع المباشر:
+   استعلام حقيقي عبر kiosk_lookup_customer_points (توحيد الجوال يتم
+   داخلها عبر normalize_sa_phone)، ولا تُنشئ حساباً أبداً إن لم يوجد —
+   تُعيد {status:'notfound'} بدل ذلك. لا تُستدعى إطلاقاً قبل أن يبدأ
+   العميل عملية التعرّف بنفسه. تُستخدَم فقط للقوالب ذات
+   topCard.kind==='points' (المقهى والمطعم والبقالة). */
+async function getLoyaltyPoints(phone){
+  if(SETTINGS.mode!=='live'){
     // رقم تجريبي ثابت لأغراض العرض في "الوضع التجريبي" فقط، ولا يُعاد
     // أبداً قبل التعرّف (لا يُقرأ هذا الفرع إلا من داخل identifyCustomer).
-    return 258;
+    return {status:'ok',points:258};
   }
-  return null; // الوضع المباشر: لا اتصال حقيقي بعد، فلا حساب معروف
+  var sb=await getSb();
+  if(!sb)return {status:'error'};
+  try{
+    var res=await sb.rpc('kiosk_lookup_customer_points',{p_phone:phone});
+    if(res.error)throw res.error;
+    return {status:'ok',points:Number(res.data)};
+  }catch(e){
+    if(/NOJ_CUSTOMER_NOT_FOUND/.test(e.message||''))return {status:'notfound'};
+    console.error('NOJ kiosk: kiosk_lookup_customer_points error',e);
+    return {status:'error'};
+  }
 }
 /* دالة معزولة مماثلة هي المصدر الوحيد لأي رقم دور/عدد منتظرين/بيانات
    عيادة في الواجهة — ممنوع وضع أي رقم ثابت آخر خارجها. نقطة الربط
@@ -892,19 +962,23 @@ function getQueueInfo(phone){
      ظاهرة حين يعود لاحقاً إلى الشاشة الرئيسية. */
 function identifyCustomer(phone,cb){
   if(CUST.status==='identifying')return;
-  CUST.status='identifying';CUST.points=null;CUST.queue=null;
+  CUST.status='identifying';CUST.points=null;CUST.queue=null;CUST.pointsError=false;
   setTimeout(function(){
     var q=getQueueInfo(phone);
     CUST.queue=q;
     if(C().topCard.kind==='points'){
-      var pts=getLoyaltyPoints(phone);
-      if(pts===null){CUST.status='notfound'}
-      else{CUST.status='identified';CUST.points=pts}
+      getLoyaltyPoints(phone).then(function(result){
+        if(result.status==='ok'){CUST.status='identified';CUST.points=result.points}
+        else if(result.status==='notfound'){CUST.status='notfound'}
+        else{CUST.status='notfound';CUST.pointsError=true}
+        if(S.view!=='main'){resetCustomerState();return}
+        if(cb)cb();
+      });
     }else{
       CUST.status=q?'identified':'notfound';
+      if(S.view!=='main'){resetCustomerState();return}
+      if(cb)cb();
     }
-    if(S.view!=='main'){resetCustomerState();return}
-    if(cb)cb();
   },120);
 }
 
@@ -1117,7 +1191,9 @@ function idleScreen(){
   var btn=cat.idleMenuBtn;
   return '<div class="idle">'+
    '<div class="idle-hd">'+
-    '<div class="idle-clock" id="idleClock">'+idleClockInner()+'</div>'+
+    '<div class="idle-clock" id="idleClock">'+idleClockInner()+
+     (DEVICE.connError?'<div style="font-size:11px;color:#C47A1E;font-weight:700;margin-top:4px">غير متصل — تُعرض بيانات محفوظة</div>':'')+
+    '</div>'+
     '<div class="idle-noj">'+
      '<button class="idle-noj-btn" id="idleNojBtn" aria-label="إعدادات التاجر (اضغط مطولاً ثانية ونصف)">'+
       '<svg class="noj-ring" viewBox="0 0 58 58" aria-hidden="true"><circle cx="29" cy="29" r="25"/></svg>'+
@@ -1288,21 +1364,44 @@ function maskPhone(d){
   if(!d||d.length<9)return d;
   return d.slice(0,2)+' *** **'+d.slice(-2);
 }
+/* رسالة مفهومة للكاشير عند فشل تسجيل نقاط هذه الزيارة فعلياً (الرصيد
+   السابق الحقيقي يبقى معروضاً كما هو — هذه فقط توضّح لماذا لم تُضَف
+   نقاط جديدة له الآن، بدل رقم مُلفَّق). */
+function earnFailMessage(reason){
+  if(reason==='consent')return 'هذا العميل لم يوافق على معالجة بياناته داخل تطبيق NOJ بعد، فلم تُسجَّل له نقاط هذه الزيارة.';
+  if(reason==='disabled')return 'تسجيل النقاط الحقيقي غير مُفعَّل لهذا الفرع بعد.';
+  if(reason==='notfound')return 'تعذّر تسجيل النقاط لهذا الحساب.';
+  return 'تعذّر تسجيل نقاط هذه الزيارة، حاول مرة أخرى لاحقاً.';
+}
 /* بطاقة نقاط الولاء ضمن صف بطاقات شاشة النجاح (.got) — بنفس أبعاد/حواف
-   أخواتها بالضبط (icon أعلاها ثم عنوان)، مع ملخص الرصيد (سابق + نقاط
-   هذه الفاتورة + الإجمالي الجديد) مرتّباً بشكل مضغوط مكان النص الإرشادي
-   المعتاد، بلا أي تكبير للبطاقة. الاختلاف الوحيد المقصود عن أخواتها هو
-   خلفيتها الصفراء الفاتحة (كلاس g-pts) لتمييزها بصرياً. للقطاعات ذات
-   برنامج نقاط فقط (hasPoints=true)، وبعد نجاح التعرّف فعلياً؛ في notfound
-   لا حساب أصلاً لتحديثه، وفي القطاع الطبي (hasPoints=false) لا تُرندَر
-   هذه البطاقة إطلاقاً — شاشته الثالثة تكتفي بتأكيد الربط ورقم الدور. */
+   أخواتها بالضبط (icon أعلاها ثم عنوان). ثلاث حالات بعد نجاح التعرّف
+   الفعلي (hasPoints=true فقط؛ القطاع الطبي لا يملك هذه البطاقة إطلاقاً):
+   - CUST.status==='notfound': لا حساب NOJ لهذا الرقم (أو تعذّر الاتصال
+     أثناء البحث، CUST.pointsError) — رسالة توضيحية بدل الاختفاء التام،
+     لا بطاقة رصيد وهمية ولا بطاقة مختفية بصمت.
+   - CUST.status==='identified': ملخص الرصيد (سابق + نقاط هذه الزيارة +
+     الإجمالي) — "نقاط هذه الزيارة" هي CUST.added الحقيقية من
+     kiosk_earn_points إن نجحت الكتابة، لا invoicePoints(c) المُقدَّرة
+     (التي تبقى صحيحة فقط للمعاينة في الشاشة الثانية قبل أي كتابة فعلية).
+     فشلت الكتابة (أياً كان السبب) → مضاف=0 + earnFailMessage توضيحية،
+     لا رقم مزعوم لم يُكتب فعلاً.
+   كلاهما يخضع أيضاً لـ cardOn('loyaltyPoints') كالسابق. */
 function loyaltyOkCard(c){
-  if(!c.hasPoints||CUST.status!=='identified'||!cardOn('loyaltyPoints'))return '';
-  var added=invoicePoints(c),prev=CUST.points||0,total=prev+added;
+  if(!c.hasPoints||!cardOn('loyaltyPoints'))return '';
+  if(CUST.status==='notfound'){
+    var msg=CUST.pointsError?'تعذّر الاتصال بالخادم لعرض رصيد النقاط. حاول مرة أخرى بعد قليل.':'لم يُعثر على حساب NOJ لهذا الرقم. اطلب من العميل تحميل تطبيق NOJ والتسجيل للاستفادة من النقاط في زياراته القادمة.';
+    return '<div class="g g-pts"><div class="g-i" style="background:#fff">'+icF('bell',22,'#8A93AD')+'</div>'+
+     '<b>نقاط الولاء</b>'+
+     '<div style="font-size:12.5px;color:var(--muted);line-height:1.7;margin-top:6px">'+msg+'</div></div>';
+  }
+  if(CUST.status!=='identified')return '';
+  var added=(CUST.added!=null)?CUST.added:invoicePoints(c);
+  var prev=CUST.points||0,total=prev+added;
+  var note=CUST.earnFailReason?('<div style="font-size:11.5px;color:var(--muted);margin-top:4px">'+earnFailMessage(CUST.earnFailReason)+'</div>'):'';
   return '<div class="g g-pts"><div class="g-i" style="background:#fff">'+icF('star',22,'#C99A2E')+'</div>'+
    '<b>نقاط الولاء</b>'+
    '<div class="g-pts-total">'+total+' <span>نقطة</span></div>'+
-   '<div class="g-pts-break">سابق '+prev+' + مضاف '+added+'</div></div>';
+   '<div class="g-pts-break">سابق '+prev+' + مضاف '+added+'</div>'+note+'</div>';
 }
 function success(){
   var c=C();
@@ -1375,8 +1474,201 @@ function playEntrance(el){
   });
 }
 function render(){
+  if(S.page==='connecting'){renderConnecting();return}
+  if(S.page==='connFatal'){renderConnFatal();return}
+  if(S.page==='pairing'){renderPairing();return}
   if(S.page==='idle'){renderIdle();renderLayer();return}
   renderMain();renderLayer();
+}
+
+/* ================= BOOT / PAIRING =================
+   أربع صفحات أعلى مستوى جديدة قبل idle/main المعتادتين:
+   'connecting' (فوراً عند الإقلاع، قبل معرفة أي شيء) → 'pairing' (جهاز
+   غير مُقارَن، يعرض رمزاً) أو 'connFatal' (تعذّر الاتصال ولا يوجد سياق
+   محفوظ للرجوع إليه) أو مباشرة 'idle' (مُقارَن فعلاً، سياق محمَّل). */
+function connectingScreen(){
+  return '<div class="idle" style="justify-content:center;align-items:center;text-align:center;gap:14px">'+
+   '<div class="idle-mid" style="align-items:center">'+
+    '<div style="width:56px;height:56px;border-radius:16px;background:#12235C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800">N</div>'+
+    '<p class="idle-slogan" style="margin-top:14px">جارٍ الاتصال...</p>'+
+   '</div></div>';
+}
+function renderConnecting(){
+  document.getElementById('screen').innerHTML=connectingScreen();
+}
+function connFatalScreen(){
+  return '<div class="idle" style="justify-content:center;align-items:center;text-align:center;gap:18px">'+
+   '<div class="idle-mid" style="align-items:center">'+
+    '<h1>تعذّر الاتصال بالخادم</h1>'+
+    '<p class="idle-slogan">تحقّق من اتصال الجهاز بالإنترنت ثم حاول مرة أخرى</p>'+
+    '<button id="connRetryBtn" class="adm-testbtn" style="margin-top:10px">إعادة المحاولة</button>'+
+   '</div></div>';
+}
+function renderConnFatal(){
+  document.getElementById('screen').innerHTML=connFatalScreen();
+  var b=document.getElementById('connRetryBtn');
+  if(b)b.onclick=function(){bootKiosk()};
+}
+/* شاشة الإقران — كاملة الشاشة، لا طبقة (layer) فوق شاشة أخرى، لأنه لا
+   معنى لعرض idle/main قبل معرفة أي فرع يتبعه الجهاز أصلاً. الاعتماد
+   يدوي حالياً (عبر Supabase Studio من طرف التاجر) لا من هذه الشاشة —
+   "تحقق الآن" تسأل الخادم فوراً هل اعتُمد الرمز، والاستطلاع التلقائي كل
+   15 ثانية يغطي حالة نسيان الضغط على الزر. */
+/* شاشة الإقران: أول ما يراه الكاشير صباحاً إن لم يكن الجهاز مُقارَناً بعد
+   (أو بعد أي تحديث يُعيد تعيين الجهاز) — قد تظهر فجأة بلا سياق سابق، فلا
+   يكفي رمز مجرد. العنوان والنص يوضّحان صراحة: هذه خطوة إعداد عادية لمرة
+   واحدة لا عطل، ومن المسؤول عن حلّها (المسؤول عن الحساب، لا الكاشير
+   نفسه)، وأن الشاشة ستتابع عملها تلقائياً بلا أي تدخّل إضافي بمجرد
+   اكتمال الربط. */
+function pairingScreen(){
+  var code=S.pairingCodeLive||'------';
+  return '<div class="idle" style="justify-content:center;align-items:center;text-align:center;gap:14px">'+
+   '<div class="idle-mid" style="align-items:center;max-width:420px">'+
+    '<div style="width:64px;height:64px;border-radius:18px;background:#12235C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:800;margin-bottom:10px">N</div>'+
+    '<h1>تجهيز الجهاز لأول مرة</h1>'+
+    '<p class="idle-slogan">هذا الجهاز يحتاج ربطاً لمرة واحدة فقط بفرعك قبل أن يبدأ العمل — هذه خطوة إعداد طبيعية، وليست عطلاً في الجهاز.</p>'+
+    '<div style="font-size:52px;font-weight:800;letter-spacing:8px;color:#12235C;margin:18px 0 6px;direction:ltr">'+escAttr(code)+'</div>'+
+    '<p style="font-size:13px;color:var(--muted);line-height:1.8;margin-bottom:4px">تواصل مع المسؤول عن حساب NOJ لديكم وأعطِه هذا الرمز لإكمال الربط من جهته. ستنتقل هذه الشاشة تلقائياً إلى وضع العمل العادي بمجرد إتمامه، بلا أي خطوة إضافية منك.</p>'+
+    '<button id="pairingRecheckBtn" class="adm-testbtn" style="margin-top:10px">تحقق الآن</button>'+
+    '<div class="warn" id="pairingScreenWarn" style="margin-top:12px"></div>'+
+   '</div></div>';
+}
+var pairingPollTimer=null;
+function schedulePairingPoll(){
+  clearTimeout(pairingPollTimer);
+  pairingPollTimer=setTimeout(checkPairingStatus,15000);
+}
+async function checkPairingStatus(){
+  var sb=await getSb();
+  var warnEl=document.getElementById('pairingScreenWarn');
+  if(!sb){
+    if(warnEl)warnEl.textContent='تعذّر الاتصال بالخادم';
+    if(S.page==='pairing')schedulePairingPoll();
+    return;
+  }
+  try{
+    var res=await sb.rpc('request_device_pairing');
+    if(res.error)throw res.error;
+    if(res.data.branch_id){
+      clearTimeout(pairingPollTimer);
+      await loadDeviceContext(res.data.branch_id);
+      S.page='idle';render();
+      return;
+    }
+    S.pairingCodeLive=res.data.pairing_code;
+    if(warnEl)warnEl.textContent='';
+    if(S.page==='pairing'){document.getElementById('screen').innerHTML=pairingScreen();bindPairingScreen()}
+  }catch(e){
+    console.error('NOJ kiosk: pairing poll error',e);
+    if(warnEl)warnEl.textContent='تعذّر الاتصال بالخادم، سيُعاد المحاولة تلقائياً';
+  }
+  if(S.page==='pairing')schedulePairingPoll();
+}
+function renderPairing(){
+  document.getElementById('screen').innerHTML=pairingScreen();
+  bindPairingScreen();
+  schedulePairingPoll();
+}
+function bindPairingScreen(){
+  var b=document.getElementById('pairingRecheckBtn');
+  if(b)b.onclick=function(){
+    b.disabled=true;b.textContent='جارٍ التحقق...';
+    checkPairingStatus().then(function(){
+      if(S.page==='pairing'){b.disabled=false;b.textContent='تحقق الآن'}
+    });
+  };
+}
+
+/* applyBranchSettingsToLocal: تُحدِّث SETTINGS من صف branch_settings
+   الحقيقي (المصدر الرسمي)، ثم تحفظه في localStorage كنسخة احتياطية —
+   pairingCode/posConnected/mode (المظهر القديم الوهمي "الربط بنظام
+   الكاشير"/"الوضع") محلية بالكامل، لا تُقرأ ولا تُكتب من هنا إطلاقاً. */
+function applyBranchSettingsToLocal(row){
+  if(!row)return;
+  SETTINGS.sector=(row.sector_code&&T[row.sector_code])?row.sector_code:SETTINGS.sector;
+  SETTINGS.bizName=row.biz_name||'';
+  SETTINGS.bizBranch=row.biz_branch||'';
+  SETTINGS.bizSlogan=row.biz_slogan||'';
+  SETTINGS.bizLogo=row.biz_logo||'';
+  SETTINGS.showMenuBtn=!!row.show_menu_btn;
+  SETTINGS.menuImages=row.menu_images||[];
+  SETTINGS.cardToggles=row.card_toggles||{};
+  SETTINGS.darkMode=!!row.dark_mode;
+  saveSettingsToStorage(SETTINGS);
+  applyTheme(SETTINGS.darkMode);
+  S.t=SETTINGS.sector;
+}
+/* تُجلب مرة عند كل إقلاع ناجح (ليس من الكاش إلا عند فشل الاتصال فعلاً):
+   فرع → تاجره (points_rate الحقيقي) → إعداداته. فشل أي خطوة يُعيد
+   المحاولة من آخر سياق محفوظ (DEVICE_CACHE) إن وُجد لنفس الفرع، وإلا
+   يُعلَّم DEVICE.connError لتُعرَض إشارة بسيطة في شاشة الخمول. */
+async function loadDeviceContext(branchId){
+  var sb=await getSb();
+  DEVICE.branchId=branchId;
+  try{
+    if(!sb)throw new Error('supabase-client-unavailable');
+    var br=await sb.from('branches').select('merchant_id').eq('id',branchId).single();
+    if(br.error)throw br.error;
+    DEVICE.merchantId=br.data.merchant_id;
+    var mr=await sb.from('merchants').select('name,type,points_rate').eq('id',DEVICE.merchantId).single();
+    if(mr.error)throw mr.error;
+    DEVICE.merchantName=mr.data.name;DEVICE.merchantType=mr.data.type;DEVICE.pointsRate=Number(mr.data.points_rate);
+    var sr=await sb.from('branch_settings').select('*').eq('branch_id',branchId).single();
+    if(sr.error)throw sr.error;
+    applyBranchSettingsToLocal(sr.data);
+    DEVICE.connError=false;
+    saveDeviceCache({branchId:DEVICE.branchId,merchantId:DEVICE.merchantId,merchantName:DEVICE.merchantName,merchantType:DEVICE.merchantType,pointsRate:DEVICE.pointsRate,branchSettings:sr.data});
+  }catch(e){
+    console.error('NOJ kiosk: loadDeviceContext error',e);
+    var cached=loadDeviceCache();
+    if(cached&&cached.branchId===branchId){
+      DEVICE=Object.assign({connError:true},cached);
+      applyBranchSettingsToLocal(cached.branchSettings);
+    }else{
+      DEVICE.connError=true;
+    }
+  }
+}
+/* نقطة الإقلاع الفعلية (تستبدل render() المباشرة في نهاية الملف): جلسة
+   مجهولة (أو استعادتها إن كانت محفوظة من supabase-js نفسه) →
+   request_device_pairing() (يُنشئ صف الجهاز إن لم يوجد، ويُعيده كما هو
+   إن وُجد — نفس النداء يكفي لمعرفة: جديد؟ غير مُقارَن؟ مُقارَن فعلاً؟). */
+async function bootKiosk(){
+  S.page='connecting';render();
+  var sb=await getSb();
+  if(!sb){S.page='connFatal';render();return}
+
+  try{
+    var sessionRes=await sb.auth.getSession();
+    var session=sessionRes.data&&sessionRes.data.session;
+    if(!session){
+      var signInRes=await sb.auth.signInAnonymously();
+      if(signInRes.error)throw signInRes.error;
+      session=signInRes.data.session;
+    }
+    if(!session)throw new Error('anonymous-signin-unavailable');
+
+    var pairRes=await sb.rpc('request_device_pairing');
+    if(pairRes.error)throw pairRes.error;
+
+    var dev=pairRes.data;
+    if(!dev.branch_id){
+      S.page='pairing';S.pairingCodeLive=dev.pairing_code;render();
+      return;
+    }
+    await loadDeviceContext(dev.branch_id);
+    S.page='idle';render();
+  }catch(e){
+    console.error('NOJ kiosk: bootKiosk error',e);
+    var cached=loadDeviceCache();
+    if(cached&&cached.branchId){
+      DEVICE=Object.assign({connError:true},cached);
+      applyBranchSettingsToLocal(cached.branchSettings);
+      S.page='idle';render();
+      return;
+    }
+    S.page='connFatal';render();
+  }
 }
 function startTimer(s){
   clearInterval(tmr);secs=s;
@@ -1390,13 +1682,44 @@ function startTimer(s){
   },1000);
 }
 /* يحاكي إرسال الفاتورة إلى الخادم — يحمل حقل category ليصنَّف الإنفاق
-   لاحقاً في تطبيق العميل (index.html). لا يوجد اتصال شبكة فعلي هنا؛ هذا
-   تمثيل للحمولة (payload) التي سترسلها نقطة البيع الحقيقية مستقبلاً. */
-function sendInvoice(){
+   لاحقاً في تطبيق العميل (index.html). لا يوجد نظام نقطة بيع حقيقي بعد
+   (c.invoiceAmount يبقى ثابتاً تجريبياً لكل قطاع)، فالمحاكاة هنا تبقى
+   كما كانت دائماً.
+   الجديد: إن كان الوضع مباشراً، والقطاع ذا نقاط، والعميل تم التعرّف
+   عليه فعلاً (CUST.status==='identified') — تُستدعى kiosk_earn_points
+   فعلياً. الدالة نفسها مُعطَّلة افتراضياً لكل فرع (branch_settings.
+   demo_earn_enabled=false) ولا تُستدعى بتاتاً إلا بتفعيل صريح لاحقاً —
+   محاولتها هنا مجرد استدعاء عادي، سترفضه الدالة نفسها إن لم يُفعَّل.
+   أي فشل (الوضع التجريبي مُعطَّل، العميل بلا موافقة، أو أي عطل آخر)
+   يُسجَّل في CUST.earnFailReason ليعرضه loyaltyOkCard برسالة مفهومة —
+   لا يُفسَد تدفّق "تم الربط بنجاح" نفسه بسببه، لأن ربط الفاتورة بالجوال
+   نجح فعلاً بصرف النظر عن نجاح تسجيل النقاط. */
+async function sendInvoice(){
   var c=C(),biz=currentBiz();
   var ticket=(CUST.queue&&CUST.queue.ticket!=null)?CUST.queue.ticket:c.ticket;
   var payload={category:c.category,merchant:biz.name,ticket:ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
   console.log('NOJ kiosk → إرسال الفاتورة (محاكاة):',payload);
+
+  CUST.added=null;CUST.earnFailReason=null;
+  if(SETTINGS.mode==='live'&&c.hasPoints&&CUST.status==='identified'){
+    var sb=await getSb();
+    if(!sb){CUST.added=0;CUST.earnFailReason='error';return payload}
+    try{
+      var res=await sb.rpc('kiosk_earn_points',{p_phone:S.phone,p_amount:Number(c.invoiceAmount),p_category:null});
+      if(res.error)throw res.error;
+      var row=Array.isArray(res.data)?res.data[0]:res.data;
+      CUST.added=Number(row.added_points);
+      CUST.points=Number(row.prev_points);
+    }catch(e){
+      console.error('NOJ kiosk: kiosk_earn_points error',e);
+      var msg=e.message||'';
+      if(/NOJ_CUSTOMER_NOT_FOUND/.test(msg))CUST.earnFailReason='notfound';
+      else if(/موافقة/.test(msg))CUST.earnFailReason='consent';
+      else if(/الوضع التجريبي/.test(msg))CUST.earnFailReason='disabled';
+      else CUST.earnFailReason='error';
+      CUST.added=0;
+    }
+  }
   return payload;
 }
 
@@ -1406,7 +1729,7 @@ function bindMain(){
   var nfc=document.querySelector('.nfc');
   if(nfc)nfc.onclick=function(){
     S.phone='';
-    identifyCustomer(null,function(){sendInvoice();S.view='ok';renderLayer()});
+    identifyCustomer(null,function(){sendInvoice().then(function(){S.view='ok';renderLayer()})});
   };
   var logo=document.getElementById('nojLogo');
   if(logo)bindLogoLongPress(logo);
@@ -1431,7 +1754,7 @@ function bindLayer(){
          خلفها أثناء التعرّف (نفس ما يحدث في مسار NFC)، بدل بقاء المستخدم
          حابساً أمام لوحة أرقام لا تعكس تقدّم التحقق. */
       S.view='main';renderLayer();
-      identifyCustomer(phone,function(){sendInvoice();S.view='ok';renderLayer()});
+      identifyCustomer(phone,function(){sendInvoice().then(function(){S.view='ok';renderLayer()})});
     }};
   var mc=document.getElementById('menuClose');
   if(mc)mc.onclick=function(){S.view='main';renderLayer()};
@@ -1602,6 +1925,7 @@ function settingsScreen(){
       '</div>'+
      '</div>'+
     '</div>'+
+    '<div class="warn" id="adminSaveWarn" style="padding:0 30px"></div>'+
     '<div class="adm-ft"><button class="cancel" id="adminExit2">خروج من الإعدادات</button>'+
     '<button class="save" id="adminSave">حفظ</button></div>'+
    '</div></div>';
@@ -1984,13 +2308,50 @@ function bindAdmin(){
   };
 
   var saveBtn=document.getElementById('adminSave');
-  if(saveBtn)saveBtn.onclick=function(){
-    SETTINGS=JSON.parse(JSON.stringify(DRAFT));
-    var ok=saveSettingsToStorage(SETTINGS);
-    S.t=SETTINGS.sector;
-    closeAdmin();
-    render();
-    if(!ok)console.error('NOJ kiosk: فشل حفظ الإعدادات في localStorage');
+  /* الحفظ يكتب إلى branch_settings الحقيقية أولاً (القاعدة هي المصدر
+     الرسمي) — لا يُحدَّث SETTINGS/localStorage ولا تُغلَق اللوحة إلا بعد
+     نجاح الكتابة فعلاً، فلا يبقى الكاش المحلي يَعِد بتغيير لم يصل
+     للخادم أبداً. فشل الكتابة يُبقي اللوحة مفتوحة مع رسالة واضحة بدل
+     فقدان التعديل بصمت. لا يوجد DEVICE.branchId (حالة دفاعية، لا يجب
+     أن تحدث: شاشة الإعدادات لا تُفتَح أصلاً قبل اكتمال الإقران) → يُحفَظ
+     محلياً فقط كما كان الملف يتصرف قبل هذا الربط. */
+  if(saveBtn)saveBtn.onclick=async function(){
+    var warnEl=document.getElementById('adminSaveWarn');
+    if(warnEl)warnEl.textContent='';
+    if(!DEVICE.branchId){
+      SETTINGS=JSON.parse(JSON.stringify(DRAFT));
+      saveSettingsToStorage(SETTINGS);
+      S.t=SETTINGS.sector;
+      closeAdmin();
+      render();
+      return;
+    }
+    saveBtn.disabled=true;saveBtn.textContent='جارٍ الحفظ...';
+    try{
+      var sb=await getSb();
+      if(!sb)throw new Error('supabase-client-unavailable');
+      var res=await sb.from('branch_settings').update({
+        sector_code:DRAFT.sector,
+        biz_name:DRAFT.bizName||null,
+        biz_branch:DRAFT.bizBranch||null,
+        biz_slogan:DRAFT.bizSlogan||null,
+        biz_logo:DRAFT.bizLogo||null,
+        show_menu_btn:DRAFT.showMenuBtn,
+        menu_images:DRAFT.menuImages||[],
+        card_toggles:DRAFT.cardToggles||{},
+        dark_mode:DRAFT.darkMode
+      }).eq('branch_id',DEVICE.branchId);
+      if(res.error)throw res.error;
+      SETTINGS=JSON.parse(JSON.stringify(DRAFT));
+      saveSettingsToStorage(SETTINGS);
+      S.t=SETTINGS.sector;
+      closeAdmin();
+      render();
+    }catch(e){
+      console.error('NOJ kiosk: settings save error',e);
+      saveBtn.disabled=false;saveBtn.textContent='حفظ';
+      if(warnEl)warnEl.textContent='تعذّر حفظ الإعدادات، تحقق من اتصال الجهاز وحاول مرة أخرى';
+    }
   };
 }
 
@@ -2009,7 +2370,7 @@ function resetAdminIdle(){
 document.addEventListener('click',resetAdminIdle);
 document.addEventListener('input',resetAdminIdle);
 
-render();
+bootKiosk();
 </script>
 </body>
 </html>

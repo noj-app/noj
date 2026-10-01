@@ -11,7 +11,7 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | الملف | الجهاز | الوصف |
 |---|---|---|
 | `index.html` | جوال العميل | تطبيق العميل: يجلب فواتيره ودوره ونقاطه ومكافآته من Supabase — تطبيق ويب تقدّمي (PWA) قابل للتثبيت |
-| `kiosk.html` | تابلت عند المحاسب | شاشة تقف أمام العميل وقت الدفع، تربط جواله بالطلب الحالي — **ليست** PWA، بلا تثبيت، وبلا اتصال بـ Supabase |
+| `kiosk.html` | تابلت عند المحاسب | شاشة تقف أمام العميل وقت الدفع، تربط جواله بالطلب الحالي — **ليست** PWA، بلا تثبيت. مربوطة بـ Supabase فعلياً: إقران الجهاز بفرعه، إعدادات الجهاز من `branch_settings`، ورصيد نقاط حقيقي عند التعرّف على العميل — راجع `supabase-migration-kiosk-device-auth.sql`/`supabase-migration-kiosk-balance-lookup.sql` |
 | `supabase-schema.sql` | — | كل جداول NOJ وسياسات RLS ودوال RPC وبيانات تجريبية (seed) — يُشغَّل مرة واحدة في مشروع Supabase |
 | `supabase-migration-merchant-loyalty.sql` | — | ترقية إضافية (لا تُشغَّل إلا بعد `supabase-schema.sql`): تضيف جدول رصيد النقاط لكل تاجر على حدة — راجع "نقاط الولاء لكل تاجر" أدناه |
 | `supabase-migration-fix-profile-reclaim.sql` | — | ترقية إضافية: تصلح إعادة تسجيل الدخول بنفس رقم الجوال (بما فيه رقم العرض التجريبي) — راجع "إعادة المطالبة بالملف الشخصي" أدناه |
@@ -27,6 +27,7 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | `supabase-migration-timezone.sql` | — | ترقية إضافية: دالة `riyadh_today()` لأي منطق مستقبلي يعتمد على حدود اليوم بتوقيت السعودية |
 | `supabase-migration-app-consent.sql` | — | ترقية إضافية: `grant_app_consent()` — المفتاح الفعلي لبوابة الموافقة التي بناها `supabase-migration-consent-privacy.sql` بلا واجهة تستدعيها؛ يستدعيها `index.html` الآن بعد كل دخول لعميل بلا موافقة نشطة (راجع "موافقتك على معالجة بياناتك" في `index.html`) — يتطلب `supabase-migration-consent-privacy.sql` أولاً |
 | `supabase-migration-kiosk-device-auth.sql` | — | ترقية إضافية: إقران أجهزة `kiosk.html` (هوية Auth مستقلة لكل جهاز + `request_device_pairing()`/`approve_device_pairing()`) وحقول هوية الفرع على `branch_settings` (الشعار/الاسم/الفرع/القطاع)، و`kiosk_earn_points()` — مُعطَّلة افتراضياً لكل فرع (`demo_earn_enabled=false`) وتُعلِّم كل ما تكتبه بـ`source='demo'` عمداً، لأن مبلغ الفاتورة في `kiosk.html` ما زال ثابتاً تجريبياً لا من نقطة بيع حقيقية — يتطلب `supabase-migration-branches-devices.sql`, `supabase-migration-point-ledger.sql`, `supabase-migration-loyalty-rate-expiry.sql`, `supabase-migration-consent-privacy.sql`, `supabase-migration-phone-format.sql` أولاً |
+| `supabase-migration-kiosk-balance-lookup.sql` | — | ترقية إضافية: `kiosk_lookup_customer_points()` — قراءة رصيد نقاط حقيقي لجهاز كشك مُقارَن (RLS "صف الذات فقط" على `profiles`/`merchant_loyalty` تمنع جهازاً من قراءة رصيد عميل آخر مباشرة، بالتصميم نفسه الذي يحمي عملاء بعضهم بعضاً) + سياسة RLS جديدة على `branches` (كانت غائبة تماماً) تتيح لجهاز قراءة فرعه فقط، عبر دالة `SECURITY DEFINER` وسيطة لتفادي تكرار (recursion) في سياسات RLS بين `branches`/`devices` — يتطلب `supabase-migration-kiosk-device-auth.sql` أولاً |
 | `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه، بما فيها ملف القفل الأمني — راجع `db-tests/README.md` |
 | `manifest.json` | — | بيان تثبيت `index.html` فقط (الاسم، الأيقونات، ألوان الهوية) |
 | `sw.js` | — | Service Worker يخزّن ملفات `index.html` مؤقتاً للعمل بلا اتصال (الواجهة فقط — البيانات الحيّة تحتاج اتصالاً بـ Supabase) |

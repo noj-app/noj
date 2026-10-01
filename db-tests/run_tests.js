@@ -73,7 +73,7 @@ async function admin(fn) {
 
   const filesFromPhoneFormat = [
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
-    'supabase-migration-kiosk-device-auth.sql',
+    'supabase-migration-kiosk-device-auth.sql', 'supabase-migration-kiosk-balance-lookup.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -657,6 +657,56 @@ async function admin(fn) {
       catch (e) { return 'fail:' + e.message; }
     });
     check('kiosk_earn_points: an unpaired device is refused entirely', unpairedAttempt !== 'ok' && /غير مقارَن/.test(unpairedAttempt));
+
+    // =========================================================================
+    // 12) kiosk_lookup_customer_points(): the READ-only path kiosk.html uses
+    //     to show a real previous balance (stage د) — no demo_earn_enabled
+    //     gate (reading isn't the risk writing fake amounts is), but still
+    //     device-authenticated, and still never auto-creates anyone.
+    // =========================================================================
+    const unpairedLookup = await asUser(unpairedUid, async c => {
+      try { await c.query('select kiosk_lookup_customer_points($1)', ['512345678']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_lookup_customer_points: an unpaired device is refused entirely', unpairedLookup !== 'ok' && /غير مقارَن/.test(unpairedLookup));
+
+    // a genuinely unregistered visitor (anon key -> self-signed-in anonymous
+    // session, but NEVER called request_device_pairing() at all — no devices
+    // row exists for this auth_user_id whatsoever, not even an unpaired one)
+    // must be refused identically. This is the exact scenario raised about
+    // "can anyone with the public anon key query any phone's balance?" —
+    // empirical proof, not just code-reading, that they cannot.
+    const strangerSessionUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [strangerSessionUid]));
+    const trueStrangerLookup = await asUser(strangerSessionUid, async c => {
+      try { await c.query('select kiosk_lookup_customer_points($1)', ['512345678']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_lookup_customer_points: a session with NO devices row at all (never paired, never even requested) is refused — proves the public anon key alone grants nothing', trueStrangerLookup !== 'ok' && /غير مقارَن/.test(trueStrangerLookup));
+
+    const strangerLookup = await asUser(kioskUid, async c => {
+      try { await c.query('select kiosk_lookup_customer_points($1)', ['511111110']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_lookup_customer_points: an unregistered phone raises NOJ_CUSTOMER_NOT_FOUND', strangerLookup !== 'ok' && /NOJ_CUSTOMER_NOT_FOUND/.test(strangerLookup));
+    const strangerStillAbsent = await admin(c => c.query(`select 1 from profiles where phone='511111110'`));
+    check('kiosk_lookup_customer_points: no profile row was created for the rejected stranger phone', strangerStillAbsent.rows.length === 0);
+
+    const realBalance = await admin(c => c.query('select points from merchant_loyalty where user_id=$1 and merchant_id=$2', [DEMO_PROFILE, MATAM]));
+    const lookupRes = await asUser(kioskUid, c => c.query('select kiosk_lookup_customer_points($1) as points', ['512345678']));
+    check('kiosk_lookup_customer_points: returns the REAL current balance (matches merchant_loyalty exactly)', Number(lookupRes.rows[0].points) === realBalance.rows[0].points);
+
+    const noBalanceUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [noBalanceUid]));
+    await asUser(noBalanceUid, c => c.query('select claim_or_create_profile($1)', ['533333330']));
+    const zeroBalanceRes = await asUser(kioskUid, c => c.query('select kiosk_lookup_customer_points($1) as points', ['533333330']));
+    check('kiosk_lookup_customer_points: a registered customer with NO merchant_loyalty row at this merchant returns 0, not an error', Number(zeroBalanceRes.rows[0].points) === 0);
+
+    // branches RLS: only a device paired to THIS branch may read it.
+    const ownBranchRead = await asUser(kioskUid, c => c.query('select id from branches where id=$1', [BRANCH]));
+    check('branches RLS: the paired device can select its own branch', ownBranchRead.rows.length === 1);
+    const foreignBranchRead = await asUser(unpairedUid, c => c.query('select id from branches where id=$1', [BRANCH]));
+    check('branches RLS: an unpaired device cannot select this branch', foreignBranchRead.rows.length === 0);
   }
 
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');
