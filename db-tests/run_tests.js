@@ -73,6 +73,7 @@ async function admin(fn) {
 
   const filesFromPhoneFormat = [
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
+    'supabase-migration-kiosk-device-auth.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -458,6 +459,204 @@ async function admin(fn) {
     await asUser(uidB, c => c.query('select * from claim_or_create_profile($1) as p', ['566666666']));
     const otherRows = await asUser(uidB, c => c.query('select * from point_transactions where points_delta=77'));
     check('RLS: a DIFFERENT session cannot see someone else\'s point_transactions row', otherRows.rows.length === 0);
+  }
+
+  // =========================================================================
+  // 9) KIOSK DEVICE PAIRING
+  // =========================================================================
+  {
+    const branchRow = await admin(c => c.query('select id, merchant_id from branches where merchant_id=$1', [MATAM]));
+    const BRANCH = branchRow.rows[0].id;
+
+    const kioskUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [kioskUid]));
+    const req1 = await asUser(kioskUid, c => c.query('select * from request_device_pairing()'));
+    check('pairing: request_device_pairing() creates an unpaired device with a 6-digit code',
+      /^[0-9]{6}$/.test(req1.rows[0].pairing_code) && req1.rows[0].branch_id === null);
+
+    const req2 = await asUser(kioskUid, c => c.query('select * from request_device_pairing()'));
+    check('pairing: calling request_device_pairing() again returns the SAME device row, same code (not stale yet)',
+      req2.rows[0].id === req1.rows[0].id && req2.rows[0].pairing_code === req1.rows[0].pairing_code);
+
+    // a merchant_member for a DIFFERENT merchant must not be able to approve
+    // pairing onto MATAM's branch.
+    const strangerAdminUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [strangerAdminUid]));
+    const OTHER_MERCHANT = '20000000-0000-0000-0000-000000000002'; // بنده
+    await admin(c => c.query(
+      `insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`,
+      [OTHER_MERCHANT, strangerAdminUid]
+    ));
+    const strangerApprove = await asUser(strangerAdminUid, async c => {
+      try { await c.query('select * from approve_device_pairing($1,$2)', [req1.rows[0].pairing_code, BRANCH]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('pairing: a merchant_member of a DIFFERENT merchant cannot approve pairing onto this branch',
+      strangerApprove !== 'ok' && /لا تملك صلاحية/.test(strangerApprove));
+
+    const adminUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [adminUid]));
+    await admin(c => c.query(
+      `insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`,
+      [MATAM, adminUid]
+    ));
+    const approveRes = await asUser(adminUid, c => c.query('select * from approve_device_pairing($1,$2)', [req1.rows[0].pairing_code, BRANCH]));
+    check('pairing: the rightful merchant_member approves pairing successfully', approveRes.rows[0].branch_id === BRANCH);
+    check('pairing: the pairing_code is cleared after approval', approveRes.rows[0].pairing_code === null);
+
+    const reapprove = await asUser(adminUid, async c => {
+      try { await c.query('select * from approve_device_pairing($1,$2)', [req1.rows[0].pairing_code, BRANCH]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('pairing: the SAME code cannot be approved twice (already consumed)', reapprove !== 'ok');
+
+    const req3 = await asUser(kioskUid, c => c.query('select * from request_device_pairing()'));
+    check('pairing: after approval, request_device_pairing() now returns branch_id set', req3.rows[0].branch_id === BRANCH);
+
+    // RLS: the paired device sees its own devices row and its own branch's
+    // settings; a totally different device sees neither.
+    const ownDevice = await asUser(kioskUid, c => c.query('select * from devices where auth_user_id=$1', [kioskUid]));
+    check('pairing RLS: the device can select its own devices row', ownDevice.rows.length === 1);
+    const ownSettings = await asUser(kioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('pairing RLS: the device can select its own branch_settings row', ownSettings.rows.length === 1);
+
+    const otherKioskUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otherKioskUid]));
+    await asUser(otherKioskUid, c => c.query('select * from request_device_pairing()'));
+    const foreignDevice = await asUser(otherKioskUid, c => c.query('select * from devices where auth_user_id=$1', [kioskUid]));
+    check('pairing RLS: a DIFFERENT device cannot see this device\'s row', foreignDevice.rows.length === 0);
+    const foreignSettings = await asUser(otherKioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('pairing RLS: an unpaired device cannot see this branch\'s settings', foreignSettings.rows.length === 0);
+
+    // =========================================================================
+    // 10) branch_settings: sector_code / biz_logo size CHECK constraints,
+    //     and the device's own RLS-scoped UPDATE of its settings.
+    // =========================================================================
+    let badSector = null;
+    try {
+      await admin(c => c.query(`update branch_settings set sector_code='not-a-sector' where branch_id=$1`, [BRANCH]));
+      badSector = 'ok';
+    } catch (e) { badSector = 'fail:' + e.message; }
+    check('branch_settings: an invalid sector_code is rejected', badSector !== 'ok');
+
+    const okSectorUpdate = await asUser(kioskUid, async c => {
+      try { await c.query(`update branch_settings set sector_code='restaurant' where branch_id=$1`, [BRANCH]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('branch_settings: the paired device can update its OWN branch settings directly', okSectorUpdate === 'ok');
+
+    // RLS silently filters rows an UPDATE's USING clause excludes (no
+    // exception — 0 rows affected), unlike the grant-level rejections
+    // above, so this must check rowCount / the actual value, not a thrown
+    // error.
+    const foreignUpdateRes = await asUser(otherKioskUid, c => c.query(`update branch_settings set sector_code='medical' where branch_id=$1`, [BRANCH]));
+    check('branch_settings: an unpaired/different device\'s update matches ZERO rows (RLS-filtered)', foreignUpdateRes.rowCount === 0);
+    const stillRestaurant = await admin(c => c.query('select sector_code from branch_settings where branch_id=$1', [BRANCH]));
+    check('branch_settings: sector_code is untouched by the foreign device\'s no-op update', stillRestaurant.rows[0].sector_code === 'restaurant');
+
+    let oversizedLogo = null;
+    try {
+      await admin(c => c.query(`update branch_settings set biz_logo=$1 where branch_id=$2`, ['x'.repeat(700001), BRANCH]));
+      oversizedLogo = 'ok';
+    } catch (e) { oversizedLogo = 'fail:' + e.message; }
+    check('branch_settings: a biz_logo over ~500KB is rejected', oversizedLogo !== 'ok');
+
+    let okLogo = null;
+    try {
+      await admin(c => c.query(`update branch_settings set biz_logo=$1 where branch_id=$2`, ['x'.repeat(700000), BRANCH]));
+      okLogo = 'ok';
+    } catch (e) { okLogo = 'fail:' + e.message; }
+    check('branch_settings: a biz_logo at/under the limit is accepted', okLogo === 'ok');
+
+    // =========================================================================
+    // 11) kiosk_earn_points(): off by default, gated per-branch, tags
+    //     everything 'demo', never auto-creates a stranger's profile.
+    // =========================================================================
+    const deviceRow = await admin(c => c.query('select id from devices where auth_user_id=$1', [kioskUid]));
+    const DEVICE_ID = deviceRow.rows[0].id;
+
+    const disabledAttempt = await asUser(kioskUid, async c => {
+      try { await c.query('select * from kiosk_earn_points($1,$2,$3)', ['512345678', '100', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_earn_points: refuses to run while demo_earn_enabled is false (the default)',
+      disabledAttempt !== 'ok' && /الوضع التجريبي/.test(disabledAttempt));
+
+    await admin(c => c.query(`update branch_settings set demo_earn_enabled=true where branch_id=$1`, [BRANCH]));
+
+    const strangerPhone = await asUser(kioskUid, async c => {
+      try { await c.query('select * from kiosk_earn_points($1,$2,$3)', ['511111110', '50', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_earn_points: an unregistered phone is rejected, never auto-creates a profile',
+      strangerPhone !== 'ok' && /NOJ_CUSTOMER_NOT_FOUND/.test(strangerPhone));
+    const strangerCreated = await admin(c => c.query(`select 1 from profiles where phone='511111110'`));
+    check('kiosk_earn_points: no profile row was created for the rejected stranger phone', strangerCreated.rows.length === 0);
+
+    const rateRow = await admin(c => c.query('select points_rate from merchants where id=$1', [MATAM]));
+    const RATE = Number(rateRow.rows[0].points_rate);
+    const balBefore = await admin(c => c.query(
+      'select points from merchant_loyalty where user_id=$1 and merchant_id=$2', [DEMO_PROFILE, MATAM]
+    ));
+    const prevBalance = balBefore.rows[0].points;
+
+    const earnRes = await asUser(kioskUid, c => c.query(
+      'select * from kiosk_earn_points($1,$2,$3)', ['512345678', '100.00', null]
+    ));
+    const row = earnRes.rows[0];
+    const expectedAdded = Math.round(100 * RATE);
+    check('kiosk_earn_points: prev_points matches the balance before this call', row.prev_points === prevBalance);
+    check('kiosk_earn_points: added_points = round(amount * merchants.points_rate)', row.added_points === expectedAdded);
+    check('kiosk_earn_points: total_points = prev + added', row.total_points === prevBalance + expectedAdded);
+
+    const balAfter = await admin(c => c.query(
+      'select points from merchant_loyalty where user_id=$1 and merchant_id=$2', [DEMO_PROFILE, MATAM]
+    ));
+    check('kiosk_earn_points: merchant_loyalty.points was actually updated to match', balAfter.rows[0].points === row.total_points);
+
+    const ptRow = await admin(c => c.query(
+      `select * from point_transactions where invoice_id=$1`, [row.invoice_id]
+    ));
+    check('kiosk_earn_points: point_transactions row is tagged source=demo, not a real source', ptRow.rows[0].source === 'demo');
+    check('kiosk_earn_points: point_transactions.branch_id/device_id match this device', ptRow.rows[0].branch_id === BRANCH && ptRow.rows[0].device_id === DEVICE_ID);
+    check('kiosk_earn_points: points_rate_applied is a permanent snapshot of merchants.points_rate', Number(ptRow.rows[0].points_rate_applied) === RATE);
+
+    const invRow = await admin(c => c.query(`select * from invoices where id=$1`, [row.invoice_id]));
+    check('kiosk_earn_points: invoices row is tagged source=demo too', invRow.rows[0].source === 'demo');
+    check('kiosk_earn_points: invoices.category defaults to merchants.type when no category given', invRow.rows[0].category !== null);
+
+    // a brand-new customer at this merchant (no prior merchant_loyalty row at
+    // all) must start from 0, not error out.
+    const newCustUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [newCustUid]));
+    const newCustProf = await asUser(newCustUid, c => c.query('select * from claim_or_create_profile($1) as p', ['588888888']));
+    // a brand-new profile is NOT grandfathered (that only covers profiles
+    // that already existed when consent-privacy.sql ran) — give it real
+    // consent first, same as any other 'earn' path requires.
+    await admin(c => c.query(
+      `insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','kiosk')`,
+      [newCustProf.rows[0].id]
+    ));
+    const firstEarn = await asUser(kioskUid, c => c.query(
+      'select * from kiosk_earn_points($1,$2,$3)', ['588888888', '20.00', null]
+    ));
+    check('kiosk_earn_points: a customer with NO prior balance at this merchant starts from 0', firstEarn.rows[0].prev_points === 0);
+
+    const badAmount = await asUser(kioskUid, async c => {
+      try { await c.query('select * from kiosk_earn_points($1,$2,$3)', ['512345678', '0', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_earn_points: a zero/negative amount is rejected', badAmount !== 'ok');
+
+    // an unpaired device (never approved) must be refused entirely.
+    const unpairedUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [unpairedUid]));
+    await asUser(unpairedUid, c => c.query('select * from request_device_pairing()'));
+    const unpairedAttempt = await asUser(unpairedUid, async c => {
+      try { await c.query('select * from kiosk_earn_points($1,$2,$3)', ['512345678', '10', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_earn_points: an unpaired device is refused entirely', unpairedAttempt !== 'ok' && /غير مقارَن/.test(unpairedAttempt));
   }
 
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');
