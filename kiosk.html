@@ -783,9 +783,9 @@ function saveDeviceCache(d){
    من branch_settings في قاعدة البيانات بعد كل إقران/إقلاع ناجح (انظر
    applyBranchSettingsToLocal) — القاعدة هي المصدر الرسمي، والتخزين
    المحلي هنا نسخة احتياطية لعمل الشاشة لو انقطع الاتصال لحظياً فقط.
-   رمز الدخول (ADMIN_PIN) قيمة تجريبية ثابتة فقط، ولا يوجد أي مفتاح API
+   رمز الدخول (رمز الإعدادات) يُتحقق منه في الخادم (verify_admin_pin عبر
+   RPC، انظر verifyPin أدناه) لا بقيمة ثابتة هنا — لا يوجد أي مفتاح API
    أو بيانات اعتماد حقيقية في هذا الملف. */
-var ADMIN_PIN='1234';
 var SETTINGS_KEY='noj_kiosk_settings';
 
 var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',showMenuBtn:true,menuImages:[],cardToggles:{},darkMode:false};
@@ -1778,11 +1778,11 @@ function bindLayer(){
   bindAdmin();
 }
 
-/* ================= ADMIN ACCESS (demo only) =================
+/* ================= ADMIN ACCESS =================
    شاشة أعدادات الجهاز محمية عن العملاء: لا يوجد أي زر ظاهر لها. الدخول
-   فقط عبر ضغط مطوّل 5 ثوانٍ على شعار NOJ، ثم رمز PIN من 4 أرقام
-   (ADMIN_PIN أعلاه — قيمة تجريبية ثابتة، وليست سرّاً حقيقياً). خروج
-   تلقائي للشاشة الرئيسية بعد 60 ثانية بلا أي تفاعل. */
+   فقط عبر ضغط مطوّل 5 ثوانٍ على شعار NOJ، ثم رمز PIN من 4 أرقام يُتحقق
+   منه في الخادم (verifyPin → verify_admin_pin عبر RPC، لا قيمة ثابتة
+   في هذا الملف). خروج تلقائي للشاشة الرئيسية بعد 60 ثانية بلا أي تفاعل. */
 var longPressTimer=null;
 function bindLogoLongPress(el){
   var start=function(e){
@@ -1843,6 +1843,21 @@ function updatePinDots(){
   var warn=document.getElementById('pinWarn');
   if(warn)warn.textContent=S.pinErr||'';
 }
+/* يتحقق من رمز الإدارة عبر الخادم (verify_admin_pin RPC على
+   branch_admin_pins الخاص بفرع هذا الجهاز) بدل قيمة ثابتة محلياً — يُعيد
+   false عند أي تعذّر (لا sb، لا فرع معروف بعد، أو أي استثناء) بدل
+   افتراض النجاح. */
+async function verifyPin(pin){
+  var sb=await getSb();
+  if(!sb||!DEVICE.branchId)return false;
+  try{
+    var res=await sb.rpc('verify_admin_pin',{p_branch_id:DEVICE.branchId,p_pin:pin});
+    return !res.error&&res.data===true;
+  }catch(e){
+    console.error('NOJ kiosk: verify_admin_pin error',e);
+    return false;
+  }
+}
 function bindPin(){
   var cancel=document.getElementById('pinCancel');
   if(cancel)cancel.onclick=function(){S.view='main';S.pin='';S.pinErr='';renderLayer()};
@@ -1852,8 +1867,10 @@ function bindPin(){
       if(k==='del'){S.pin=S.pin.slice(0,-1);S.pinErr='';updatePinDots();return}
       if(S.pin.length<4)S.pin+=k;
       if(S.pin.length===4){
-        if(S.pin===ADMIN_PIN){openAdminSettings()}
-        else{S.pinErr='رمز غير صحيح، حاول مرة أخرى';S.pin='';updatePinDots()}
+        verifyPin(S.pin).then(function(ok){
+          if(ok){openAdminSettings()}
+          else{S.pinErr='رمز غير صحيح، حاول مرة أخرى';S.pin='';updatePinDots()}
+        });
         return;
       }
       updatePinDots();
