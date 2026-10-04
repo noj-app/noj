@@ -74,6 +74,7 @@ async function admin(fn) {
   const filesFromPhoneFormat = [
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
     'supabase-migration-kiosk-device-auth.sql', 'supabase-migration-kiosk-balance-lookup.sql',
+    'supabase-migration-pos-transactions.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -707,6 +708,202 @@ async function admin(fn) {
     check('branches RLS: the paired device can select its own branch', ownBranchRead.rows.length === 1);
     const foreignBranchRead = await asUser(unpairedUid, c => c.query('select id from branches where id=$1', [BRANCH]));
     check('branches RLS: an unpaired device cannot select this branch', foreignBranchRead.rows.length === 0);
+
+    // =========================================================================
+    // 13) POS invoice intake (stage 1): pos_transactions +
+    //     kiosk_claim_pos_transaction() + claim_unclaimed_invoices(). The
+    //     kiosk never sends an amount — only a transaction id + phone.
+    // =========================================================================
+    const posTxn1 = await admin(c => c.query(
+      `insert into pos_transactions (branch_id, amount, vat, external_ref) values ($1,$2,$3,$4) returning id`,
+      [BRANCH, '75.00', '3.75', 'POS-TEST-1']
+    ));
+    const balBeforePos = await admin(c => c.query(
+      'select points from merchant_loyalty where user_id=$1 and merchant_id=$2', [DEMO_PROFILE, MATAM]
+    ));
+    const prevBalancePos = balBeforePos.rows[0].points;
+
+    const claimRes1 = await asUser(kioskUid, c => c.query(
+      'select * from kiosk_claim_pos_transaction($1,$2)', [posTxn1.rows[0].id, '512345678']
+    ));
+    const posRow1 = claimRes1.rows[0];
+    check('kiosk_claim_pos_transaction: a registered phone returns is_registered=true', posRow1.is_registered === true);
+    check('kiosk_claim_pos_transaction: profile_id matches the registered customer', posRow1.profile_id === DEMO_PROFILE);
+    const expectedAddedPos = Math.round(75 * RATE);
+    check('kiosk_claim_pos_transaction: added_points = round(amount * points_rate), amount came from the table, not the caller', posRow1.added_points === expectedAddedPos);
+    check('kiosk_claim_pos_transaction: prev_points matches the balance before this call', posRow1.prev_points === prevBalancePos);
+
+    const balAfterPos = await admin(c => c.query(
+      'select points from merchant_loyalty where user_id=$1 and merchant_id=$2', [DEMO_PROFILE, MATAM]
+    ));
+    check('kiosk_claim_pos_transaction: merchant_loyalty.points actually updated to match', balAfterPos.rows[0].points === posRow1.total_points);
+
+    const invRowPos1 = await admin(c => c.query('select * from invoices where id=$1', [posRow1.invoice_id]));
+    check('kiosk_claim_pos_transaction: invoice.vat came from pos_transactions.vat, not zero', Number(invRowPos1.rows[0].vat) === 3.75);
+    check('kiosk_claim_pos_transaction: invoice.source = pos', invRowPos1.rows[0].source === 'pos');
+    check('kiosk_claim_pos_transaction: invoice.external_ref threaded through from pos_transactions', invRowPos1.rows[0].external_ref === 'POS-TEST-1');
+
+    const posTxn1After = await admin(c => c.query('select * from pos_transactions where id=$1', [posTxn1.rows[0].id]));
+    check('kiosk_claim_pos_transaction: pos_transactions.status is applied', posTxn1After.rows[0].status === 'applied');
+    check('kiosk_claim_pos_transaction: pos_transactions.invoice_id links back to the invoice, no customer_phone column exists at all', posTxn1After.rows[0].invoice_id === posRow1.invoice_id);
+
+    const reclaimAttempt = await asUser(kioskUid, async c => {
+      try { await c.query('select * from kiosk_claim_pos_transaction($1,$2)', [posTxn1.rows[0].id, '512345678']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_claim_pos_transaction: an already-applied transaction cannot be claimed again', reclaimAttempt !== 'ok' && /NOJ_TRANSACTION_NOT_PENDING/.test(reclaimAttempt));
+
+    // ---- unregistered customer path ----
+    const UNREG_PHONE = '566677788';
+    const posTxn2 = await admin(c => c.query(
+      `insert into pos_transactions (branch_id, amount, vat, external_ref) values ($1,$2,$3,$4) returning id`,
+      [BRANCH, '40.00', '2.00', 'POS-TEST-2']
+    ));
+    const claimRes2 = await asUser(kioskUid, c => c.query(
+      'select * from kiosk_claim_pos_transaction($1,$2)', [posTxn2.rows[0].id, UNREG_PHONE]
+    ));
+    const posRow2 = claimRes2.rows[0];
+    check('kiosk_claim_pos_transaction: an unregistered phone returns is_registered=false, not rejected', posRow2.is_registered === false);
+    check('kiosk_claim_pos_transaction: profile_id is null for an unregistered phone', posRow2.profile_id === null);
+    check('kiosk_claim_pos_transaction: added_points is still computed for an unregistered phone', posRow2.added_points === Math.round(40 * RATE));
+
+    const unclaimedRow1 = await admin(c => c.query('select * from unclaimed_customers where phone=$1', [UNREG_PHONE]));
+    check('unclaimed_customers: a row is created on the first unregistered invoice', unclaimedRow1.rows.length === 1);
+    const firstLastInvoiceAt = unclaimedRow1.rows[0].last_invoice_at;
+
+    const pendingInvRow1 = await admin(c => c.query('select * from invoices where id=$1', [posRow2.invoice_id]));
+    check('invoices: the unregistered invoice has pending_phone set and user_id null', pendingInvRow1.rows[0].pending_phone === UNREG_PHONE && pendingInvRow1.rows[0].user_id === null);
+
+    // a second invoice for the same unregistered phone must bump last_invoice_at, not duplicate the row.
+    await new Promise(r => setTimeout(r, 50));
+    const posTxn3 = await admin(c => c.query(
+      `insert into pos_transactions (branch_id, amount, vat, external_ref) values ($1,$2,$3,$4) returning id`,
+      [BRANCH, '15.00', '0.75', 'POS-TEST-3']
+    ));
+    await asUser(kioskUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [posTxn3.rows[0].id, UNREG_PHONE]));
+    const unclaimedRow2 = await admin(c => c.query('select * from unclaimed_customers where phone=$1', [UNREG_PHONE]));
+    check('unclaimed_customers: still exactly one row for the same phone (on conflict update, not duplicate)', unclaimedRow2.rows.length === 1);
+    check('unclaimed_customers: last_invoice_at is bumped by a second invoice, not left at the first', unclaimedRow2.rows[0].last_invoice_at.getTime() > firstLastInvoiceAt.getTime());
+
+    // ---- claim_unclaimed_invoices(): must refuse until phone_verified_at is set ----
+    const claimantUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [claimantUid]));
+    const claimantProf = await asUser(claimantUid, c => c.query('select * from claim_or_create_profile($1) as p', [UNREG_PHONE]));
+    // a brand-new profile has no consent yet — the SAME check_consent_
+    // before_earn() trigger that gates a live kiosk earn also fires on the
+    // 'earn' rows claim_unclaimed_invoices() itself inserts (it is just
+    // another INSERT into point_transactions, no special-casing anywhere),
+    // discovered by actually running this, not by reading the function.
+    // Give it real consent first, same prerequisite any other earn needs.
+    await admin(c => c.query(
+      `insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','app')`,
+      [claimantProf.rows[0].id]
+    ));
+
+    const refusedClaim = await asUser(claimantUid, async c => {
+      try { await c.query('select claim_unclaimed_invoices()'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('claim_unclaimed_invoices: refuses to transfer while phone_verified_at is null (no real OTP exists yet)',
+      refusedClaim !== 'ok' && /NOJ_PHONE_NOT_VERIFIED/.test(refusedClaim));
+
+    const stillPending = await admin(c => c.query(`select count(*) from invoices where pending_phone=$1`, [UNREG_PHONE]));
+    check('claim_unclaimed_invoices: nothing was transferred by the refused attempt', Number(stillPending.rows[0].count) === 2);
+
+    // simulate a real OTP provider having verified this phone — nothing in
+    // this codebase sets phone_verified_at yet; this stands in for that
+    // future, separate piece of work.
+    await admin(c => c.query(`update profiles set phone_verified_at=now() where auth_user_id=$1`, [claimantUid]));
+
+    const claimCountRes = await asUser(claimantUid, c => c.query('select claim_unclaimed_invoices() as n'));
+    check('claim_unclaimed_invoices: transfers exactly the 2 pending invoices once verified', Number(claimCountRes.rows[0].n) === 2);
+
+    const claimantProfile = await admin(c => c.query('select id from profiles where auth_user_id=$1', [claimantUid]));
+    const transferredInvoices = await admin(c => c.query(
+      `select * from invoices where merchant_id=$1 and external_ref in ('POS-TEST-2','POS-TEST-3')`, [MATAM]
+    ));
+    check('claim_unclaimed_invoices: both invoices now belong to the real profile, pending_phone cleared',
+      transferredInvoices.rows.every(r => r.user_id === claimantProfile.rows[0].id && r.pending_phone === null));
+
+    const claimantBalance = await admin(c => c.query(
+      'select points from merchant_loyalty where user_id=$1 and merchant_id=$2', [claimantProfile.rows[0].id, MATAM]
+    ));
+    const expectedTransferredPoints = Math.round(40 * RATE) + Math.round(15 * RATE);
+    check('claim_unclaimed_invoices: merchant_loyalty balance equals the sum of both invoices\' points', claimantBalance.rows[0].points === expectedTransferredPoints);
+
+    const transferredPtRows = await admin(c => c.query(
+      `select * from point_transactions where user_id=$1 and merchant_id=$2 and source='pos'`, [claimantProfile.rows[0].id, MATAM]
+    ));
+    check('claim_unclaimed_invoices: a point_transactions ledger row exists per transferred invoice', transferredPtRows.rows.length === 2);
+
+    const unclaimedGone = await admin(c => c.query('select 1 from unclaimed_customers where phone=$1', [UNREG_PHONE]));
+    check('claim_unclaimed_invoices: the unclaimed_customers anchor row is deleted after a successful claim', unclaimedGone.rows.length === 0);
+
+    // ---- RLS: a device only ever sees its own branch's pos_transactions,
+    //      and unclaimed_customers is unreachable by anyone at all ----
+    const ownPosRead = await asUser(kioskUid, c => c.query('select id from pos_transactions where branch_id=$1', [BRANCH]));
+    check('pos_transactions RLS: the paired device can select its own branch\'s rows', ownPosRead.rows.length >= 1);
+    const foreignPosRead = await asUser(unpairedUid, c => c.query('select id from pos_transactions where branch_id=$1', [BRANCH]));
+    check('pos_transactions RLS: an unpaired device cannot select this branch\'s pos_transactions', foreignPosRead.rows.length === 0);
+
+    const deviceReadUnclaimed = await asUser(kioskUid, async c => {
+      try { await c.query('select * from unclaimed_customers'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('unclaimed_customers: no table grant at all, not just RLS — even a paired device is flatly refused (same lockout shape as branch_admin_pins)',
+      deviceReadUnclaimed !== 'ok' && /permission denied/.test(deviceReadUnclaimed));
+
+    // ---- device_id targeting: a transaction pinned to ONE device is
+    //      invisible/unclaimable to a DIFFERENT device on the SAME branch ----
+    const kioskUid2 = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [kioskUid2]));
+    const pairReq2 = await asUser(kioskUid2, c => c.query('select * from request_device_pairing()'));
+    await asUser(adminUid, c => c.query('select * from approve_device_pairing($1,$2)', [pairReq2.rows[0].pairing_code, BRANCH]));
+
+    const posTxnTargeted = await admin(c => c.query(
+      `insert into pos_transactions (branch_id, device_id, amount, external_ref) values ($1,$2,$3,$4) returning id`,
+      [BRANCH, DEVICE_ID, '10.00', 'POS-TEST-TARGETED']
+    ));
+    const otherDeviceRead = await asUser(kioskUid2, c => c.query('select id from pos_transactions where id=$1', [posTxnTargeted.rows[0].id]));
+    check('pos_transactions RLS: a transaction pinned to device A is invisible to device B on the same branch', otherDeviceRead.rows.length === 0);
+    const otherDeviceClaim = await asUser(kioskUid2, async c => {
+      try { await c.query('select * from kiosk_claim_pos_transaction($1,$2)', [posTxnTargeted.rows[0].id, '512345678']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_claim_pos_transaction: device B cannot claim a transaction pinned to device A', otherDeviceClaim !== 'ok' && /NOJ_TRANSACTION_NOT_FOUND/.test(otherDeviceClaim));
+    const ownDeviceClaim = await asUser(kioskUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [posTxnTargeted.rows[0].id, '512345678']));
+    check('kiosk_claim_pos_transaction: device A (the pinned device) CAN claim its own targeted transaction', ownDeviceClaim.rows[0].is_registered === true);
+
+    const posTxnBroadcast = await admin(c => c.query(
+      `insert into pos_transactions (branch_id, amount, external_ref) values ($1,$2,$3) returning id`,
+      [BRANCH, '5.00', 'POS-TEST-BROADCAST']
+    ));
+    const broadcastRead = await asUser(kioskUid2, c => c.query('select id from pos_transactions where id=$1', [posTxnBroadcast.rows[0].id]));
+    check('pos_transactions RLS: a transaction with no device_id is visible to ANY device on the branch', broadcastRead.rows.length === 1);
+
+    // ---- expired transaction: the time check is the authority, not the column ----
+    const posTxnExpired = await admin(c => c.query(
+      `insert into pos_transactions (branch_id, amount, external_ref, expires_at) values ($1,$2,$3, now() - interval '1 minute') returning id`,
+      [BRANCH, '8.00', 'POS-TEST-EXPIRED']
+    ));
+    const expiredClaim = await asUser(kioskUid, async c => {
+      try { await c.query('select * from kiosk_claim_pos_transaction($1,$2)', [posTxnExpired.rows[0].id, '512345678']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('kiosk_claim_pos_transaction: an expired pending transaction is rejected', expiredClaim !== 'ok' && /NOJ_TRANSACTION_EXPIRED/.test(expiredClaim));
+    const expiredRowAfter = await admin(c => c.query('select status from pos_transactions where id=$1', [posTxnExpired.rows[0].id]));
+    check('kiosk_claim_pos_transaction: the expired row\'s status is NOT rewritten (removed dead code — a write right before raise exception is always rolled back)', expiredRowAfter.rows[0].status === 'pending');
+
+    // NOTE on points_rate NULL handling: attempted to test this directly
+    // (update merchants set points_rate=null) and discovered merchants.
+    // points_rate is `not null default 1.0` with `check (points_rate > 0)`
+    // (supabase-migration-loyalty-rate-expiry.sql) — the database itself
+    // rejects a NULL before any function ever runs, so this path cannot
+    // actually be reached today. coalesce(v_merchant.points_rate, 0) in
+    // kiosk_claim_pos_transaction() is kept as cheap, harmless defensive
+    // coding (guards against a future schema relaxation of that
+    // constraint), not a fix for a currently-reachable bug — reported as
+    // such rather than leaving an untestable/misleading assertion in place.
   }
 
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');
