@@ -29,3 +29,9 @@
   create_profile(p_phone) القديمة تبقى كما هي (تثق بمعاملها، لا تضبط phone_verified_at). الدالة الموثوقة
   الوحيدة لتسجيل دخول حقيقي هي claim_or_create_verified_profile() — بلا معامل، تشتق الرقم من
   auth.users (لا تثق بأي رقم يُمرَّر من العميل أبداً) وتضبط phone_verified_at بنفسها.
+- Edge Functions: في supabase/functions/<اسم>/ (بنية CLI الخاصة بـ Supabase، تختلف عمداً عن تسمية
+  ملفات SQL المسطّحة في الجذر — ليست ملف migration). send-sms-hook هي أول دالة: تتحقق من توقيع
+  Supabase (Standard Webhooks) قبل أي شيء، ترفض أي رقم ليس +966 قبل استدعاء Unifonic، ولا تُسجِّل
+  الرمز أو الرقم كاملاً في أي سجل. المفاتيح (سر الـ hook، مفاتيح Unifonic) أسرار Edge Function فقط
+  (supabase secrets set) — لا في الكود ولا في المستودع أبداً. خطوات لوحة Supabase اليدوية (تفعيل
+  Phone Auth، ربط الـ hook، الأسرار، أرقام الاختبار، CAPTCHA، حدود IP) في supabase-phone-otp-setup.md.
