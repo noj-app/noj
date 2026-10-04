@@ -74,7 +74,7 @@ async function admin(fn) {
   const filesFromPhoneFormat = [
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
     'supabase-migration-kiosk-device-auth.sql', 'supabase-migration-kiosk-balance-lookup.sql',
-    'supabase-migration-pos-transactions.sql',
+    'supabase-migration-pos-transactions.sql', 'supabase-migration-phone-otp-foundation.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -904,6 +904,92 @@ async function admin(fn) {
     // coding (guards against a future schema relaxation of that
     // constraint), not a fix for a currently-reachable bug — reported as
     // such rather than leaving an untestable/misleading assertion in place.
+
+    // =========================================================================
+    // 14) Real phone verification, stage 1: otp_requests (record_otp_request)
+    //     + claim_or_create_verified_profile(). The OLD claim_or_create_
+    //     profile(p_phone) must stay completely unchanged — nothing calls
+    //     the new path yet (index.html wiring is a later stage).
+    // =========================================================================
+    const verifiedCustUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [verifiedCustUid]));
+
+    const unverifiedAttempt = await asUser(verifiedCustUid, async c => {
+      try { await c.query('select * from claim_or_create_verified_profile()'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('claim_or_create_verified_profile: refuses a session whose auth.users.phone_confirmed_at is still null',
+      unverifiedAttempt !== 'ok' && /NOJ_PHONE_NOT_VERIFIED/.test(unverifiedAttempt));
+
+    // simulate what ONLY Supabase Auth itself can do: a real OTP round-trip
+    // succeeded for this exact session (auth.updateUser + auth.verifyOtp,
+    // a later stage) — stored in Supabase's own E.164-without-'+' convention.
+    await admin(c => c.query(
+      `update auth.users set phone=$1, phone_confirmed_at=now() where id=$2`,
+      ['966599999991', verifiedCustUid]
+    ));
+
+    const verifiedRes = await asUser(verifiedCustUid, c => c.query('select * from claim_or_create_verified_profile()'));
+    const verifiedProfile = verifiedRes.rows[0];
+    check('claim_or_create_verified_profile: creates a profile with the NORMALIZED phone (no country code), not the raw auth.users value', verifiedProfile.phone === '599999991');
+    check('claim_or_create_verified_profile: phone_verified_at is stamped', verifiedProfile.phone_verified_at !== null);
+
+    await new Promise(r => setTimeout(r, 50));
+    const verifiedRes2 = await asUser(verifiedCustUid, c => c.query('select * from claim_or_create_verified_profile()'));
+    const verifiedProfile2 = verifiedRes2.rows[0];
+    check('claim_or_create_verified_profile: calling it again returns the SAME profile, not a duplicate', verifiedProfile2.id === verifiedProfile.id);
+    check('claim_or_create_verified_profile: phone_verified_at is the FIRST stamp, never overwritten on a later call', verifiedProfile2.phone_verified_at.getTime() === verifiedProfile.phone_verified_at.getTime());
+
+    // a session whose phone_confirmed_at IS set but whose phone is not a
+    // Saudi number must still be rejected — normalize_sa_phone() is the de
+    // facto "Saudi numbers only" gate at the DB layer, independent of
+    // whatever the SMS hook checks before even sending.
+    const nonSaudiUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id, phone, phone_confirmed_at) values ($1,$2,now())', [nonSaudiUid, '971501234567']));
+    const nonSaudiAttempt = await asUser(nonSaudiUid, async c => {
+      try { await c.query('select * from claim_or_create_verified_profile()'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('claim_or_create_verified_profile: a verified but non-Saudi phone is still rejected (normalize_sa_phone is the Saudi-only gate)',
+      nonSaudiAttempt !== 'ok' && /رقم جوال غير صحيح/.test(nonSaudiAttempt));
+
+    // the OLD function must stay completely untouched: still trusts its
+    // parameter, and critically still never stamps phone_verified_at —
+    // proving the two paths are properly separated, not silently merged.
+    const oldPathUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [oldPathUid]));
+    const oldPathRes = await asUser(oldPathUid, c => c.query('select * from claim_or_create_profile($1)', ['599999992']));
+    check('claim_or_create_profile (OLD path): still works completely unchanged, trusting its parameter as before', oldPathRes.rows[0].phone === '599999992');
+    check('claim_or_create_profile (OLD path): phone_verified_at stays NULL — this path never verifies anything', oldPathRes.rows[0].phone_verified_at === null);
+
+    // ---- record_otp_request(): per-device cap, defense-in-depth layer ----
+    const otpDeviceUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otpDeviceUid]));
+    for (let i = 0; i < 5; i++) {
+      const r = await asUser(otpDeviceUid, async c => {
+        try { await c.query('select record_otp_request()'); return 'ok'; }
+        catch (e) { return 'fail:' + e.message; }
+      });
+      check('record_otp_request: request #' + (i + 1) + ' within the hourly cap succeeds', r === 'ok');
+    }
+    const sixthAttempt = await asUser(otpDeviceUid, async c => {
+      try { await c.query('select record_otp_request()'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('record_otp_request: the 6th request within the same hour is rejected', sixthAttempt !== 'ok' && /NOJ_OTP_RATE_LIMITED/.test(sixthAttempt));
+
+    const otherDeviceOtp = await asUser(unpairedUid, async c => {
+      try { await c.query('select record_otp_request()'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('record_otp_request: a DIFFERENT device has its own independent counter, unaffected by the first device\'s cap', otherDeviceOtp === 'ok');
+
+    const otpTableDirectRead = await asUser(otpDeviceUid, async c => {
+      try { await c.query('select * from otp_requests'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('otp_requests: no table grant at all — unreachable directly by any client, same lockout shape as unclaimed_customers/branch_admin_pins',
+      otpTableDirectRead !== 'ok' && /permission denied/.test(otpTableDirectRead));
   }
 
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');
