@@ -11,6 +11,13 @@ create table if not exists auth.users (
   created_at timestamptz not null default now()
 );
 
+-- real Supabase's auth.users carries these natively; stubbed here (additive,
+-- nullable, no existing row affected) only once a migration under test
+-- actually reads them (supabase-migration-phone-otp-foundation.sql) — before
+-- that, no test needed them.
+alter table auth.users add column if not exists phone text;
+alter table auth.users add column if not exists phone_confirmed_at timestamptz;
+
 create or replace function auth.uid() returns uuid
 language sql stable
 as $$

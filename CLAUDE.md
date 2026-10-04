@@ -24,3 +24,8 @@
 - العميل غير المسجَّل في مسار الفاتورة: فاتورته ونقاطه تُحفظ على رقمه المطبَّع (invoices.pending_phone +
   unclaimed_customers)، وتُحذف نهائياً بعد سنة من آخر فاتورة على ذلك الرقم إن لم يسجّل. نقلها لحسابه
   عند التسجيل (claim_unclaimed_invoices) يشترط profiles.phone_verified_at — لا يكفي كتابة الرقم فقط.
+- التحقق من رقم الجوال: Supabase Phone OTP + Send SMS Hook إلى Unifonic (لا مزوّد عالمي مباشر). أرقام
+  سعودية (+966) فقط — يُرفض أي رقم آخر قبل استدعاء المزوّد، وعند normalize_sa_phone() أيضاً. claim_or_
+  create_profile(p_phone) القديمة تبقى كما هي (تثق بمعاملها، لا تضبط phone_verified_at). الدالة الموثوقة
+  الوحيدة لتسجيل دخول حقيقي هي claim_or_create_verified_profile() — بلا معامل، تشتق الرقم من
+  auth.users (لا تثق بأي رقم يُمرَّر من العميل أبداً) وتضبط phone_verified_at بنفسها.
