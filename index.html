@@ -362,9 +362,8 @@
   .cta:disabled{opacity:.4;cursor:not-allowed}
   .ghost{width:100%;padding:14px;font-size:13px;font-weight:600;color:var(--muted);margin-top:6px}
   .ghost b{color:var(--blue)}
-  .demo-tip{background:#FFF8E7;border:1px solid #F5E2B8;border-radius:14px;padding:13px 15px;font-size:12.5px;line-height:1.7;color:#8A6D2B;margin-top:20px}
-  .demo-tip b{color:#6B5316}
   .auth-foot{margin-top:auto;padding-top:28px;text-align:center;font-size:11.5px;color:var(--muted);line-height:1.8}
+  #turnstile-container{margin-top:16px;display:flex;justify-content:center;min-height:1px}
 
   /* ================= SPLASH (light) ================= */
   .splash{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
@@ -690,6 +689,75 @@ function getSb(){
   return __sbPromise;
 }
 
+/* ================= TURNSTILE (CAPTCHA) ================= */
+// ثاني استثناء صريح على قاعدة "لا مكتبات خارجية" (الأول Supabase أعلاه) —
+// لازم: Turnstile لا يمكن استضافته محلياً، يجب تحميله من Cloudflare مباشرة.
+// Managed mode (مُهيَّأ من جهة Cloudflare نفسها عند إنشاء الـ widget، لا من
+// هذا الكود) يحاول التحقق بصمت دون تحدٍ مرئي لحركة تبدو شرعية.
+//
+// هذا المفتاح العام فقط (Site Key) — آمن تماماً أن يكون في الكود ومرئياً
+// للجميع، بعكس السر (Secret Key) الذي يبقى في إعدادات Supabase حصراً ولا
+// يصل لهذا الملف إطلاقاً. راجع supabase-phone-otp-setup.md.
+var TURNSTILE_SITE_KEY='1x00000000000000000000AA'; // مفتاح Cloudflare التجريبي الرسمي (ينجح دائماً) — استبدله بالمفتاح الحقيقي بعد إنشاء site في Cloudflare
+var __turnstileScriptPromise=null;
+function loadTurnstileScript(){
+  if(window.turnstile)return Promise.resolve();
+  if(!__turnstileScriptPromise){
+    __turnstileScriptPromise=new Promise(function(resolve,reject){
+      var s=document.createElement('script');
+      s.src='https://challenges.cloudflare.com/turnstile/v0/api.js';
+      s.async=true;
+      s.onload=function(){resolve()};
+      s.onerror=function(){reject(new Error('turnstile-script-load-failed'))};
+      document.head.appendChild(s);
+    });
+  }
+  return __turnstileScriptPromise;
+}
+var turnstileToken=null;
+var turnstileWidgetId=null;
+function renderTurnstileWidget(){
+  loadTurnstileScript().then(function(){
+    var el=document.getElementById('turnstile-container');
+    if(!el||!window.turnstile)return;
+    if(turnstileWidgetId!==null){
+      try{turnstile.remove(turnstileWidgetId)}catch(e){}
+    }
+    turnstileToken=null;
+    turnstileWidgetId=turnstile.render(el,{
+      sitekey:TURNSTILE_SITE_KEY,
+      callback:function(token){turnstileToken=token},
+      'expired-callback':function(){turnstileToken=null},
+      'error-callback':function(){turnstileToken=null}
+    });
+  }).catch(function(e){console.error('NOJ: تعذّر تحميل Turnstile',e)});
+}
+// يُستهلَك الرمز مرة واحدة لدى Cloudflare — بعد كل استخدام (ناجحاً أو
+// فاشلاً) نطلب رمزاً جديداً بدل ترك رمز قديم يُعاد استخدامه خطأً.
+function resetTurnstileToken(){
+  turnstileToken=null;
+  if(turnstileWidgetId!==null&&window.turnstile){
+    try{turnstile.reset(turnstileWidgetId)}catch(e){}
+  }
+}
+// الودجت مرسوم مسبقاً أثناء كتابة العميل لرقمه (renderTurnstileWidget في
+// bindAuth)، فعادة يكون turnstileToken جاهزاً فعلاً لحظة الضغط على
+// إرسال. هذه الدالة فقط شبكة أمان لحالة نادرة (ضغط سريع جداً، أو بطء
+// شبكة) — تنتظر مهلة قصيرة ثم **تُكمل بـ null إن لم يصل شيء، بلا رفض
+// أبداً**. حظر الإرسال بلا مهلة (كما كُتب أول مرة) يعلّق الزر للأبد لو
+// فشل تحميل Cloudflare كلياً (حجب شبكة، إلخ)، رغم أن CAPTCHA قد تكون غير
+// مُفعَّلة في Supabase أصلاً فلا تحتاج توكناً على الإطلاق.
+function waitForTurnstileToken(maxMs){
+  if(turnstileToken)return Promise.resolve(turnstileToken);
+  return new Promise(function(resolve){
+    var waited=0;
+    var iv=setInterval(function(){
+      waited+=150;
+      if(turnstileToken||waited>=maxMs){clearInterval(iv);resolve(turnstileToken)}
+    },150);
+  });
+}
+
 const STORAGE_PREFIX='noj_';
 const K={SESSION:'session',PHONE:'phone',NOTIF:'notif_switches'};
 const Store={
@@ -873,21 +941,21 @@ async function loadUserMerchants(profileId){
   USER_MERCHANTS.sort(function(a,b){return (a.type==='صحة'?0:1)-(b.type==='صحة'?0:1)});
 }
 
-async function loginAndLoad(phone){
+// بلا معامل phone — عمداً. الرقم لم يعد يُؤخَذ من العميل إطلاقاً، بل
+// يُشتَق خادمياً من الجلسة المُتحقَّقة فعلياً (claim_or_create_verified_
+// profile() تقرأ auth.users.phone/phone_confirmed_at بنفسها). لا signInAnonymously
+// هنا أيضاً — الجلسة يجب أن تكون موجودة مسبقاً (أنشأها doVerify عبر
+// verifyOtp بنجاح، أو كانت محفوظة من قبل) قبل استدعاء هذه الدالة أصلاً.
+async function loginAndLoad(){
   try{
     var sb=await getSb();
     if(!sb) throw new Error('supabase-client-unavailable');
 
     var sessionRes=await sb.auth.getSession();
     var session=sessionRes.data&&sessionRes.data.session;
-    if(!session){
-      var signInRes=await sb.auth.signInAnonymously();
-      if(signInRes.error) throw signInRes.error;
-      session=signInRes.data.session;
-    }
-    if(!session) throw new Error('anonymous-signin-unavailable');
+    if(!session) throw new Error('no-session');
 
-    var claimRes=await sb.rpc('claim_or_create_profile',{p_phone:phone});
+    var claimRes=await sb.rpc('claim_or_create_verified_profile');
     if(claimRes.error) throw claimRes.error;
     var prof=claimRes.data;
 
@@ -905,6 +973,16 @@ async function loginAndLoad(phone){
         .eq('profile_id',prof.id).eq('consent_type','data_processing').is('revoked_at',null).limit(1);
       S.showConsent=!consentRes.error&&(!consentRes.data||!consentRes.data.length);
     }catch(e){console.error('NOJ consent check error:',e)}
+
+    // نقل أي فاتورة/نقاط محفوظة على هذا الرقم من قبل أن يُسجَّل (مسار
+    // الكشك، pos_transactions) — أفضل جهد، فشلها لا يوقف الدخول؛
+    // claim_unclaimed_invoices() نفسها ترفض بصمت (NOJ_PHONE_NOT_VERIFIED
+    // لا تُرمى هنا إطلاقاً عملياً، لأن وصولنا لهذه النقطة أصلاً يعني
+    // phone_confirmed_at كان موجوداً) إلا لحالات نادرة لا تستحق إزعاج
+    // العميل برسالة خطأ.
+    try{
+      await sb.rpc('claim_unclaimed_invoices');
+    }catch(e){console.error('NOJ claim_unclaimed_invoices error:',e)}
 
     return true;
   }catch(e){
@@ -1735,8 +1813,11 @@ function countUp(el,target,dur,dec){
 }
 
 /* ================= AUTH ================= */
-var A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
-var DEMO_CODE='1234';
+var A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null,verifyType:null};
+// طول رمز Supabase Phone OTP افتراضياً 6 أرقام (لا 4 كما كان في النسخة
+// التجريبية) — راجع Authentication → Settings → "OTP Length" في لوحة
+// Supabase قبل الاعتماد الحي إن اختلف، وحدّث هذا الثابت ليطابقه فقط.
+var OTP_LENGTH=6;
 
 function hydrateFromStorage(){
   var savedSw=Store.get(K.NOTIF,null);
@@ -1763,14 +1844,14 @@ function authPhone(){
       (A.err?'<div class="err">'+A.err+'</div>':'<div class="hint">سيصلك الرمز عبر رسالة نصية على هذا الرقم.</div>')+
     '</div>'+
     '<button class="cta" id="send">'+(A.sending?'جارٍ الإرسال...':'إرسال رمز التحقق')+'</button>'+
-    '<div class="demo-tip"><b>نسخة تجريبية:</b> لا تُرسل رسائل فعلية. أدخل أي رقم من 9 خانات، ورمز التحقق هو <b>'+DEMO_CODE+'</b>.</div>'+
+    '<div id="turnstile-container"></div>'+
     '<div class="auth-foot">بمتابعتك أنت توافق على شروط الاستخدام وسياسة الخصوصية الخاصة بـ NOJ.</div>'+
   '</div>';
 }
 
 function authCode(){
   var boxes='';
-  for(var i=0;i<4;i++){
+  for(var i=0;i<OTP_LENGTH;i++){
     var v=A.code[i]||'';
     boxes+='<input type="tel" inputmode="numeric" maxlength="1" data-otp="'+i+'" value="'+v+'"'+(v?' class="filled"':'')+'>';
   }
@@ -1780,9 +1861,9 @@ function authCode(){
     '<button id="edit" style="color:var(--blue);font-weight:700;font-size:13px">تعديل</button></p>'+
     '<div class="field"><div class="otp-row'+(A.err?' bad':'')+'" id="otp">'+boxes+'</div>'+
     (A.err?'<div class="err" style="text-align:center">'+A.err+'</div>':'')+'</div>'+
-    '<button class="cta" id="verify"'+(A.code.length<4?' disabled':'')+'>تأكيد الدخول</button>'+
+    '<button class="cta" id="verify"'+(A.code.length<OTP_LENGTH?' disabled':'')+'>تأكيد الدخول</button>'+
     '<button class="ghost" id="resend">'+(A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>')+'</button>'+
-    '<div class="demo-tip">رمز التحقق في النسخة التجريبية هو <b>'+DEMO_CODE+'</b>.</div>'+
+    '<div id="turnstile-container"></div>'+
   '</div>';
 }
 
@@ -1826,17 +1907,7 @@ function bindAuth(){
   }
 
   var send=document.getElementById('send');
-  if(send)send.onclick=function(){
-    if(A.phone.length<9||A.phone[0]!=='5'){
-      A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
-      renderAuth();return;
-    }
-    A.sending=true;renderAuth();
-    setTimeout(function(){
-      A.sending=false;A.step='code';A.code='';A.err='';
-      renderAuth();startTimer();
-    },700);
-  };
+  if(send)send.onclick=function(){sendOtp()};
 
   var edit=document.getElementById('edit');
   if(edit)edit.onclick=function(){A.step='phone';A.code='';A.err='';clearInterval(A.timer);renderAuth()};
@@ -1858,12 +1929,12 @@ function bindAuth(){
       }else{
         this.value=v;
         if(v)this.classList.add('filled');else this.classList.remove('filled');
-        if(v&&idx<3)otps[idx+1].focus();
+        if(v&&idx<OTP_LENGTH-1)otps[idx+1].focus();
       }
       A.code=readCode();A.err='';
       var vb=document.getElementById('verify');
-      if(vb)vb.disabled=A.code.length<4;
-      if(A.code.length===4)setTimeout(doVerify,180);
+      if(vb)vb.disabled=A.code.length<OTP_LENGTH;
+      if(A.code.length===OTP_LENGTH)setTimeout(doVerify,180);
     };
     box.onkeydown=function(e){
       if(e.key==='Backspace'&&!this.value&&idx>0){
@@ -1872,15 +1943,17 @@ function bindAuth(){
         otps[idx-1].classList.remove('filled');
         A.code=readCode();
         var vb=document.getElementById('verify');
-        if(vb)vb.disabled=A.code.length<4;
+        if(vb)vb.disabled=A.code.length<OTP_LENGTH;
       }
     };
     box.onfocus=function(){this.select()};
   });
   if(otps.length)setTimeout(function(){
-    var next=A.code.length<4?otps[A.code.length]:otps[3];
+    var next=A.code.length<OTP_LENGTH?otps[A.code.length]:otps[OTP_LENGTH-1];
     (next||otps[0]).focus();
   },250);
+
+  renderTurnstileWidget();
 
   var v=document.getElementById('verify');
   if(v)v.onclick=doVerify;
@@ -1888,26 +1961,129 @@ function bindAuth(){
   var rs=document.getElementById('resend');
   if(rs)rs.onclick=function(){
     if(A.secs>0)return;
-    A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
+    resendOtp();
   };
 }
 
+// يُستدعى عند الضغط على "إرسال رمز التحقق" في شاشة الجوال. يُنشئ جلسة
+// مجهولة إن لم توجد بعد (CAPTCHA على signInAnonymously نفسها)، ثم يرقّيها
+// برقم حقيقي عبر updateUser (CAPTCHA مُمرَّرة أيضاً احتياطاً — راجع
+// الملاحظة أدناه)، أو يتحوّل لتسجيل دخول (signInWithOtp) إن كان الرقم
+// مسجَّلاً مسبقاً بهوية Auth حقيقية أخرى (جهاز/متصفح سابق لنفس العميل).
+async function sendOtp(){
+  if(A.phone.length<9||A.phone[0]!=='5'){
+    A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
+    renderAuth();return;
+  }
+  A.sending=true;A.err='';renderAuth();
+  // مهلة قصيرة لا حظر أبداً — انظر تعليق waitForTurnstileToken. captchaToken
+  // قد يكون null هنا (فشل تحميل Cloudflare مثلاً)؛ يمرّ كذلك دون مشكلة ما
+  // دامت CAPTCHA غير مُفعَّلة بعد في Supabase، وإن فُعِّلت لاحقاً فستتكفّل
+  // Supabase نفسها برفض الطلب بخطأ واضح يُلتقَط أدناه.
+  var captchaToken=await waitForTurnstileToken(2500);
+  resetTurnstileToken();
+
+  var sb=await getSb();
+  if(!sb){A.sending=false;A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
+
+  try{
+    var sessionRes=await sb.auth.getSession();
+    if(!sessionRes.data||!sessionRes.data.session){
+      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken||undefined}});
+      if(signInRes.error)throw signInRes.error;
+    }
+  }catch(e){
+    A.sending=false;A.err='تعذّر إنشاء جلسة، أعد تحميل الصفحة وحاول مرة أخرى.';renderAuth();return;
+  }
+
+  try{
+    var otpLimitRes=await sb.rpc('record_otp_request');
+    if(otpLimitRes.error)throw otpLimitRes.error;
+  }catch(e){
+    A.sending=false;
+    A.err=/NOJ_OTP_RATE_LIMITED/.test((e&&e.message)||'')?'لقد تجاوزت الحد المسموح من المحاولات، حاول لاحقاً.':'تعذّر إرسال رمز التحقق، حاول مرة أخرى.';
+    renderAuth();return;
+  }
+
+  var fullPhone='+966'+A.phone;
+  // ملاحظة يجب التحقق منها فعلياً على أرقام الاختبار قبل أي اعتماد حي:
+  // نفس captchaToken يُستخدَم هنا وربما استُهلك أعلاه في signInAnonymously
+  // — إن تبيّن أن updateUser يتحقق من الرمز فعلياً ويرفض رمزاً مُستهلَكاً،
+  // يلزم رمز Turnstile ثانٍ هنا (turnstile.reset + انتظار callback جديد).
+  var res=await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken||undefined});
+  if(res.error){
+    var msg=(res.error.message||'').toLowerCase();
+    if(/already|exists|registered/.test(msg)){
+      // الرقم مرتبط بهوية Auth حقيقية أخرى (جهاز/متصفح سابق) — تسجيل دخول
+      // بدل ترقية هذه الجلسة المجهولة. الكلمات المطابَقة هنا تقريبية؛
+      // راجع رسالة/رمز الخطأ الفعلي من Supabase قبل الاعتماد الحي.
+      var signInOtpRes=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
+      if(signInOtpRes.error){
+        A.sending=false;A.err='تعذّر إرسال رمز التحقق، حاول مرة أخرى.';renderAuth();return;
+      }
+      A.verifyType='sms';
+    }else{
+      A.sending=false;
+      A.err=/captcha/i.test(msg)?'تعذّر التحقق الأمني، أعد تحميل الصفحة وحاول مرة أخرى.':'تعذّر إرسال رمز التحقق، تحقق من الرقم وحاول مرة أخرى.';
+      renderAuth();return;
+    }
+  }else{
+    A.verifyType='phone_change';
+  }
+
+  A.sending=false;A.step='code';A.code='';A.err='';
+  renderAuth();startTimer();
+}
+
+// نفس منطق sendOtp تقريباً لكن دون تغيير A.step (نحن أصلاً في شاشة الرمز)
+// — تُستدعى من زر "إعادة الإرسال" فقط، ولا تُستدعى تلقائياً أبداً.
+async function resendOtp(){
+  var captchaToken=await waitForTurnstileToken(2500);
+  resetTurnstileToken();
+
+  var sb=await getSb();
+  if(!sb){toast('تعذّر الاتصال بالخادم');return}
+
+  try{
+    var otpLimitRes=await sb.rpc('record_otp_request');
+    if(otpLimitRes.error)throw otpLimitRes.error;
+  }catch(e){
+    toast(/NOJ_OTP_RATE_LIMITED/.test((e&&e.message)||'')?'لقد تجاوزت الحد المسموح من المحاولات، حاول لاحقاً.':'تعذّر إعادة الإرسال');
+    return;
+  }
+
+  var fullPhone='+966'+A.phone;
+  var res=A.verifyType==='sms'
+    ?await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}})
+    :await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken||undefined});
+  if(res.error){toast('تعذّر إعادة الإرسال، حاول مرة أخرى لاحقاً.');return}
+
+  A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
+}
+
 async function doVerify(){
-  if(A.code!==DEMO_CODE){
-    A.err='رمز التحقق غير صحيح. حاول مرة أخرى.';
+  var sb=await getSb();
+  if(!sb){A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
+
+  var v=document.getElementById('verify');
+  if(v){v.disabled=true;v.textContent='جارٍ التحقق...'}
+
+  var fullPhone='+966'+A.phone;
+  var res=await sb.auth.verifyOtp({phone:fullPhone,token:A.code,type:A.verifyType||'phone_change'});
+  if(res.error){
+    A.err='رمز التحقق غير صحيح أو منتهي الصلاحية. حاول مرة أخرى.';
     A.code='';
     renderAuth();
     return;
   }
   clearInterval(A.timer);
   Store.set(K.SESSION,true);
-  Store.set(K.PHONE,A.phone);
+  Store.set(K.PHONE,A.phone); // للعرض المحلي فقط (fmtPhone) — ليس مصدر ثقة لأي شيء بعد اليوم
 
-  var v=document.getElementById('verify');
   if(v){v.disabled=true;v.textContent='جارٍ تحميل بياناتك...'}
 
   S.dataLoading=true;
-  var loadPromise=loginAndLoad(A.phone);
+  var loadPromise=loginAndLoad();
 
   var el=document.getElementById('auth');
   el.style.transition='opacity .35s ease, transform .35s ease';
@@ -1930,7 +2106,7 @@ function logoutFlow(){
   clearInterval(A.timer);
   Store.remove(K.SESSION);
   Store.remove(K.PHONE);
-  A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null};
+  A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null,verifyType:null};
   PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
   QUEUE={ticket:null,label:'',merchantId:null};
   INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];USER_MERCHANTS=[];MERCHANT_QUEUE_STATS={};
@@ -2418,7 +2594,7 @@ setTimeout(function(){
     // في موعده دائمًا، بهياكل تحميل (skeleton) إن لم تكن البيانات جاهزة
     // بعد، وتُستبدل بالمحتوى الحقيقي فور وصوله (انظر S.dataLoading).
     S.dataLoading=true;
-    var loadPromise=loginAndLoad(A.phone);
+    var loadPromise=loginAndLoad();
     sp.classList.add('out');
 
     setTimeout(function(){

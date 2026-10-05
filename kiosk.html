@@ -756,6 +756,63 @@ function getSb(){
   return __sbPromise;
 }
 
+/* ================= TURNSTILE (CAPTCHA) =================
+   نفس نمط index.html بالضبط، نسخة مستقلة (كل ملف قائم بذاته). signInAnonymously
+   هنا محمية بنفس إعداد CAPTCHA المشروع الواحد — تفعيله في Supabase يُطبَّق على
+   إقران الأكشاك أيضاً، لا index.html فقط (راجع CLAUDE.md/supabase-phone-otp-
+   setup.md). لا تعامل بشري عادةً عند هذه النقطة إلا أثناء الإقران الأول لجهاز
+   جديد (شخص حاضر فعلاً ليقرأ رمز الإقران) — بشرط أن يبقى تخزين المتصفح بين
+   مرات التشغيل (Chrome عادي لا متصفح تطبيق Google ولا وضع التصفح المتخفي،
+   راجع CLAUDE.md)، وإلا سيحتاج كل إقلاع تحققاً جديداً. */
+var TURNSTILE_SITE_KEY='1x00000000000000000000AA'; // مفتاح Cloudflare التجريبي الرسمي (ينجح دائماً) — استبدله بالمفتاح الحقيقي بعد إنشاء site في Cloudflare
+function loadTurnstileScript(){
+  if(window.turnstile)return Promise.resolve();
+  return new Promise(function(resolve,reject){
+    var s=document.createElement('script');
+    s.src='https://challenges.cloudflare.com/turnstile/v0/api.js';
+    s.async=true;
+    s.onload=function(){resolve()};
+    s.onerror=function(){reject(new Error('turnstile-script-load-failed'))};
+    document.head.appendChild(s);
+  });
+}
+// يُقلِع الجهاز هذا تلقائياً بلا أي زر أو تفاعل بشري، وبلا أي إنسان يراقبه
+// عادة — فهذه الدالة **لا ترفض (reject) أبداً**، بعكس محاولة أولى كُتبت
+// هكذا ثم صُحِّحت: لو رُفضت عند فشل تحميل Cloudflare (انقطاع شبكة، حجب)،
+// كان bootKiosk() سيتوقف عن حتى *محاولة* signInAnonymously، رغم أن CAPTCHA
+// قد تكون غير مُفعَّلة في Supabase أصلاً فلا يُطلَب منها توكن إطلاقاً —
+// وهذا أسوأ من الوضع السابق (قبل Turnstile) بلا أي داعٍ. والأخطر: widget
+// بوضع Managed قد يُظهر تحدياً تفاعلياً أحياناً، ولا أحد حاضراً ليحله على
+// كشك غير مراقَب — فبلا مهلة زمنية، سيعلق bootKiosk() للأبد بانتظار
+// callback لن يصل أبداً، ولن يسقط حتى عبر catch الخارجي (لا شيء يُرمى).
+// الحل: مهلة ١٠ ثوانٍ، وفي كل حالة فشل (تحميل/رسم/تحدٍ معلّق) تُحَل الـ
+// Promise بـ null بدل الرفض — bootKiosk() يكمل signInAnonymously بلا
+// captchaToken، وهذا يعمل تماماً ما دامت CAPTCHA غير مُفعَّلة في Supabase؛
+// وإن فُعِّلت لاحقاً وفشل الحصول على توكن فعلاً، Supabase نفسها سترفض
+// الاستدعاء، فيسقط عندها (بحق) عبر catch bootKiosk() الموجود أصلاً (رجوع
+// لإعدادات محفوظة محلياً إن وُجدت، وإلا connFatal ببطاقة إعادة محاولة).
+function getTurnstileToken(containerId,timeoutMs){
+  return loadTurnstileScript().then(function(){
+    return new Promise(function(resolve){
+      var el=document.getElementById(containerId);
+      if(!el||!window.turnstile){resolve(null);return}
+      var settled=false;
+      var timer=setTimeout(function(){
+        if(!settled){settled=true;resolve(null)}
+      },timeoutMs);
+      try{
+        turnstile.render(el,{
+          sitekey:TURNSTILE_SITE_KEY,
+          callback:function(token){if(!settled){settled=true;clearTimeout(timer);resolve(token)}},
+          'error-callback':function(){if(!settled){settled=true;clearTimeout(timer);resolve(null)}}
+        });
+      }catch(e){
+        if(!settled){settled=true;clearTimeout(timer);resolve(null)}
+      }
+    });
+  }).catch(function(){return null});
+}
+
 /* ================= DEVICE (إقران + سياق الفرع) =================
    DEVICE لا تُحفَظ هي نفسها محلياً — الجلسة المجهولة تُحفَظ تلقائياً عبر
    supabase-js نفسه (localStorage الخاص به)، فكل ما نحتاج تخزينه نحن هو
@@ -1491,6 +1548,7 @@ function connectingScreen(){
    '<div class="idle-mid" style="align-items:center">'+
     '<div style="width:56px;height:56px;border-radius:16px;background:#12235C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800">N</div>'+
     '<p class="idle-slogan" style="margin-top:14px">جارٍ الاتصال...</p>'+
+    '<div id="turnstile-container" style="margin-top:12px"></div>'+
    '</div></div>';
 }
 function renderConnecting(){
@@ -1642,7 +1700,15 @@ async function bootKiosk(){
     var sessionRes=await sb.auth.getSession();
     var session=sessionRes.data&&sessionRes.data.session;
     if(!session){
-      var signInRes=await sb.auth.signInAnonymously();
+      // لا جلسة محفوظة — إما أول إقلاع لهذا الجهاز، أو تخزين المتصفح لم
+      // يبقَ بين مرات التشغيل (راجع CLAUDE.md: Chrome عادي فقط لهذا السبب
+      // تحديداً). مهلة ١٠ ثوانٍ لا أكثر — getTurnstileToken لا ترفض أبداً
+      // (انظر تعليقها)، فإن لم يصل توكن نكمل بلا واحد؛ Supabase نفسها
+      // سترفض إن كانت CAPTCHA مُفعَّلة فعلاً وتوكناً صالحاً مفقوداً، فيسقط
+      // ذلك حينها عبر catch الخارجي (رجوع لكاش محلي إن وُجد، وإلا connFatal
+      // بزر إعادة محاولة موجود أصلاً).
+      var captchaToken=await getTurnstileToken('turnstile-container',10000);
+      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken||undefined}});
       if(signInRes.error)throw signInRes.error;
       session=signInRes.data.session;
     }
