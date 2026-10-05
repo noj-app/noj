@@ -756,6 +756,47 @@ function getSb(){
   return __sbPromise;
 }
 
+/* ================= TURNSTILE (CAPTCHA) =================
+   نفس نمط index.html بالضبط، نسخة مستقلة (كل ملف قائم بذاته). signInAnonymously
+   هنا محمية بنفس إعداد CAPTCHA المشروع الواحد — تفعيله في Supabase يُطبَّق على
+   إقران الأكشاك أيضاً، لا index.html فقط (راجع CLAUDE.md/supabase-phone-otp-
+   setup.md). لا تعامل بشري عادةً عند هذه النقطة إلا أثناء الإقران الأول لجهاز
+   جديد (شخص حاضر فعلاً ليقرأ رمز الإقران) — بشرط أن يبقى تخزين المتصفح بين
+   مرات التشغيل (Chrome عادي لا متصفح تطبيق Google ولا وضع التصفح المتخفي،
+   راجع CLAUDE.md)، وإلا سيحتاج كل إقلاع تحققاً جديداً. */
+var TURNSTILE_SITE_KEY='1x00000000000000000000AA'; // مفتاح Cloudflare التجريبي الرسمي (ينجح دائماً) — استبدله بالمفتاح الحقيقي بعد إنشاء site في Cloudflare
+function loadTurnstileScript(){
+  if(window.turnstile)return Promise.resolve();
+  return new Promise(function(resolve,reject){
+    var s=document.createElement('script');
+    s.src='https://challenges.cloudflare.com/turnstile/v0/api.js';
+    s.async=true;
+    s.onload=function(){resolve()};
+    s.onerror=function(){reject(new Error('turnstile-script-load-failed'))};
+    document.head.appendChild(s);
+  });
+}
+// يُقلِع الجهاز هذا تلقائياً بلا أي زر أو تفاعل بشري — بخلاف index.html،
+// لا يوجد "رمز جاهز مسبقاً من ودجت معروض" ننتظره: نحمّل السكربت ونرسم
+// الودجت ونعيد Promise يتحقق بأول رمز يصل عبر callback، أو يُرفَض إن فشل
+// التحميل/الرسم فيسقط عبر catch بناء bootKiosk() الموجود أصلاً (رجوع
+// لإعدادات محفوظة محلياً إن وُجدت، وإلا شاشة connFatal ببطاقة إعادة محاولة).
+function getTurnstileToken(containerId){
+  return loadTurnstileScript().then(function(){
+    return new Promise(function(resolve,reject){
+      var el=document.getElementById(containerId);
+      if(!el||!window.turnstile){reject(new Error('turnstile-unavailable'));return}
+      try{
+        turnstile.render(el,{
+          sitekey:TURNSTILE_SITE_KEY,
+          callback:function(token){resolve(token)},
+          'error-callback':function(){reject(new Error('turnstile-error'))}
+        });
+      }catch(e){reject(e)}
+    });
+  });
+}
+
 /* ================= DEVICE (إقران + سياق الفرع) =================
    DEVICE لا تُحفَظ هي نفسها محلياً — الجلسة المجهولة تُحفَظ تلقائياً عبر
    supabase-js نفسه (localStorage الخاص به)، فكل ما نحتاج تخزينه نحن هو
@@ -1491,6 +1532,7 @@ function connectingScreen(){
    '<div class="idle-mid" style="align-items:center">'+
     '<div style="width:56px;height:56px;border-radius:16px;background:#12235C;color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800">N</div>'+
     '<p class="idle-slogan" style="margin-top:14px">جارٍ الاتصال...</p>'+
+    '<div id="turnstile-container" style="margin-top:12px"></div>'+
    '</div></div>';
 }
 function renderConnecting(){
@@ -1642,7 +1684,13 @@ async function bootKiosk(){
     var sessionRes=await sb.auth.getSession();
     var session=sessionRes.data&&sessionRes.data.session;
     if(!session){
-      var signInRes=await sb.auth.signInAnonymously();
+      // لا جلسة محفوظة — إما أول إقلاع لهذا الجهاز، أو تخزين المتصفح لم
+      // يبقَ بين مرات التشغيل (راجع CLAUDE.md: Chrome عادي فقط لهذا السبب
+      // تحديداً). CAPTCHA مطلوبة هنا الآن لنفس سبب index.html — رفض تحميل
+      // الودجت أو فشلها يسقط عبر catch الخارجي كأي خطأ آخر (رجوع لكاش
+      // محلي إن وُجد، وإلا connFatal بزر إعادة محاولة موجود أصلاً).
+      var captchaToken=await getTurnstileToken('turnstile-container');
+      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken}});
       if(signInRes.error)throw signInRes.error;
       session=signInRes.data.session;
     }
