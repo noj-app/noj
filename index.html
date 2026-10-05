@@ -740,6 +740,23 @@ function resetTurnstileToken(){
     try{turnstile.reset(turnstileWidgetId)}catch(e){}
   }
 }
+// الودجت مرسوم مسبقاً أثناء كتابة العميل لرقمه (renderTurnstileWidget في
+// bindAuth)، فعادة يكون turnstileToken جاهزاً فعلاً لحظة الضغط على
+// إرسال. هذه الدالة فقط شبكة أمان لحالة نادرة (ضغط سريع جداً، أو بطء
+// شبكة) — تنتظر مهلة قصيرة ثم **تُكمل بـ null إن لم يصل شيء، بلا رفض
+// أبداً**. حظر الإرسال بلا مهلة (كما كُتب أول مرة) يعلّق الزر للأبد لو
+// فشل تحميل Cloudflare كلياً (حجب شبكة، إلخ)، رغم أن CAPTCHA قد تكون غير
+// مُفعَّلة في Supabase أصلاً فلا تحتاج توكناً على الإطلاق.
+function waitForTurnstileToken(maxMs){
+  if(turnstileToken)return Promise.resolve(turnstileToken);
+  return new Promise(function(resolve){
+    var waited=0;
+    var iv=setInterval(function(){
+      waited+=150;
+      if(turnstileToken||waited>=maxMs){clearInterval(iv);resolve(turnstileToken)}
+    },150);
+  });
+}
 
 const STORAGE_PREFIX='noj_';
 const K={SESSION:'session',PHONE:'phone',NOTIF:'notif_switches'};
@@ -1958,13 +1975,13 @@ async function sendOtp(){
     A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
     renderAuth();return;
   }
-  if(!turnstileToken){
-    A.err='التحقق الأمني لم يكتمل بعد، انتظر لحظة ثم حاول مرة أخرى.';
-    renderAuth();return;
-  }
-  var captchaToken=turnstileToken;
-  resetTurnstileToken();
   A.sending=true;A.err='';renderAuth();
+  // مهلة قصيرة لا حظر أبداً — انظر تعليق waitForTurnstileToken. captchaToken
+  // قد يكون null هنا (فشل تحميل Cloudflare مثلاً)؛ يمرّ كذلك دون مشكلة ما
+  // دامت CAPTCHA غير مُفعَّلة بعد في Supabase، وإن فُعِّلت لاحقاً فستتكفّل
+  // Supabase نفسها برفض الطلب بخطأ واضح يُلتقَط أدناه.
+  var captchaToken=await waitForTurnstileToken(2500);
+  resetTurnstileToken();
 
   var sb=await getSb();
   if(!sb){A.sending=false;A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
@@ -1972,7 +1989,7 @@ async function sendOtp(){
   try{
     var sessionRes=await sb.auth.getSession();
     if(!sessionRes.data||!sessionRes.data.session){
-      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken}});
+      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken||undefined}});
       if(signInRes.error)throw signInRes.error;
     }
   }catch(e){
@@ -1993,14 +2010,14 @@ async function sendOtp(){
   // نفس captchaToken يُستخدَم هنا وربما استُهلك أعلاه في signInAnonymously
   // — إن تبيّن أن updateUser يتحقق من الرمز فعلياً ويرفض رمزاً مُستهلَكاً،
   // يلزم رمز Turnstile ثانٍ هنا (turnstile.reset + انتظار callback جديد).
-  var res=await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken});
+  var res=await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken||undefined});
   if(res.error){
     var msg=(res.error.message||'').toLowerCase();
     if(/already|exists|registered/.test(msg)){
       // الرقم مرتبط بهوية Auth حقيقية أخرى (جهاز/متصفح سابق) — تسجيل دخول
       // بدل ترقية هذه الجلسة المجهولة. الكلمات المطابَقة هنا تقريبية؛
       // راجع رسالة/رمز الخطأ الفعلي من Supabase قبل الاعتماد الحي.
-      var signInOtpRes=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken}});
+      var signInOtpRes=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
       if(signInOtpRes.error){
         A.sending=false;A.err='تعذّر إرسال رمز التحقق، حاول مرة أخرى.';renderAuth();return;
       }
@@ -2021,11 +2038,7 @@ async function sendOtp(){
 // نفس منطق sendOtp تقريباً لكن دون تغيير A.step (نحن أصلاً في شاشة الرمز)
 // — تُستدعى من زر "إعادة الإرسال" فقط، ولا تُستدعى تلقائياً أبداً.
 async function resendOtp(){
-  if(!turnstileToken){
-    toast('التحقق الأمني لم يكتمل بعد، حاول خلال لحظات.');
-    return;
-  }
-  var captchaToken=turnstileToken;
+  var captchaToken=await waitForTurnstileToken(2500);
   resetTurnstileToken();
 
   var sb=await getSb();
@@ -2041,8 +2054,8 @@ async function resendOtp(){
 
   var fullPhone='+966'+A.phone;
   var res=A.verifyType==='sms'
-    ?await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken}})
-    :await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken});
+    ?await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}})
+    :await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken||undefined});
   if(res.error){toast('تعذّر إعادة الإرسال، حاول مرة أخرى لاحقاً.');return}
 
   A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
