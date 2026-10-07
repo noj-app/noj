@@ -41,8 +41,9 @@
 - CAPTCHA: Cloudflare Turnstile بوضع Managed (لا hCaptcha)، في index.html و kiosk.html معاً —
   signInAnonymously محمية بنفس الإعداد على مستوى مشروع Supabase الواحد، فتفعيلها في Supabase يُطبَّق
   على إقران الأكشاك أيضاً لا index.html فقط. لا تُفعَّل في لوحة Supabase إلا بعد نشر الكودين معاً
-  (راجع supabase-phone-otp-setup.md). TURNSTILE_SITE_KEY في كل ملف قيمة مؤقتة واضحة (مفتاح Cloudflare
-  التجريبي الرسمي) حتى يُستبدَل بمفتاح حقيقي بعد إنشاء الحساب.
+  (راجع supabase-phone-otp-setup.md). TURNSTILE_SITE_KEY الآن المفتاح الحقيقي (widget بوضع Managed
+  للنطاق noj-app.github.io) في كلا الملفين — Secret Key المقابل لم يُلصَق في Supabase بعد، فCAPTCHA
+  نفسها لا تزال غير مُفعَّلة فعلياً حتى تلك الخطوة.
 - الأكشاك: متصفح Chrome عادي فقط — لا متصفح تطبيق Google، ولا وضع التصفح المتخفي. السبب: هذان
   الوضعان قد لا يُبقيان تخزين المتصفح بين مرات التشغيل، فيحتاج الجهاز حل CAPTCHA عند كل إقلاع بدل مرة
   واحدة فقط عند الإقران الأول.

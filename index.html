@@ -698,7 +698,7 @@ function getSb(){
 // هذا المفتاح العام فقط (Site Key) — آمن تماماً أن يكون في الكود ومرئياً
 // للجميع، بعكس السر (Secret Key) الذي يبقى في إعدادات Supabase حصراً ولا
 // يصل لهذا الملف إطلاقاً. راجع supabase-phone-otp-setup.md.
-var TURNSTILE_SITE_KEY='1x00000000000000000000AA'; // مفتاح Cloudflare التجريبي الرسمي (ينجح دائماً) — استبدله بالمفتاح الحقيقي بعد إنشاء site في Cloudflare
+var TURNSTILE_SITE_KEY='0x4AAAAAAFQQChrEhtP_Q7DQ'; // مفتاح Cloudflare Turnstile الحقيقي (Managed، نطاق noj-app.github.io)
 var __turnstileScriptPromise=null;
 function loadTurnstileScript(){
   if(window.turnstile)return Promise.resolve();

@@ -764,7 +764,7 @@ function getSb(){
    جديد (شخص حاضر فعلاً ليقرأ رمز الإقران) — بشرط أن يبقى تخزين المتصفح بين
    مرات التشغيل (Chrome عادي لا متصفح تطبيق Google ولا وضع التصفح المتخفي،
    راجع CLAUDE.md)، وإلا سيحتاج كل إقلاع تحققاً جديداً. */
-var TURNSTILE_SITE_KEY='1x00000000000000000000AA'; // مفتاح Cloudflare التجريبي الرسمي (ينجح دائماً) — استبدله بالمفتاح الحقيقي بعد إنشاء site في Cloudflare
+var TURNSTILE_SITE_KEY='0x4AAAAAAFQQChrEhtP_Q7DQ'; // مفتاح Cloudflare Turnstile الحقيقي (Managed، نطاق noj-app.github.io)
 function loadTurnstileScript(){
   if(window.turnstile)return Promise.resolve();
   return new Promise(function(resolve,reject){
