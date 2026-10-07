@@ -75,6 +75,7 @@ async function admin(fn) {
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
     'supabase-migration-kiosk-device-auth.sql', 'supabase-migration-kiosk-balance-lookup.sql',
     'supabase-migration-pos-transactions.sql', 'supabase-migration-phone-otp-foundation.sql',
+    'supabase-migration-pos-intake.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -990,6 +991,103 @@ async function admin(fn) {
     });
     check('otp_requests: no table grant at all — unreachable directly by any client, same lockout shape as unclaimed_customers/branch_admin_pins',
       otpTableDirectRead !== 'ok' && /permission denied/.test(otpTableDirectRead));
+
+    // =========================================================================
+    // 15) POS invoice intake, stage 2: issue_branch_pos_token() +
+    //     intake_pos_transaction(). The pos-intake Edge Function itself is
+    //     tested separately via `deno test` (supabase/functions/pos-intake/
+    //     intake.test.ts) — this covers only the SQL side.
+    // =========================================================================
+    const sha256Hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+
+    const token1 = await admin(c => c.query('select issue_branch_pos_token($1) as t', [BRANCH]));
+    const rawToken1 = token1.rows[0].t;
+    check('issue_branch_pos_token: returns a non-trivial raw token', typeof rawToken1 === 'string' && rawToken1.length >= 32);
+
+    const cred1 = await admin(c => c.query('select token_hash from branch_pos_credentials where branch_id=$1', [BRANCH]));
+    check('issue_branch_pos_token: stores only the HASH, matching sha256(token) computed independently (SQL digest() and Node crypto agree)',
+      cred1.rows[0].token_hash === sha256Hex(rawToken1));
+
+    // re-issuing (rotation) replaces the hash — the old token's hash no
+    // longer matches the stored row.
+    const token2 = await admin(c => c.query('select issue_branch_pos_token($1) as t', [BRANCH]));
+    const rawToken2 = token2.rows[0].t;
+    check('issue_branch_pos_token: rotation produces a DIFFERENT raw token', rawToken2 !== rawToken1);
+    const cred2 = await admin(c => c.query('select token_hash from branch_pos_credentials where branch_id=$1', [BRANCH]));
+    check('issue_branch_pos_token: rotation replaces the stored hash (old token hash no longer matches)',
+      cred2.rows[0].token_hash === sha256Hex(rawToken2) && cred2.rows[0].token_hash !== sha256Hex(rawToken1));
+    check('issue_branch_pos_token: still exactly one row for this branch (upsert, not a second row)',
+      (await admin(c => c.query('select count(*) from branch_pos_credentials where branch_id=$1', [BRANCH]))).rows[0].count === '1');
+
+    // --- intake_pos_transaction(): the only way a row enters pos_transactions ---
+    const intake1 = await admin(c => c.query(
+      `select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+      [BRANCH, null, 'POS-INTAKE-1', '42.00', '2.10', 'generic', JSON.stringify({ till: 'A1' })]
+    ));
+    const row1 = intake1.rows[0];
+    check('intake_pos_transaction: creates a pending row with the given amount/vat', Number(row1.amount) === 42 && Number(row1.vat) === 2.1 && row1.status === 'pending');
+    check('intake_pos_transaction: source_adapter stored as given', row1.source_adapter === 'generic');
+
+    // idempotent re-post: SAME external_ref, DIFFERENT amount — must return
+    // the ORIGINAL row completely unchanged, not a second row, not a merge.
+    const intake1Retry = await admin(c => c.query(
+      `select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+      [BRANCH, null, 'POS-INTAKE-1', '999.00', '0', 'generic', null]
+    ));
+    const row1Retry = intake1Retry.rows[0];
+    check('intake_pos_transaction: re-posting the same external_ref returns the SAME row id', row1Retry.id === row1.id);
+    check('intake_pos_transaction: the retry\'s different amount is NOT merged in — original amount preserved', Number(row1Retry.amount) === 42);
+    const posCountForRef = await admin(c => c.query(`select count(*) from pos_transactions where branch_id=$1 and external_ref=$2`, [BRANCH, 'POS-INTAKE-1']));
+    check('intake_pos_transaction: no duplicate row was created by the retry', posCountForRef.rows[0].count === '1');
+
+    // device_id must belong to the SAME branch being posted to.
+    const otherBranchDeviceUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otherBranchDeviceUid]));
+    const otherBranchDevice = await admin(c => c.query(
+      `insert into devices (auth_user_id, branch_id, is_active) values ($1,$2,true) returning id`,
+      [otherBranchDeviceUid, OTHER_MERCHANT] // branches.id == merchants.id per the branches-devices backfill
+    ));
+
+    const wrongBranchDeviceAttempt = await admin(async c => {
+      try { await c.query(`select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+        [BRANCH, otherBranchDevice.rows[0].id, 'POS-INTAKE-2', '10.00', '0', 'generic', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('intake_pos_transaction: a device_id belonging to a DIFFERENT branch is rejected (NOJ_DEVICE_NOT_IN_BRANCH)',
+      wrongBranchDeviceAttempt !== 'ok' && /NOJ_DEVICE_NOT_IN_BRANCH/.test(wrongBranchDeviceAttempt));
+
+    const rightBranchDeviceIntake = await admin(c => c.query(
+      `select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+      [BRANCH, DEVICE_ID, 'POS-INTAKE-3', '10.00', '0', 'generic', null]
+    ));
+    check('intake_pos_transaction: a device_id belonging to the SAME branch succeeds', rightBranchDeviceIntake.rows[0].device_id === DEVICE_ID);
+
+    const badAmountIntake = await admin(async c => {
+      try { await c.query(`select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+        [BRANCH, null, 'POS-INTAKE-4', '0', '0', 'generic', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('intake_pos_transaction: a zero amount is rejected by the existing CHECK constraint (stage 1, unchanged)', badAmountIntake !== 'ok');
+
+    // --- lockdown: neither function nor the credentials table is reachable by any client role ---
+    const issueTokenAsDevice = await asUser(kioskUid, async c => {
+      try { await c.query('select issue_branch_pos_token($1)', [BRANCH]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('issue_branch_pos_token: no grant to authenticated at all — unreachable from any client', issueTokenAsDevice !== 'ok' && /permission denied/.test(issueTokenAsDevice));
+
+    const intakeAsDevice = await asUser(kioskUid, async c => {
+      try { await c.query(`select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`, [BRANCH, null, 'POS-INTAKE-5', '10.00', '0', 'generic', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('intake_pos_transaction: no grant to authenticated at all — unreachable from any client (only the Edge Function\'s service-role client calls it)', intakeAsDevice !== 'ok' && /permission denied/.test(intakeAsDevice));
+
+    const credsDirectRead = await asUser(kioskUid, async c => {
+      try { await c.query('select * from branch_pos_credentials'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('branch_pos_credentials: no table grant at all — unreachable directly, same lockout shape as branch_admin_pins/unclaimed_customers/otp_requests',
+      credsDirectRead !== 'ok' && /permission denied/.test(credsDirectRead));
   }
 
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');

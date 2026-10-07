@@ -1,0 +1,40 @@
+name: نشر Edge Functions
+
+# نشر يدوي فقط — زر "Run workflow" في تبويب Actions على GitHub، يعمل من
+# متصفح (حتى من تابلت) بلا أي حاسوب. عمداً بلا تشغيل تلقائي عند push: المستخدم
+# يشغّله بنفسه بعد وضع الأسرار والتأكد منها. راجع supabase-edge-functions-
+# deploy.md لخطوات الإعداد اليدوية الكاملة (مرة واحدة فقط): توكن Supabase +
+# معرّف المشروع، كلاهما يُحفظان كأسرار مستودع GitHub ولا يُكتبان هنا أبداً.
+#
+# --no-verify-jwt: كلتا الدالتين تُستدعى بتوقيع/توثيق خاص بها في رأس
+# Authorization نفسه (توكن الفرع لـ pos-intake، وSupabase لا يضع Authorization
+# في طلب Send SMS Hook أصلاً) — لا بتوكن JWT صادر من Supabase. بوابة Supabase
+# الافتراضية تتحقق من أن Authorization يحمل JWT صالحاً **قبل** وصول الطلب لكود
+# الدالة، فترفض كل طلب حقيقي بـ401 دون أن يُشغَّل الكود أصلاً. مثبَّتة أيضاً في
+# supabase/config.toml (verify_jwt = false لكل دالة) كإعداد دائم — العلم هنا
+# تأكيد إضافي صريح في كل نشر، لا بديل عن ملف الإعداد.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: نشر send-sms-hook
+        run: supabase functions deploy send-sms-hook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+      - name: نشر pos-intake
+        run: supabase functions deploy pos-intake --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
