@@ -33,6 +33,9 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | `supabase-migration-phone-otp-foundation.sql` | — | ترقية إضافية (مرحلة ١ من استبدال رمز التحقق الوهمي DEMO_CODE بتحقق SMS حقيقي): `otp_requests` (حدّ إرسال لكل جهاز، طبقة دفاع أخيرة فوق CAPTCHA وحدود Supabase حسب IP اللذين يُضبَطان من اللوحة في مرحلة لاحقة) + `claim_or_create_verified_profile()` — بلا معامل، تشتق رقم الجوال من `auth.users` (لا تثق بأي رقم من العميل)، تطبّعه بـ`normalize_sa_phone()` (بوابة "أرقام سعودية فقط")، وتضبط `profiles.phone_verified_at` — `claim_or_create_profile(p_phone)` القديمة تبقى حيّة بلا تعديل حتى يُستبدَل استدعاؤها في `index.html` بمرحلة لاحقة — يتطلب `supabase-migration-phone-format.sql` و`supabase-migration-consent-privacy.sql` أولاً |
 | `supabase/functions/send-sms-hook/` | — | مرحلة ٢ من التحقق الحقيقي: Edge Function تعمل Send SMS Hook لـ Supabase Auth Phone OTP — تتحقق من توقيع الطلب (Standard Webhooks)، ترفض أي رقم ليس +966 قبل أي استدعاء لـ Unifonic، ترسل رمز التحقق برسالة عربية قصيرة، ولا تُسجِّل الرمز أو الرقم كاملاً في أي سجل. المفاتيح من أسرار Edge Function فقط. اختبارات `deno test` كاملة (نجاح، فشل المزوّد، رقم غير سعودي، توقيع خاطئ) — راجع `supabase-phone-otp-setup.md` لخطوات لوحة Supabase اليدوية |
 | `supabase-phone-otp-setup.md` | — | توثيق فقط: خطوات يدوية مرتّبة في لوحة Supabase لتفعيل Phone Auth، ربط Send SMS Hook، إضافة الأسرار، أرقام الاختبار (مع تذكير صريح بحذفها قبل الإتاحة العامة)، CAPTCHA، وحدود المعدّل حسب IP |
+| `supabase-migration-pos-intake.sql` | — | ترقية إضافية (مرحلة ٢ من ربط POS): جدول `branch_pos_credentials` (توكن فرع، hash فقط، RLS بلا أي سياسة) + `issue_branch_pos_token()` (تُشغَّل يدوياً من محرر SQL لإصدار/تبديل توكن فرع، بلا grant لـ anon أو authenticated) + `intake_pos_transaction()` التي تستدعيها Edge Function (`pos-intake`) فقط — راجع "ربط نقطة البيع (POS)" أدناه |
+| `supabase/functions/pos-intake/` | — | مرحلة ٢ من ربط POS: Edge Function تستقبل فاتورة واحدة من كاشير الفرع (توثيق Bearer لكل فرع)، تتحقق من `external_ref`/`amount`/`vat`/`device_id`/`metadata`، وتوجيه حسب رأس `X-POS-Vendor` لدعم أنظمة كاشير متعددة لاحقاً — لا رقم جوال عميل في الحمولة أبداً، إعادة إرسال نفس `external_ref` آمنة (idempotent). راجع "ربط نقطة البيع (POS)" أدناه |
+| `supabase-edge-functions-deploy.md` | — | توثيق فقط: نشر Edge Functions (`send-sms-hook`, `pos-intake`) بلا حاسوب عبر GitHub Actions (`.github/workflows/deploy-edge-functions.yml`) — خطوات توكن Supabase وإضافته كسرّ مستودع |
 | `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه، بما فيها ملف القفل الأمني — راجع `db-tests/README.md` |
 | `manifest.json` | — | بيان تثبيت `index.html` فقط (الاسم، الأيقونات، ألوان الهوية) |
 | `sw.js` | — | Service Worker يخزّن ملفات `index.html` مؤقتاً للعمل بلا اتصال (الواجهة فقط — البيانات الحيّة تحتاج اتصالاً بـ Supabase) |
@@ -1152,6 +1155,55 @@ Editor مرة واحدة، بعد `supabase-schema.sql` (وبأي ترتيب ب�
    خصوصاً أن `category` الجديدة تظهر صحيحة في سطر console عند الربط، وأن
    القيمة نفسها مستخدَمة كفئة إنفاق حقيقية في `index.html`/
    `supabase-schema.sql` إن كانت هناك بيانات فعلية لذلك القطاع.
+
+## ربط نقطة البيع (POS) — نقطة الاستقبال `pos-intake`
+
+**لم تُمَسّ `kiosk.html` في هذه المرحلة** — هذا القسم يوثّق فقط نقطة
+الاستقبال في طرف Supabase التي ستغذّي الكشك لاحقاً (المرحلة ٣).
+
+`supabase/functions/pos-intake/` هي Edge Function تستقبل POST واحدة لكل
+فاتورة من نظام كاشير الفرع مباشرة، بتوثيق `Authorization: Bearer <توكن
+الفرع>`. لا رقم جوال عميل في الحمولة أبداً — رقم العميل يُدخَل لاحقاً على
+الكشك ويربط الفاتورة بصاحبها (`kiosk_claim_pos_transaction`، من
+`supabase-migration-pos-transactions.sql`).
+
+الحمولة الموحّدة (JSON):
+
+| الحقل | إلزامي؟ | الوصف |
+|---|---|---|
+| `external_ref` | نعم | معرّف الفاتورة لدى نظام الكاشير نفسه — يمنع التكرار |
+| `amount` | نعم | المبلغ، رقم أكبر من صفر |
+| `vat` | لا (افتراضي 0) | الضريبة، رقم صفر أو أكبر |
+| `device_id` | لا | معرّف جهاز كشك (UUID)، يجب أن يتبع نفس فرع التوكن |
+| `metadata` | لا | كائن JSON حر، محدود الحجم |
+
+رأس `X-POS-Vendor` (اختياري، الافتراضي `generic`) يوجّه لمحوّل مطابق لبنية
+بيانات ذلك النظام تحديداً — الآن يوجد محوّل `generic` فقط (يتوقع الحمولة
+بالشكل أعلاه كما هي)، وتضاف محوّلات أخرى لاحقاً حين يُعرف نظام كاشير أول
+عميل بنى تكامله، دون تغيير بقية خط الأنابيب.
+
+**إعادة إرسال نفس `external_ref` لنفس الفرع (إعادة محاولة بعد انقطاع شبكة
+مثلاً) تُرجع نفس العملية بنجاح دائماً** — لا خطأ، ولا صف مكرر، ولا دمج لقيم
+الإرسال الثاني (قد تختلف عن الأول) في صف قد يكون تجاوز حالة `pending`
+فعلاً.
+
+التوثيق: توكن عشوائي 256-بت لكل فرع، يُخزَّن **hash-ه فقط** (SHA-256) في
+`branch_pos_credentials` — جدول مقفل بالكامل (RLS بلا أي سياسة ولا أي
+`grant`)، لا طريق إليه إلا من عميل service role داخل الدالة نفسها. إصدار
+أو تبديل توكن فرع عملية إدارية تُنفَّذ يدوياً من محرر SQL في Supabase:
+
+```sql
+select issue_branch_pos_token('<معرّف الفرع>');
+```
+
+تُرجع التوكن **الخام مرة واحدة فقط** — انسخه فوراً، فهو غير قابل للاسترجاع
+لاحقاً (يُخزَّن الـ hash فقط). أعطِ هذا التوكن لنظام الكاشير ليضعه في رأس
+`Authorization: Bearer` مع كل طلب.
+
+راجع `supabase-migration-pos-intake.sql` للتفصيل الكامل (تعليل اختيار
+SHA-256 لا bcrypt، تصميم عدم الدمج عند التكرار، دفاع `device_id` العميق)،
+و`supabase-edge-functions-deploy.md` لكيفية نشر هذه الدالة بلا حاسوب عبر
+GitHub Actions.
 
 ## القواعد المعمارية (إلزامية لكل ملفات المشروع)
 

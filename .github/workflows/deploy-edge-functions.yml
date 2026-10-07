@@ -1,0 +1,36 @@
+name: نشر Edge Functions
+
+# يسمح بنشر دوال Supabase Edge Functions بلا أي حاسوب — فقط من متصفح (حتى من
+# تابلت): زر "Run workflow" في تبويب Actions على GitHub، أو تلقائياً عند دمج
+# تغيير على supabase/functions/**. راجع supabase-edge-functions-deploy.md
+# لخطوات الإعداد اليدوية الكاملة (مرة واحدة فقط): توكن Supabase + معرّف
+# المشروع، كلاهما يُحفظان كأسرار مستودع GitHub ولا يُكتبان هنا أبداً.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: نشر send-sms-hook
+        run: supabase functions deploy send-sms-hook --project-ref "$SUPABASE_PROJECT_ID"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+
+      - name: نشر pos-intake
+        run: supabase functions deploy pos-intake --project-ref "$SUPABASE_PROJECT_ID"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}

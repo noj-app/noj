@@ -14,6 +14,24 @@
 ## قرارات ثابتة
 - البيانات تأتي من كاشير المتجر مباشرة. لا إدخال يدوي ولا جهاز إضافي للموظف.
 - الربط مع POS: نقطة استقبال موحّدة في نوج، ومحوّل لكل نظام كاشير. يُبنى المحوّل حين يُعرف نظام أول عميل.
+  نقطة الاستقبال (مرحلة ٢، مبنية): Edge Function باسم pos-intake (supabase/functions/pos-intake/)،
+  تستقبل POST من كاشير الفرع بتوثيق Authorization: Bearer <توكن الفرع> — التوكن عشوائي 256-بت، يُخزَّن
+  hash-ه فقط (SHA-256، لا bcrypt: توكن عالي العشوائية لا يحتاج KDF بطيئة) في branch_pos_credentials
+  (RLS مفعّل بلا أي سياسة ولا أي grant، نفس قفل branch_admin_pins — لا طريق إليه إلا من عميل service
+  role داخل pos-intake نفسها). الحمولة الموحّدة: external_ref (إلزامي، لمنع التكرار)، amount (>0)، vat
+  (>=0)، device_id (اختياري، يجب أن يتبع نفس الفرع)، metadata (اختياري ومحدود الحجم) — لا رقم جوال
+  عميل في الحمولة أبداً، العميل يُدخله لاحقاً على الكشك. رأس X-POS-Vendor يوجّه لمحوّل من سجلّ
+  ADAPTERS؛ الآن generic فقط. إعادة إرسال نفس external_ref لنفس الفرع (intake_pos_transaction()، عبر
+  on conflict do update مصمَّم عمداً كلمسة بلا تأثير فعلي) تُرجع نفس pos_transactions.id دائماً بنجاح،
+  ولا تُدمِج قيم إعادة الإرسال (قد تختلف) في صف قد يكون تجاوز حالة pending فعلاً. issue_branch_pos_
+  token(p_branch_id) تُصدر/تُبدّل توكن فرع، تُشغَّل يدوياً من محرر SQL في Supabase فقط (بلا grant لـ
+  anon أو authenticated، بلا ثقة بـ auth.uid()، نفس نمط PIN) — تُرجع التوكن الخام مرة واحدة فقط. راجع
+  supabase-migration-pos-intake.sql للتفصيل الكامل.
+- نشر Edge Functions: عبر .github/workflows/deploy-edge-functions.yml (GitHub Actions)، لا يحتاج
+  حاسوباً — زر "Run workflow" من متصفح يكفي، أو تلقائياً عند دمج تغيير يلمس supabase/functions/**. يخدم
+  send-sms-hook و pos-intake معاً. التوثيق عبر سرّين في إعدادات المستودع (SUPABASE_ACCESS_TOKEN،
+  SUPABASE_PROJECT_ID) لا يُكتبان في الكود أبداً. خطوات الإعداد اليدوية الكاملة في
+  supabase-edge-functions-deploy.md.
 - القيم في القالب T (invoiceAmount, ticket, ahead, doctorName, topCard) تجريبية حتى يُبنى الربط،
   وزر "التالي (تجربة)" هو المحفّز الوحيد حالياً. لا يُحذف قبل وجود محفّز حقيقي.
 - رمز إعدادات الكشك يُتحقق منه في الخادم عبر verify_admin_pin وجدول branch_admin_pins. لا رموز في الكود أبداً.
