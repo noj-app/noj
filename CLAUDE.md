@@ -28,10 +28,13 @@
   anon أو authenticated، بلا ثقة بـ auth.uid()، نفس نمط PIN) — تُرجع التوكن الخام مرة واحدة فقط. راجع
   supabase-migration-pos-intake.sql للتفصيل الكامل.
 - نشر Edge Functions: عبر .github/workflows/deploy-edge-functions.yml (GitHub Actions)، لا يحتاج
-  حاسوباً — زر "Run workflow" من متصفح يكفي، أو تلقائياً عند دمج تغيير يلمس supabase/functions/**. يخدم
-  send-sms-hook و pos-intake معاً. التوثيق عبر سرّين في إعدادات المستودع (SUPABASE_ACCESS_TOKEN،
-  SUPABASE_PROJECT_ID) لا يُكتبان في الكود أبداً. خطوات الإعداد اليدوية الكاملة في
-  supabase-edge-functions-deploy.md.
+  حاسوباً — زر "Run workflow" من متصفح فقط، **يدوي حصراً** (workflow_dispatch، بلا أي تشغيل تلقائي
+  عند push). يخدم send-sms-hook و pos-intake معاً. التوثيق عبر سرّين في إعدادات المستودع
+  (SUPABASE_ACCESS_TOKEN، SUPABASE_PROJECT_ID) لا يُكتبان في الكود أبداً. كلتا الدالتين تُنشَر بـ
+  verify_jwt=false (في supabase/config.toml دائماً، و--no-verify-jwt في كل أمر نشر كتأكيد إضافي) —
+  بوابة Supabase الافتراضية ترفض أي طلب لا يحمل JWT صادراً منها قبل وصول كود الدالة، وكلتا الدالتين
+  تتوثّق بآليتها الخاصة داخل الطلب (توكن الفرع لـ pos-intake، توقيع Standard Webhooks لـ
+  send-sms-hook) لا بـ JWT. خطوات الإعداد اليدوية الكاملة في supabase-edge-functions-deploy.md.
 - القيم في القالب T (invoiceAmount, ticket, ahead, doctorName, topCard) تجريبية حتى يُبنى الربط،
   وزر "التالي (تجربة)" هو المحفّز الوحيد حالياً. لا يُحذف قبل وجود محفّز حقيقي.
 - رمز إعدادات الكشك يُتحقق منه في الخادم عبر verify_admin_pin وجدول branch_admin_pins. لا رموز في الكود أبداً.

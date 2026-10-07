@@ -1,0 +1,15 @@
+# NOJ — إعداد Supabase CLI لنشر Edge Functions فقط (لا تطوير محلي كامل عبر
+# `supabase start` في هذا المشروع، فلا حاجة لأقسام db/auth/storage الكاملة).
+#
+# verify_jwt = false إلزامي لكلتا الدالتين: كل منهما تتوثّق بآليتها الخاصة في
+# محتوى الطلب نفسه (توقيع Standard Webhooks لـ send-sms-hook، توكن الفرع في
+# Authorization لـ pos-intake) لا بتوكن JWT صادر من Supabase — والإعداد
+# الافتراضي (true) يرفض أي طلب لا يحمل JWT صالحاً في رأس Authorization قبل
+# وصوله لكود الدالة أصلاً، فيمنع كلا المسارين من العمل تماماً. راجع
+# supabase-edge-functions-deploy.md وsupabase-phone-otp-setup.md.
+
+[functions.send-sms-hook]
+verify_jwt = false
+
+[functions.pos-intake]
+verify_jwt = false
