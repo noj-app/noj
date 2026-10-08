@@ -1920,18 +1920,25 @@ function updatePinDots(){
   if(warn)warn.textContent=S.pinErr||'';
 }
 /* يتحقق من رمز الإدارة عبر الخادم (verify_admin_pin RPC على
-   branch_admin_pins الخاص بفرع هذا الجهاز) بدل قيمة ثابتة محلياً — يُعيد
-   false عند أي تعذّر (لا sb، لا فرع معروف بعد، أو أي استثناء) بدل
-   افتراض النجاح. */
+   branch_admin_pins الخاص بفرع هذا الجهاز) بدل قيمة ثابتة محلياً. يُعيد
+   كائن حالة لا boolean خام، لأن الخادم الآن يميّز بين: رمز خاطئ عادي،
+   وإيقاف مؤقت بعد محاولات فاشلة متكررة (NOJ_PIN_LOCKED)، وحالة نادرة لا
+   يُفترض حدوثها لجهاز مقارَن فعلياً (NOJ_PIN_WRONG_BRANCH — الجهاز لم يعد
+   يتبع الفرع الذي يحاول التحقق منه) — كل حالة تحتاج رسالة مختلفة في
+   الواجهة بدل "رمز غير صحيح" العامة للجميع. */
 async function verifyPin(pin){
   var sb=await getSb();
-  if(!sb||!DEVICE.branchId)return false;
+  if(!sb||!DEVICE.branchId)return{ok:false,reason:'no-device'};
   try{
     var res=await sb.rpc('verify_admin_pin',{p_branch_id:DEVICE.branchId,p_pin:pin});
-    return !res.error&&res.data===true;
+    if(!res.error)return{ok:res.data===true,reason:res.data===true?null:'wrong'};
+    var msg=(res.error.message||'');
+    if(/NOJ_PIN_LOCKED/.test(msg))return{ok:false,reason:'locked'};
+    if(/NOJ_PIN_WRONG_BRANCH/.test(msg))return{ok:false,reason:'wrong-branch'};
+    return{ok:false,reason:'error'};
   }catch(e){
     console.error('NOJ kiosk: verify_admin_pin error',e);
-    return false;
+    return{ok:false,reason:'error'};
   }
 }
 function bindPin(){
@@ -1943,9 +1950,14 @@ function bindPin(){
       if(k==='del'){S.pin=S.pin.slice(0,-1);S.pinErr='';updatePinDots();return}
       if(S.pin.length<4)S.pin+=k;
       if(S.pin.length===4){
-        verifyPin(S.pin).then(function(ok){
-          if(ok){openAdminSettings()}
-          else{S.pinErr='رمز غير صحيح، حاول مرة أخرى';S.pin='';updatePinDots()}
+        verifyPin(S.pin).then(function(r){
+          if(r.ok){openAdminSettings();return}
+          S.pin='';
+          S.pinErr=r.reason==='locked'?'محاولات كثيرة فاشلة، حاول مرة أخرى بعد دقائق'
+            :r.reason==='wrong-branch'||r.reason==='no-device'?'تعذّر التحقق، أعد تشغيل الجهاز وحاول مرة أخرى'
+            :r.reason==='error'?'تعذّر الاتصال بالخادم، حاول مرة أخرى'
+            :'رمز غير صحيح، حاول مرة أخرى';
+          updatePinDots();
         });
         return;
       }

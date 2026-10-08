@@ -198,7 +198,12 @@ begin
 end;
 $$;
 
-grant execute on function public.request_device_pairing() to anon, authenticated;
+-- authenticated only, not anon — bootKiosk() always signs in anonymously
+-- (authenticated-role JWT) before this is ever called. Also revokes
+-- PUBLIC's own separate implicit grant — see the fuller note on
+-- claim_or_create_profile(text) in supabase-schema.sql.
+revoke execute on function public.request_device_pairing() from public, anon;
+grant execute on function public.request_device_pairing() to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 5. approve_device_pairing(): called today by a merchant_member directly in
@@ -343,4 +348,7 @@ begin
 end;
 $$;
 
-grant execute on function public.kiosk_earn_points(text, numeric, text) to anon, authenticated;
+-- authenticated only, not anon — same reasoning as request_device_pairing()
+-- above in this same file.
+revoke execute on function public.kiosk_earn_points(text, numeric, text) from public, anon;
+grant execute on function public.kiosk_earn_points(text, numeric, text) to authenticated;

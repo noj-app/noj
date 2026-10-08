@@ -71,7 +71,10 @@ as $$
   order by waiting_count desc;
 $$;
 
-grant execute on function public.get_merchant_queue_stats(uuid) to anon, authenticated;
+-- authenticated only, not anon — see the fuller note on grant_app_consent()
+-- in supabase-migration-app-consent.sql.
+revoke execute on function public.get_merchant_queue_stats(uuid) from public, anon;
+grant execute on function public.get_merchant_queue_stats(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Demo contrast merchant: invoices but no loyalty program at all — sits

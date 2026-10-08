@@ -184,7 +184,15 @@ begin
 end;
 $$;
 
-grant execute on function public.redeem_reward(uuid) to anon, authenticated;
+-- authenticated only, not anon — see the fuller note on grant_app_consent()
+-- in supabase-migration-app-consent.sql. (Earlier files in the chain —
+-- merchant-loyalty.sql, lockdown-direct-writes.sql — still grant anon too;
+-- this file's statements are the ones that actually win since they are
+-- applied last, and are the single source of truth for this function's
+-- final state. The revoke below also removes PUBLIC's own implicit grant,
+-- which neither earlier file ever revoked either.)
+revoke execute on function public.redeem_reward(uuid) from public, anon;
+grant execute on function public.redeem_reward(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 5. Idempotency for future POS invoices: a POS retrying a webhook must

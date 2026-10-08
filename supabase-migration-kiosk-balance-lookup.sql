@@ -51,7 +51,14 @@ as $$
   select branch_id from public.devices where auth_user_id = auth.uid();
 $$;
 
-grant execute on function public.current_device_branch_id() to anon, authenticated;
+-- authenticated only, not anon — every kiosk session signs in anonymously
+-- (authenticated-role JWT) before any query touches branches/devices, so no
+-- genuine anon-role evaluation of this RLS-policy helper ever happens. Also
+-- revokes PUBLIC's own separate implicit grant from plain `create
+-- function` — see the fuller note on claim_or_create_profile(text) in
+-- supabase-schema.sql.
+revoke execute on function public.current_device_branch_id() from public, anon;
+grant execute on function public.current_device_branch_id() to authenticated;
 
 drop policy if exists "device can select its own branch" on public.branches;
 create policy "device can select its own branch"
@@ -97,4 +104,7 @@ begin
 end;
 $$;
 
-grant execute on function public.kiosk_lookup_customer_points(text) to anon, authenticated;
+-- authenticated only, not anon — see the note on current_device_branch_id()
+-- above in this same file.
+revoke execute on function public.kiosk_lookup_customer_points(text) from public, anon;
+grant execute on function public.kiosk_lookup_customer_points(text) to authenticated;

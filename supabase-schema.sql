@@ -250,7 +250,32 @@ begin
 end;
 $$;
 
-grant execute on function public.claim_or_create_profile(text) to anon, authenticated;
+-- superseded by claim_or_create_verified_profile() (supabase-migration-
+-- phone-otp-foundation.sql) — this old path trusts p_phone blindly with no
+-- verification at all, so it must NOT be client-callable any more. Kept
+-- (not dropped) only so this file still reproduces the live schema's
+-- history; CLAUDE.md documents why. A bare `revoke ... from public` is NOT
+-- enough on a hosted Supabase project — it only undoes the implicit grant
+-- to the PUBLIC pseudo-role, not the separate default-privilege grant
+-- Supabase's own bootstrap applies directly to anon/authenticated on every
+-- new function (see auto_expose_new_tables in a fresh `supabase init`
+-- project) — anon/authenticated must always be revoked explicitly and by
+-- name, which is what fully reopened this exact function on the live
+-- project until it was caught and fixed manually.
+-- revoke from anon/authenticated BY NAME is still not the whole picture: a
+-- bare `create function` also grants EXECUTE to the PUBLIC pseudo-role by
+-- plain vanilla Postgres default (nothing Supabase-specific about this
+-- part) — independent of, and in addition to, Supabase's own anon/
+-- authenticated/service_role default-privilege grants. Revoking only the
+-- named roles leaves PUBLIC's own separate grant in place, which still
+-- hands EXECUTE to literally every role including anon/authenticated
+-- (has_function_privilege() checks PUBLIC's grant too) — discovered only
+-- once db-tests started simulating Supabase's default privileges and this
+-- exact function kept testing as reachable despite the revoke above having
+-- "worked" (it had — PUBLIC was the remaining, separate hole). public AND
+-- service_role must be revoked too: no deployed Edge Function calls this
+-- old path, so service_role has no legitimate reason to reach it either.
+revoke execute on function public.claim_or_create_profile(text) from public, anon, authenticated, service_role;
 
 -- redeem_reward: atomically checks the reward is active and the caller's
 -- own profile has enough points, deducts them, and records the redemption

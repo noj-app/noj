@@ -27,7 +27,14 @@ async function admin(fn) {
 async function newClaimedUser(phone) {
   const uid = crypto.randomUUID();
   await admin(c => c.query('insert into auth.users (id) values ($1)', [uid]));
-  const prof = await asUser(uid, c => c.query('select * from claim_or_create_profile($1) as p', [phone]));
+  // claim_or_create_profile(text) is no longer reachable by a real client
+  // (revoked from anon/authenticated — see CLAUDE.md). This is pure test
+  // setup, not a test of that RPC's reachability, so bind directly as
+  // superuser instead, the same way the RPC used to do internally.
+  const prof = await admin(c => c.query(
+    `insert into profiles (phone, auth_user_id) values ($1,$2) returning *`,
+    [phone, uid]
+  ));
   return { uid, profileId: prof.rows[0].id };
 }
 

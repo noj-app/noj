@@ -38,6 +38,11 @@
 - القيم في القالب T (invoiceAmount, ticket, ahead, doctorName, topCard) تجريبية حتى يُبنى الربط،
   وزر "التالي (تجربة)" هو المحفّز الوحيد حالياً. لا يُحذف قبل وجود محفّز حقيقي.
 - رمز إعدادات الكشك يُتحقق منه في الخادم عبر verify_admin_pin وجدول branch_admin_pins. لا رموز في الكود أبداً.
+  verify_admin_pin(p_branch_id, p_pin) تربط المستدعي بفرعه فعلياً (current_device_branch_id() = p_branch_id
+  — لا ثقة بمعامل الفرع وحده، نفس مبدأ عدم الثقة بمعاملات العميل في كل مكان آخر) وتطبّق حدّ محاولات فاشلة
+  لكل فرع عبر admin_pin_attempts (5 خلال 15 دقيقة ثم إيقاف مؤقت 15 دقيقة، RLS بلا أي سياسة كبقية جداول
+  الأقفال) — بلا هذين، رمز من 4 أرقام قابل للتخمين الكامل (10,000 احتمال) عبر RPC مباشر يتجاوز واجهة
+  الكشك كلياً، ولأي فرع لا فرع الجهاز المستدعي فقط. راجع supabase-migration-admin-pin-lockdown.sql.
 - ملفات SQL: في جذر المستودع باسم supabase-migration-<وصف>.sql. أي تغيير على قاعدة البيانات الحية يُوثَّق بملف.
 - الصلاحيات الحقيقية من سياسات RLS (devices و merchant_members)، والرمز السري قفل واجهة فقط.
 - index.html يستخدم تحقق Supabase Phone OTP الحقيقي فعلياً (لا DEMO_CODE بعد الآن) — عبر updateUser/
@@ -49,9 +54,11 @@
   عند التسجيل (claim_unclaimed_invoices) يشترط profiles.phone_verified_at — لا يكفي كتابة الرقم فقط.
 - التحقق من رقم الجوال: Supabase Phone OTP + Send SMS Hook إلى Unifonic (لا مزوّد عالمي مباشر). أرقام
   سعودية (+966) فقط — يُرفض أي رقم آخر قبل استدعاء المزوّد، وعند normalize_sa_phone() أيضاً. claim_or_
-  create_profile(p_phone) القديمة تبقى كما هي (تثق بمعاملها، لا تضبط phone_verified_at). الدالة الموثوقة
-  الوحيدة لتسجيل دخول حقيقي هي claim_or_create_verified_profile() — بلا معامل، تشتق الرقم من
-  auth.users (لا تثق بأي رقم يُمرَّر من العميل أبداً) وتضبط phone_verified_at بنفسها.
+  create_profile(p_phone) القديمة تبقى معرَّفة (لا تُحذف، لتبقى بنية المشروع قابلة لإعادة الإنشاء من
+  الصفر) لكن **أُغلقت تماماً أمام anon/authenticated/service_role** (راجع البند التالي) — كانت تثق
+  بمعاملها بلا أي تحقق، فتسمح لأي جلسة بامتلاك أي رقم جوال تذكره. الدالة الموثوقة الوحيدة لتسجيل دخول
+  حقيقي هي claim_or_create_verified_profile() — بلا معامل، تشتق الرقم من auth.users (لا تثق بأي رقم
+  يُمرَّر من العميل أبداً) وتضبط phone_verified_at بنفسها.
 - Edge Functions: في supabase/functions/<اسم>/ (بنية CLI الخاصة بـ Supabase، تختلف عمداً عن تسمية
   ملفات SQL المسطّحة في الجذر — ليست ملف migration). send-sms-hook هي أول دالة: تتحقق من توقيع
   Supabase (Standard Webhooks) قبل أي شيء، ترفض أي رقم ليس +966 قبل استدعاء Unifonic، ولا تُسجِّل
@@ -82,3 +89,25 @@
   وclaim_or_create_verified_profile() بالكامل مبني على updateUser({phone})+verifyOtp لترقية الجلسة
   المجهولة، وهذا بالضبط المسار الذي يشترطه توثيق Supabase الرسمي لهذا الإعداد (راجع
   supabase-phone-otp-setup.md للتفصيل، بما فيه تضارب ملحوظ بين صفحتين رسميتين حول نطاقه الدقيق).
+- **دوال SECURITY DEFINER الجديدة: revoke from public وحده لا يكفي أبداً، وreplace لا يكفي أيضاً.**
+  اكتُشف (فحص يدوي على المشروع الحي، ثم تأكيد محلي) أن Supabase يمنح EXECUTE افتراضياً لـ anon
+  وauthenticated وservice_role **بالاسم مباشرة** على كل دالة جديدة في public عند إنشائها (راجع
+  auto_expose_new_tables، مؤكَّد عبر supabase init) — لا عبر PUBLIC، فـ revoke ... from public لا
+  يمسّهم إطلاقاً. وجدت هذه الثغرة فعلياً مفتوحة على المشروع الحي في: issue_branch_pos_token،
+  intake_pos_transaction (كلتاهما كانتا بـ revoke from public فقط)، وrequest_data_deletion،
+  purge_expired_unclaimed_customers، claim_or_create_profile(text) (الثلاثة الأخيرة بلا أي revoke
+  إطلاقاً) — أخطرها request_data_deletion: كانت تسمح لأي جلسة authenticated (عميل أو كشك) بحذف/تمويه
+  ملف أي عميل آخر فوراً بمجرد معرفة معرّفه.
+  **طبقة ثانية منفصلة تماماً**: create function عادية تمنح EXECUTE لـ PUBLIC تلقائياً (سلوك Postgres
+  الأساسي، لا علاقة له بـ Supabase) — هذا منفصل عن منحة anon/authenticated المذكورة أعلاه، وكلاهما يمنح
+  الوصول بشكل مستقل. مجرد حذف anon من سطر grant لاحق (بدل عمل revoke صريح) لا يزيل أي منحة موجودة
+  مسبقاً من PUBLIC أو من منحة Supabase الافتراضية — اكتُشف هذا أثناء محاولة "سحب anon" من دوال مثل
+  redeem_reward وkiosk_earn_points، حين ظلّت قابلة للتنفيذ رغم تعديل سطر الـ grant.
+  **القاعدة الثابتة لأي دالة SECURITY DEFINER جديدة من الآن فصاعداً**: صرّح بالـ revoke دائماً، لا تكتفِ
+  بصياغة الـ grant. دالة مقفلة تماماً (SQL Editor/service_role فقط): `revoke all on function ... from
+  public, anon, authenticated [, service_role];`. دالة عميل عادية تحتاج authenticated فقط (لا anon —
+  كل جلسة في التطبيق والكشك تمرّ أولاً بـ signInAnonymously، فلا يوجد استدعاء حقيقي بدور anon الخام):
+  `revoke execute on function ... from public, anon;` ثم `grant execute on function ... to
+  authenticated;`. راجع supabase-migration-pos-intake.sql (القسم المُحدَّث) لأمثلة فعلية، وsupabase-
+  edge-functions-deploy.md/db-tests/00_auth_stub.sql لكيفية محاكاة منحة Supabase الافتراضية محلياً
+  (أضيفت بعد أن اجتازت هذه الدوال كل الاختبارات المحلية القديمة رغم كونها مفتوحة فعلياً على الحي).

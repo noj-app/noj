@@ -146,7 +146,11 @@ as $$
   order by c.sort_order;
 $$;
 
-grant execute on function public.get_merchant_clinics(uuid) to anon, authenticated;
+-- authenticated only, not anon — see the fuller note on grant_app_consent()
+-- in supabase-migration-app-consent.sql (also revoking PUBLIC's own
+-- separate implicit grant, not just omitting anon from the grant below).
+revoke execute on function public.get_merchant_clinics(uuid) from public, anon;
+grant execute on function public.get_merchant_clinics(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. Demo seed: مركز النور الطبي — فرع الملقا

@@ -395,6 +395,18 @@ as $$
   select count(*)::integer from deleted;
 $$;
 
+-- cron/SQL-editor only — no client should ever trigger this directly (its
+-- own WHERE clause already prevents early deletion of non-expired rows, so
+-- the practical impact of a client calling it is low, but it is still not
+-- this function's job to run on anyone's request). Never had ANY grant or
+-- revoke statement at all until now — on a hosted Supabase project that
+-- means it was reachable by anon/authenticated by default from the moment
+-- it was created (see the auto_expose_new_tables note on issue_branch_pos_
+-- token() above), exactly as found on the live project. pg_cron's own
+-- scheduled call below runs as the migration role (postgres, superuser),
+-- which always bypasses grants — no service_role grant is needed for that.
+revoke all on function public.purge_expired_unclaimed_customers() from public, anon, authenticated, service_role;
+
 -- pg_cron may need enabling manually from the Supabase dashboard (Database
 -- → Extensions) if this is rejected for lack of permission on the hosted
 -- project — the same situation pgcrypto was in earlier in this project —
