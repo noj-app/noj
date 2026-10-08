@@ -791,17 +791,27 @@ function loadTurnstileScript(){
 // وإن فُعِّلت لاحقاً وفشل الحصول على توكن فعلاً، Supabase نفسها سترفض
 // الاستدعاء، فيسقط عندها (بحق) عبر catch bootKiosk() الموجود أصلاً (رجوع
 // لإعدادات محفوظة محلياً إن وُجدت، وإلا connFatal ببطاقة إعادة محاولة).
+// bootKiosk() قد يُستدعى أكثر من مرة لنفس الجهاز (زر "إعادة المحاولة" في
+// connFatal) — بلا إزالة الودجت السابق أولاً، turnstile.render() على نفس
+// الحاوية مرتين قد يفشل أو يرسم ودجتاً ثانياً فوق الأول، فلا يصل توكن طازج
+// للمحاولة الثانية أبداً. نتتبّع معرّف الودجت الحالي ونُزيله أولاً، تماماً
+// كنمط index.html (renderTurnstileWidget).
+var __turnstileWidgetId=null;
 function getTurnstileToken(containerId,timeoutMs){
   return loadTurnstileScript().then(function(){
     return new Promise(function(resolve){
       var el=document.getElementById(containerId);
       if(!el||!window.turnstile){resolve(null);return}
+      if(__turnstileWidgetId!==null){
+        try{turnstile.remove(__turnstileWidgetId)}catch(e){}
+        __turnstileWidgetId=null;
+      }
       var settled=false;
       var timer=setTimeout(function(){
         if(!settled){settled=true;resolve(null)}
       },timeoutMs);
       try{
-        turnstile.render(el,{
+        __turnstileWidgetId=turnstile.render(el,{
           sitekey:TURNSTILE_SITE_KEY,
           callback:function(token){if(!settled){settled=true;clearTimeout(timer);resolve(token)}},
           'error-callback':function(){if(!settled){settled=true;clearTimeout(timer);resolve(null)}}
