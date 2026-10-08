@@ -757,6 +757,17 @@ function waitForTurnstileToken(maxMs){
     },150);
   });
 }
+// مؤكَّد عملياً (Safari على iOS): رمز Turnstile يُستهلَك مرة واحدة فقط لدى
+// Cloudflare/Supabase — تمريره في نداء captchaToken ثانٍ لنفس التدفق
+// (signInAnonymously ثم updateUser مثلاً) يفشل بصمت دون رسالة خطأ واضحة.
+// كل نداء يحتاج captchaToken يجب أن يحصل على رمز طازج خاص به عبر هذه
+// الدالة فقط — لا عبر waitForTurnstileToken مباشرة — كي يُصفَّر فوراً بعد
+// إرجاعه ويبدأ توليد رمز جديد للنداء التالي.
+async function freshTurnstileToken(maxMs){
+  var token=await waitForTurnstileToken(maxMs);
+  resetTurnstileToken();
+  return token;
+}
 
 const STORAGE_PREFIX='noj_';
 const K={SESSION:'session',PHONE:'phone',NOTIF:'notif_switches'};
@@ -1837,7 +1848,7 @@ function fmtPhone(p){
 function authPhone(){
   return '<div class="auth-body">'+
     '<h2>تسجيل الدخول</h2>'+
-    '<p>أدخل رقم جوالك وسنرسل لك رمز تحقق مكوّن من 4 أرقام.</p>'+
+    '<p>أدخل رقم جوالك وسنرسل لك رمز تحقق مكوّن من '+OTP_LENGTH+' أرقام.</p>'+
     '<div class="field"><label>رقم الجوال</label>'+
       '<div class="phone-box"><span class="cc">🇸🇦 +966</span>'+
       '<input id="ph" type="tel" inputmode="numeric" maxlength="9" placeholder="5X XXX XXXX" value="'+A.phone+'"></div>'+
@@ -1857,7 +1868,7 @@ function authCode(){
   }
   return '<div class="auth-body">'+
     '<h2>رمز التحقق</h2>'+
-    '<p>أرسلنا رمزًا مكوّنًا من 4 أرقام إلى<br><b style="color:var(--text);direction:ltr;display:inline-block">+966 '+fmtPhone(A.phone)+'</b> '+
+    '<p>أرسلنا رمزًا مكوّنًا من '+OTP_LENGTH+' أرقام إلى<br><b style="color:var(--text);direction:ltr;display:inline-block">+966 '+fmtPhone(A.phone)+'</b> '+
     '<button id="edit" style="color:var(--blue);font-weight:700;font-size:13px">تعديل</button></p>'+
     '<div class="field"><div class="otp-row'+(A.err?' bad':'')+'" id="otp">'+boxes+'</div>'+
     (A.err?'<div class="err" style="text-align:center">'+A.err+'</div>':'')+'</div>'+
@@ -1967,21 +1978,17 @@ function bindAuth(){
 
 // يُستدعى عند الضغط على "إرسال رمز التحقق" في شاشة الجوال. يُنشئ جلسة
 // مجهولة إن لم توجد بعد (CAPTCHA على signInAnonymously نفسها)، ثم يرقّيها
-// برقم حقيقي عبر updateUser (CAPTCHA مُمرَّرة أيضاً احتياطاً — راجع
-// الملاحظة أدناه)، أو يتحوّل لتسجيل دخول (signInWithOtp) إن كان الرقم
-// مسجَّلاً مسبقاً بهوية Auth حقيقية أخرى (جهاز/متصفح سابق لنفس العميل).
+// برقم حقيقي عبر updateUser (CAPTCHA أيضاً)، أو يتحوّل لتسجيل دخول
+// (signInWithOtp) إن كان الرقم مسجَّلاً مسبقاً بهوية Auth حقيقية أخرى
+// (جهاز/متصفح سابق لنفس العميل). كل نداء من هذه الثلاثة يطلب رمز Turnstile
+// طازجاً خاصاً به عبر freshTurnstileToken — مؤكَّد عملياً أن إعادة استخدام
+// نفس الرمز بين نداءين تفشل بصمت (راجع تعليق freshTurnstileToken).
 async function sendOtp(){
   if(A.phone.length<9||A.phone[0]!=='5'){
     A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
     renderAuth();return;
   }
   A.sending=true;A.err='';renderAuth();
-  // مهلة قصيرة لا حظر أبداً — انظر تعليق waitForTurnstileToken. captchaToken
-  // قد يكون null هنا (فشل تحميل Cloudflare مثلاً)؛ يمرّ كذلك دون مشكلة ما
-  // دامت CAPTCHA غير مُفعَّلة بعد في Supabase، وإن فُعِّلت لاحقاً فستتكفّل
-  // Supabase نفسها برفض الطلب بخطأ واضح يُلتقَط أدناه.
-  var captchaToken=await waitForTurnstileToken(2500);
-  resetTurnstileToken();
 
   var sb=await getSb();
   if(!sb){A.sending=false;A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
@@ -1989,7 +1996,8 @@ async function sendOtp(){
   try{
     var sessionRes=await sb.auth.getSession();
     if(!sessionRes.data||!sessionRes.data.session){
-      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken||undefined}});
+      var captchaToken1=await freshTurnstileToken(2500);
+      var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken1||undefined}});
       if(signInRes.error)throw signInRes.error;
     }
   }catch(e){
@@ -2006,18 +2014,16 @@ async function sendOtp(){
   }
 
   var fullPhone='+966'+A.phone;
-  // ملاحظة يجب التحقق منها فعلياً على أرقام الاختبار قبل أي اعتماد حي:
-  // نفس captchaToken يُستخدَم هنا وربما استُهلك أعلاه في signInAnonymously
-  // — إن تبيّن أن updateUser يتحقق من الرمز فعلياً ويرفض رمزاً مُستهلَكاً،
-  // يلزم رمز Turnstile ثانٍ هنا (turnstile.reset + انتظار callback جديد).
-  var res=await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken||undefined});
+  var captchaToken2=await freshTurnstileToken(2500);
+  var res=await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken2||undefined});
   if(res.error){
     var msg=(res.error.message||'').toLowerCase();
     if(/already|exists|registered/.test(msg)){
       // الرقم مرتبط بهوية Auth حقيقية أخرى (جهاز/متصفح سابق) — تسجيل دخول
       // بدل ترقية هذه الجلسة المجهولة. الكلمات المطابَقة هنا تقريبية؛
       // راجع رسالة/رمز الخطأ الفعلي من Supabase قبل الاعتماد الحي.
-      var signInOtpRes=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
+      var captchaToken3=await freshTurnstileToken(2500);
+      var signInOtpRes=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken3||undefined}});
       if(signInOtpRes.error){
         A.sending=false;A.err='تعذّر إرسال رمز التحقق، حاول مرة أخرى.';renderAuth();return;
       }
@@ -2038,8 +2044,7 @@ async function sendOtp(){
 // نفس منطق sendOtp تقريباً لكن دون تغيير A.step (نحن أصلاً في شاشة الرمز)
 // — تُستدعى من زر "إعادة الإرسال" فقط، ولا تُستدعى تلقائياً أبداً.
 async function resendOtp(){
-  var captchaToken=await waitForTurnstileToken(2500);
-  resetTurnstileToken();
+  var captchaToken=await freshTurnstileToken(2500);
 
   var sb=await getSb();
   if(!sb){toast('تعذّر الاتصال بالخادم');return}
