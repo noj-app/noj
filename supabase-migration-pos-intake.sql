@@ -102,7 +102,12 @@ $$;
 
 -- لا grant لـ anon أو authenticated إطلاقاً — تُشغَّل فقط من محرر SQL في
 -- Supabase Studio كمسؤول، تماماً كتزويد رمز PIN في branch_admin_pins.
-revoke all on function public.issue_branch_pos_token(uuid) from public;
+-- revoke from public وحده لا يكفي على مشروع Supabase حي: Supabase يمنح
+-- anon وauthenticated تنفيذاً افتراضياً بالاسم مباشرة (لا عبر PUBLIC) على
+-- أي دالة جديدة في public (راجع auto_expose_new_tables)، فيبقى الـ revoke
+-- من public وحده بلا أثر فعلي على هذين الدورين تحديداً — هذا بالضبط ما
+-- أبقى هذه الدالة مفتوحة على المشروع الحي حتى اكتُشف يدوياً. راجع CLAUDE.md.
+revoke all on function public.issue_branch_pos_token(uuid) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 3. intake_pos_transaction(): called ONLY by the pos-intake Edge Function
@@ -151,4 +156,10 @@ $$;
 
 -- لا grant لـ anon أو authenticated — لا يُستدعى إلا من pos-intake عبر
 -- عميل service role (يتجاوز RLS أصلاً)، فهذا القفل دفاع إضافي لا أكثر.
-revoke all on function public.intake_pos_transaction(uuid, uuid, text, numeric, numeric, text, jsonb) from public;
+-- revoke from public وحده لا يكفي (نفس تعليل issue_branch_pos_token أعلاه:
+-- anon/authenticated يُمنحان تنفيذاً افتراضياً بالاسم مباشرة من Supabase،
+-- لا عبر PUBLIC) — هذا بالضبط ما أبقى هذه الدالة مفتوحة فعلياً على المشروع
+-- الحي حتى اكتُشف يدوياً. grant صريح لـ service_role وحده: هذا هو الدور
+-- الذي يستخدمه عميل pos-intake/index.ts فعلياً (SUPABASE_SERVICE_ROLE_KEY).
+revoke all on function public.intake_pos_transaction(uuid, uuid, text, numeric, numeric, text, jsonb) from public, anon, authenticated;
+grant execute on function public.intake_pos_transaction(uuid, uuid, text, numeric, numeric, text, jsonb) to service_role;

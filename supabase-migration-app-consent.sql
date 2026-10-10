@@ -63,4 +63,14 @@ begin
 end;
 $$;
 
-grant execute on function public.grant_app_consent() to anon, authenticated;
+-- authenticated only, not anon: every session in this app calls
+-- signInAnonymously() FIRST (Supabase issues an authenticated-role JWT even
+-- for an anonymous sign-in) before any RPC — nothing ever calls this as the
+-- bare anon role, so granting it adds exposure with no real use. A plain
+-- `create function` also grants EXECUTE to PUBLIC by default (independent
+-- of anon/authenticated specifically) — revoke that too, or PUBLIC's own
+-- separate grant leaves anon reachable anyway regardless of what the grant
+-- below says (see the fuller note on claim_or_create_profile(text) in
+-- supabase-schema.sql for how this gap was actually found).
+revoke execute on function public.grant_app_consent() from public, anon;
+grant execute on function public.grant_app_consent() to authenticated;

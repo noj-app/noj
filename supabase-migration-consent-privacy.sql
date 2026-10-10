@@ -186,5 +186,25 @@ begin
 end;
 $$;
 
--- deliberately no grant to anon/authenticated — service_role (or the SQL
--- editor, running as postgres) only, until an admin UI exists.
+-- admin/SQL-editor only, until an admin UI exists — NOT granted to
+-- service_role either: no deployed Edge Function calls this today, so it
+-- stays reachable only as postgres (SQL editor), matching issue_branch_pos_
+-- token()'s posture. "No grant issued" alone is NOT the same as "no access"
+-- on a hosted Supabase project: Supabase's own bootstrap applies a default-
+-- privilege EXECUTE grant to anon/authenticated directly (by role name, not
+-- via the PUBLIC pseudo-role) on every new function in `public`, regardless
+-- of whether the migration that creates it ever runs a `grant` statement
+-- itself. This function had exactly that gap — no explicit revoke at
+-- all — until caught by manual review on the live project; it was for
+-- certain the single most dangerous function in the whole codebase (any
+-- authenticated session, customer or kiosk, could irreversibly scrub ANY
+-- other customer's profile by id). The explicit revoke below is the fix;
+-- see CLAUDE.md for the general rule this established.
+-- public AND service_role revoked too, not just anon/authenticated — a bare
+-- `create function` also grants EXECUTE to PUBLIC by plain Postgres default
+-- (nothing Supabase-specific — see the fuller note on claim_or_create_
+-- profile(text) in supabase-schema.sql for how this was actually found:
+-- revoking only anon/authenticated still left PUBLIC's own separate grant
+-- standing, which alone still hands EXECUTE to every role). No deployed
+-- Edge Function calls this today, so service_role has no need for it either.
+revoke execute on function public.request_data_deletion(uuid, text) from public, anon, authenticated, service_role;

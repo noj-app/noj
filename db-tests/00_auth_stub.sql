@@ -44,3 +44,33 @@ $$;
 
 grant usage on schema test to anon, authenticated;
 grant execute on function test.set_auth_uid(uuid) to anon, authenticated;
+
+-- service_role: the role Supabase Edge Functions use via the service-role
+-- key (e.g. pos-intake/index.ts). Not pre-created by the one-time cluster
+-- setup in db-tests/README.md (only anon/authenticated are) — created here,
+-- idempotently, so no extra manual step is needed.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role;
+  end if;
+end $$;
+
+-- Supabase's own platform bootstrap applies a default-privilege EXECUTE
+-- grant to anon/authenticated/service_role directly (by role name, not via
+-- the PUBLIC pseudo-role) on every NEW function created in `public` from
+-- then on — confirmed via a fresh `supabase init`'s generated config.toml
+-- (`auto_expose_new_tables`, default true). This is NOT vanilla Postgres
+-- behavior: a plain `CREATE FUNCTION` on an ordinary cluster grants EXECUTE
+-- to PUBLIC only. Without replicating it here, a migration file that
+-- forgets an explicit `revoke ... from anon, authenticated` on a sensitive
+-- SECURITY DEFINER function would pass every local test while staying wide
+-- open on the real, hosted project — exactly what happened to
+-- request_data_deletion()/issue_branch_pos_token()/intake_pos_transaction()/
+-- purge_expired_unclaimed_customers()/claim_or_create_profile(text), caught
+-- only by manual review on the live database, never by this test suite.
+-- Applied once here, BEFORE any migration file runs, AS the `postgres` role
+-- (the same role every migration file also runs as via `su postgres -c
+-- psql ...`), so it covers every function any of them creates from this
+-- point on — exactly mirroring the live timeline.
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;

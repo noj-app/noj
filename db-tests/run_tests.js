@@ -34,6 +34,31 @@ async function admin(fn) {
   try { return await fn(c); } finally { await c.end(); }
 }
 
+// Pure test-setup convenience: stays on the superuser 'postgres' role (so
+// it is NEVER blocked by a revoke on a now-locked-down function — most
+// test cases don't care HOW a fixture profile gets created), but still
+// sets the auth.uid() claim so functions like claim_or_create_profile()
+// that read it internally behave correctly. Never use this to assert that
+// a function IS reachable by a real client — that must go through asUser()
+// (authenticated, no BYPASSRLS) or asServiceRole() below instead.
+async function adminAsUser(uid, fn) {
+  const c = new Client(CONN);
+  await c.connect();
+  await c.query('select test.set_auth_uid($1)', [uid]);
+  try { return await fn(c); } finally { await c.end(); }
+}
+
+// Simulates the pos-intake Edge Function's real caller: Supabase's
+// service_role, used via SUPABASE_SERVICE_ROLE_KEY, never carries a user
+// JWT (no auth.uid() involved) — only intake_pos_transaction() is granted
+// to it.
+async function asServiceRole(fn) {
+  const c = new Client(CONN);
+  await c.connect();
+  await c.query('set role service_role');
+  try { return await fn(c); } finally { await c.end(); }
+}
+
 (async () => {
   // ---------------------------------------------------------------------
   // rebuild the test database from scratch: bootstrap schema once, then
@@ -74,6 +99,7 @@ async function admin(fn) {
   const filesFromPhoneFormat = [
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
     'supabase-migration-kiosk-device-auth.sql', 'supabase-migration-kiosk-balance-lookup.sql',
+    'supabase-migration-kiosk-admin-pin.sql', 'supabase-migration-admin-pin-lockdown.sql',
     'supabase-migration-pos-transactions.sql', 'supabase-migration-phone-otp-foundation.sql',
     'supabase-migration-pos-intake.sql',
   ].map(f => path.join(REPO_ROOT, f));
@@ -124,7 +150,7 @@ async function admin(fn) {
   {
     const uid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [uid]));
-    await asUser(uid, c => c.query('select claim_or_create_profile($1)', ['512345678']));
+    await adminAsUser(uid, c => c.query('select claim_or_create_profile($1)', ['512345678']));
     // demo profile already has a merchant_loyalty row at مطعم مذاق from the
     // seed (420 points). Reset it to exactly 300 so a 250-cost reward can be
     // redeemed exactly once, never twice.
@@ -180,7 +206,7 @@ async function admin(fn) {
 
     const uid2 = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [uid2]));
-    await asUser(uid2, c => c.query('select claim_or_create_profile($1)', ['577777777']));
+    await adminAsUser(uid2, c => c.query('select claim_or_create_profile($1)', ['577777777']));
 
     let directUpdate = null;
     try {
@@ -330,7 +356,7 @@ async function admin(fn) {
   {
     const consentUid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [consentUid]));
-    const prof = await asUser(consentUid, c => c.query('select * from claim_or_create_profile($1) as p', ['522222220']));
+    const prof = await adminAsUser(consentUid, c => c.query('select * from claim_or_create_profile($1) as p', ['522222220']));
     const pid = prof.rows[0].id;
 
     let earnBeforeConsent = null;
@@ -367,7 +393,7 @@ async function admin(fn) {
     // row — never shared with or affecting the first profile's.
     const otherConsentUid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [otherConsentUid]));
-    await asUser(otherConsentUid, c => c.query('select claim_or_create_profile($1)', ['522222221']));
+    await adminAsUser(otherConsentUid, c => c.query('select claim_or_create_profile($1)', ['522222221']));
     const otherGrant = await asUser(otherConsentUid, c => c.query('select * from grant_app_consent()'));
     check('grant_app_consent: a different profile gets its own separate consent row', otherGrant.rows[0].id !== granted.id);
   }
@@ -441,7 +467,7 @@ async function admin(fn) {
   {
     const uidA = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [uidA]));
-    const profA = await asUser(uidA, c => c.query('select * from claim_or_create_profile($1) as p', ['555555555']));
+    const profA = await adminAsUser(uidA, c => c.query('select * from claim_or_create_profile($1) as p', ['555555555']));
     const pidA = profA.rows[0].id;
     await admin(c => c.query(
       `insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','app')`,
@@ -458,7 +484,7 @@ async function admin(fn) {
     // a second, unrelated session must not see it
     const uidB = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [uidB]));
-    await asUser(uidB, c => c.query('select * from claim_or_create_profile($1) as p', ['566666666']));
+    await adminAsUser(uidB, c => c.query('select * from claim_or_create_profile($1) as p', ['566666666']));
     const otherRows = await asUser(uidB, c => c.query('select * from point_transactions where points_delta=77'));
     check('RLS: a DIFFERENT session cannot see someone else\'s point_transactions row', otherRows.rows.length === 0);
   }
@@ -631,7 +657,7 @@ async function admin(fn) {
     // all) must start from 0, not error out.
     const newCustUid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [newCustUid]));
-    const newCustProf = await asUser(newCustUid, c => c.query('select * from claim_or_create_profile($1) as p', ['588888888']));
+    const newCustProf = await adminAsUser(newCustUid, c => c.query('select * from claim_or_create_profile($1) as p', ['588888888']));
     // a brand-new profile is NOT grandfathered (that only covers profiles
     // that already existed when consent-privacy.sql ran) — give it real
     // consent first, same as any other 'earn' path requires.
@@ -700,7 +726,7 @@ async function admin(fn) {
 
     const noBalanceUid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [noBalanceUid]));
-    await asUser(noBalanceUid, c => c.query('select claim_or_create_profile($1)', ['533333330']));
+    await adminAsUser(noBalanceUid, c => c.query('select claim_or_create_profile($1)', ['533333330']));
     const zeroBalanceRes = await asUser(kioskUid, c => c.query('select kiosk_lookup_customer_points($1) as points', ['533333330']));
     check('kiosk_lookup_customer_points: a registered customer with NO merchant_loyalty row at this merchant returns 0, not an error', Number(zeroBalanceRes.rows[0].points) === 0);
 
@@ -789,7 +815,7 @@ async function admin(fn) {
     // ---- claim_unclaimed_invoices(): must refuse until phone_verified_at is set ----
     const claimantUid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [claimantUid]));
-    const claimantProf = await asUser(claimantUid, c => c.query('select * from claim_or_create_profile($1) as p', [UNREG_PHONE]));
+    const claimantProf = await adminAsUser(claimantUid, c => c.query('select * from claim_or_create_profile($1) as p', [UNREG_PHONE]));
     // a brand-new profile has no consent yet — the SAME check_consent_
     // before_earn() trigger that gates a live kiosk earn also fires on the
     // 'earn' rows claim_unclaimed_invoices() itself inserts (it is just
@@ -954,14 +980,27 @@ async function admin(fn) {
     check('claim_or_create_verified_profile: a verified but non-Saudi phone is still rejected (normalize_sa_phone is the Saudi-only gate)',
       nonSaudiAttempt !== 'ok' && /رقم جوال غير صحيح/.test(nonSaudiAttempt));
 
-    // the OLD function must stay completely untouched: still trusts its
-    // parameter, and critically still never stamps phone_verified_at —
+    // the OLD function's BODY must stay completely untouched: still trusts
+    // its parameter, and critically still never stamps phone_verified_at —
     // proving the two paths are properly separated, not silently merged.
+    // Called via adminAsUser (superuser, bypasses the revoke below) because
+    // this checks the function's LOGIC, not its client-reachability — that
+    // is the separate, dedicated assertion right after this one.
     const oldPathUid = crypto.randomUUID();
     await admin(c => c.query('insert into auth.users (id) values ($1)', [oldPathUid]));
-    const oldPathRes = await asUser(oldPathUid, c => c.query('select * from claim_or_create_profile($1)', ['599999992']));
-    check('claim_or_create_profile (OLD path): still works completely unchanged, trusting its parameter as before', oldPathRes.rows[0].phone === '599999992');
+    const oldPathRes = await adminAsUser(oldPathUid, c => c.query('select * from claim_or_create_profile($1)', ['599999992']));
+    check('claim_or_create_profile (OLD path): body still works completely unchanged, trusting its parameter as before', oldPathRes.rows[0].phone === '599999992');
     check('claim_or_create_profile (OLD path): phone_verified_at stays NULL — this path never verifies anything', oldPathRes.rows[0].phone_verified_at === null);
+
+    // THE FIX: unlike the body above, the function must no longer be
+    // reachable by a real authenticated client at all — this is the exact
+    // function that was found open on the live project (see CLAUDE.md).
+    const oldPathAsRealClient = await asUser(oldPathUid, async c => {
+      try { await c.query('select claim_or_create_profile($1)', ['599999993']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('claim_or_create_profile: no grant to authenticated at all any more — unreachable from any real client',
+      oldPathAsRealClient !== 'ok' && /permission denied/.test(oldPathAsRealClient));
 
     // ---- record_otp_request(): per-device cap, defense-in-depth layer ----
     const otpDeviceUid = crypto.randomUUID();
@@ -1082,12 +1121,171 @@ async function admin(fn) {
     });
     check('intake_pos_transaction: no grant to authenticated at all — unreachable from any client (only the Edge Function\'s service-role client calls it)', intakeAsDevice !== 'ok' && /permission denied/.test(intakeAsDevice));
 
+    // ...but IS reachable by service_role — the actual role pos-intake's
+    // Edge Function client authenticates as (SUPABASE_SERVICE_ROLE_KEY).
+    // Confirms the grant added alongside the anon/authenticated revoke
+    // actually serves its purpose, not just that access got narrower.
+    const intakeAsServiceRole = await asServiceRole(c => c.query(
+      `select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+      [BRANCH, null, 'POS-INTAKE-SERVICE-ROLE', '10.00', '0', 'generic', null]
+    ));
+    check('intake_pos_transaction: IS reachable by service_role, exactly the role the Edge Function uses', intakeAsServiceRole.rows[0].status === 'pending');
+
     const credsDirectRead = await asUser(kioskUid, async c => {
       try { await c.query('select * from branch_pos_credentials'); return 'ok'; }
       catch (e) { return 'fail:' + e.message; }
     });
     check('branch_pos_credentials: no table grant at all — unreachable directly, same lockout shape as branch_admin_pins/unclaimed_customers/otp_requests',
       credsDirectRead !== 'ok' && /permission denied/.test(credsDirectRead));
+
+    // =========================================================================
+    // 16) PRIVILEGE LOCKDOWN follow-up: functions found reachable by
+    //     anon/authenticated on the LIVE project despite a `revoke ... from
+    //     public` (or no revoke at all) — root cause confirmed and now
+    //     simulated locally too (00_auth_stub.sql): Supabase's own bootstrap
+    //     grants EXECUTE to anon/authenticated/service_role BY NAME on
+    //     every new function in `public`, not via the PUBLIC pseudo-role.
+    // =========================================================================
+
+    // --- request_data_deletion(): admin/SQL-editor only, had NO revoke at
+    //     all before this fix — the single most dangerous function found
+    //     (any authenticated session could irreversibly scrub ANY profile).
+    const victimForDeletionTest = await admin(c => c.query(`insert into profiles (phone) values ('599999994') returning id`));
+    const deletionAsClient = await asUser(kioskUid, async c => {
+      try { await c.query('select request_data_deletion($1)', [victimForDeletionTest.rows[0].id]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('request_data_deletion: no grant to authenticated at all — unreachable from any client',
+      deletionAsClient !== 'ok' && /permission denied/.test(deletionAsClient));
+    const victimUntouched = await admin(c => c.query('select deleted_at from profiles where id=$1', [victimForDeletionTest.rows[0].id]));
+    check('request_data_deletion: the targeted profile is untouched after the rejected attempt', victimUntouched.rows[0].deleted_at === null);
+
+    // --- purge_expired_unclaimed_customers(): cron/SQL-editor only, also
+    //     had NO revoke at all before this fix.
+    const purgeAsClient = await asUser(kioskUid, async c => {
+      try { await c.query('select purge_expired_unclaimed_customers()'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('purge_expired_unclaimed_customers: no grant to authenticated at all — unreachable from any client',
+      purgeAsClient !== 'ok' && /permission denied/.test(purgeAsClient));
+
+    // --- merchant_members: RLS-only lockout (no INSERT policy at all) must
+    //     actually hold — a customer/kiosk session must never be able to
+    //     make itself an "owner" of some merchant it has no real relation
+    //     to (which would then let it approve_device_pairing() onto that
+    //     merchant's branches).
+    const selfAddAsMember = await asUser(unpairedUid, async c => {
+      try { await c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [MATAM, unpairedUid]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('merchant_members: a client cannot INSERT itself as a member of any merchant (RLS: no INSERT policy at all)',
+      selfAddAsMember !== 'ok' && /permission denied|policy/i.test(selfAddAsMember));
+    const noSelfMembership = await admin(c => c.query('select 1 from merchant_members where merchant_id=$1 and auth_user_id=$2', [MATAM, unpairedUid]));
+    check('merchant_members: no row was created by the rejected self-insert attempt', noSelfMembership.rows.length === 0);
+
+    // --- anon: batch-confirm every function this PR narrowed from "anon,
+    //     authenticated" down to "authenticated" no longer grants anon
+    //     EXECUTE at all (has_function_privilege avoids ten more RPC round
+    //     trips for what is really one fact per function).
+    const anonStillGranted = await admin(c => c.query(`
+      select proname, has_function_privilege('anon', p.oid, 'EXECUTE') as anon_can
+      from pg_proc p
+      where p.pronamespace = 'public'::regnamespace
+        and p.proname in (
+          'grant_app_consent', 'get_merchant_clinics', 'current_device_branch_id',
+          'kiosk_lookup_customer_points', 'request_device_pairing', 'kiosk_earn_points',
+          'get_merchant_queue_stats', 'redeem_reward', 'verify_admin_pin'
+        )
+    `));
+    check('anon: none of the functions narrowed to authenticated-only still grant EXECUTE to anon',
+      anonStillGranted.rows.length === 9 && anonStillGranted.rows.every(r => r.anon_can === false));
+
+    // =========================================================================
+    // 17) verify_admin_pin(): branch binding (current_device_branch_id())
+    //     and the new per-branch rate limit (5 failures / 15 minutes).
+    // =========================================================================
+    const PIN_PLAIN = '1234';
+    // unqualified crypt()/gen_salt() — resolves via the connection's default
+    // search_path (public locally, where pgcrypto lands when supabase-
+    // schema.sql installs it with no explicit schema; extensions on a real
+    // Supabase project, which pre-creates that schema itself). Matches how
+    // verify_admin_pin() itself resolves them (set search_path = public,
+    // extensions covers both, in whichever order each actually exists).
+    await admin(c => c.query(
+      `insert into branch_admin_pins (branch_id, pin_hash) values ($1, crypt($2, gen_salt('bf')))`,
+      [BRANCH, PIN_PLAIN]
+    ));
+
+    const attemptsDirectRead = await asUser(kioskUid, async c => {
+      try { await c.query('select * from admin_pin_attempts'); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('admin_pin_attempts: no table grant at all — unreachable directly, same lockout shape as branch_admin_pins',
+      attemptsDirectRead !== 'ok' && /permission denied/.test(attemptsDirectRead));
+
+    const correctPinAsOwnDevice = await asUser(kioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, PIN_PLAIN]));
+    check('verify_admin_pin: the branch\'s own paired device verifying its OWN branch\'s correct PIN succeeds', correctPinAsOwnDevice.rows[0].ok === true);
+
+    const wrongBranchAttempt = await asUser(kioskUid, async c => {
+      try { await c.query('select verify_admin_pin($1,$2)', [OTHER_MERCHANT, PIN_PLAIN]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('verify_admin_pin: a device tries a DIFFERENT branch\'s PIN than the one it is paired to — rejected (NOJ_PIN_WRONG_BRANCH)',
+      wrongBranchAttempt !== 'ok' && /NOJ_PIN_WRONG_BRANCH/.test(wrongBranchAttempt));
+
+    const nonDeviceAttempt = await asUser(claimantUid, async c => {
+      try { await c.query('select verify_admin_pin($1,$2)', [BRANCH, PIN_PLAIN]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('verify_admin_pin: a plain customer session (no devices row at all) is rejected the same way',
+      nonDeviceAttempt !== 'ok' && /NOJ_PIN_WRONG_BRANCH/.test(nonDeviceAttempt));
+
+    // rate limit: 4 wrong PINs must still return false (not lock yet); the
+    // 5th crosses the threshold and locks the branch for subsequent tries —
+    // even with the CORRECT PIN now.
+    for (let i = 0; i < 4; i++) {
+      const r = await asUser(kioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, '0000']));
+      check(`verify_admin_pin: wrong-PIN attempt #${i + 1} returns false, not locked yet`, r.rows[0].ok === false);
+    }
+    const fifthWrong = await asUser(kioskUid, async c => {
+      try { const r = await c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, '0000']); return { ok: true, val: r.rows[0].ok }; }
+      catch (e) { return { ok: false, msg: e.message }; }
+    });
+    check('verify_admin_pin: the 5th wrong PIN within the window still returns false (not an exception) — it is what TRIGGERS the lock',
+      fifthWrong.ok === true && fifthWrong.val === false);
+
+    const lockedAttemptEvenWithCorrectPin = await asUser(kioskUid, async c => {
+      try { await c.query('select verify_admin_pin($1,$2)', [BRANCH, PIN_PLAIN]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('verify_admin_pin: once locked, even the CORRECT PIN is rejected (NOJ_PIN_LOCKED) until the lock expires',
+      lockedAttemptEvenWithCorrectPin !== 'ok' && /NOJ_PIN_LOCKED/.test(lockedAttemptEvenWithCorrectPin));
+
+    const otherBranchAttempts = await admin(c => c.query('select 1 from admin_pin_attempts where branch_id=$1', [OTHER_MERCHANT]));
+    check('verify_admin_pin: a DIFFERENT branch has no lockout row at all — the rate limit is per-branch, not global/shared', otherBranchAttempts.rows.length === 0);
+
+    // simulate the 15-minute lock having expired (no real-time wait in a
+    // test) — the correct PIN must succeed again and clear the row entirely.
+    await admin(c => c.query(`update admin_pin_attempts set locked_until = now() - interval '1 second' where branch_id=$1`, [BRANCH]));
+    const afterLockExpires = await asUser(kioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, PIN_PLAIN]));
+    check('verify_admin_pin: once the lock window has passed, the correct PIN succeeds again', afterLockExpires.rows[0].ok === true);
+    const attemptsClearedAfterSuccess = await admin(c => c.query('select 1 from admin_pin_attempts where branch_id=$1', [BRANCH]));
+    check('verify_admin_pin: a successful verification clears the attempts row entirely', attemptsClearedAfterSuccess.rows.length === 0);
+
+    // window reset: a failure window older than 15 minutes must reset the
+    // counter to 1 on the next wrong PIN, not keep accumulating toward an
+    // instant re-lock. The row was just cleared by the success above, so
+    // seed it directly to set up this "stale window" scenario precisely.
+    await admin(c => c.query(
+      `insert into admin_pin_attempts (branch_id, fail_count, window_started_at, locked_until) values ($1,4, now() - interval '16 minutes', null)
+       on conflict (branch_id) do update set fail_count=4, window_started_at=now() - interval '16 minutes', locked_until=null`,
+      [BRANCH]
+    ));
+    const afterWindowExpired = await asUser(kioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, '0000']));
+    check('verify_admin_pin: a wrong PIN after the 15-minute window has passed resets the counter to 1, not 5', afterWindowExpired.rows[0].ok === false);
+    const attemptsAfterReset = await admin(c => c.query('select fail_count, locked_until from admin_pin_attempts where branch_id=$1', [BRANCH]));
+    check('verify_admin_pin: fail_count reset to 1 (not accumulated to 5), and not locked',
+      attemptsAfterReset.rows[0].fail_count === 1 && attemptsAfterReset.rows[0].locked_until === null);
   }
 
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');
