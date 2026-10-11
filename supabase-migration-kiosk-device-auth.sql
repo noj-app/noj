@@ -253,6 +253,9 @@ begin
 end;
 $$;
 
+-- revokes PUBLIC's own separate implicit grant — see the fuller note on
+-- claim_or_create_profile(text) in supabase-schema.sql.
+revoke execute on function public.approve_device_pairing(text, uuid) from public, anon;
 grant execute on function public.approve_device_pairing(text, uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------

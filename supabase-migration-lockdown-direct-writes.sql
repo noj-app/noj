@@ -148,7 +148,15 @@ begin
 end;
 $$;
 
-grant execute on function public.redeem_reward(uuid) to anon, authenticated;
+-- authenticated only, not anon — same reasoning as cancel_appointment()
+-- above in this same file. (supabase-migration-point-ledger.sql later
+-- re-states this same grant, correctly, for the full migration chain —
+-- this statement is what actually governs the minimal base+lockdown chain
+-- run_lockdown_tests.js uses, which does not include point-ledger.sql, so
+-- it needs its own correct final grant too, not just a comment pointing
+-- elsewhere.)
+revoke execute on function public.redeem_reward(uuid) from public, anon;
+grant execute on function public.redeem_reward(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 2. appointments (HIGH) — cancel_appointment() replaces the one direct
@@ -194,7 +202,16 @@ begin
 end;
 $$;
 
-grant execute on function public.cancel_appointment(uuid) to anon, authenticated;
+-- authenticated only, not anon — every session signs in anonymously first
+-- (authenticated-role JWT), so the bare anon role never genuinely applies.
+-- Also revokes PUBLIC's own separate implicit grant from plain `create
+-- function` — see the fuller note on claim_or_create_profile(text) in
+-- supabase-schema.sql for how this exact gap was found (this function still
+-- had it: an explicit anon grant AND an unrevoked PUBLIC grant, neither
+-- caught by the previous lockdown pass since that pass only looked at
+-- functions already known to list anon by name).
+revoke execute on function public.cancel_appointment(uuid) from public, anon;
+grant execute on function public.cancel_appointment(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 3. profiles.phone / phone_verified_at / deleted_at (HIGH)

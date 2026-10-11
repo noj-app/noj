@@ -111,3 +111,16 @@
   authenticated;`. راجع supabase-migration-pos-intake.sql (القسم المُحدَّث) لأمثلة فعلية، وsupabase-
   edge-functions-deploy.md/db-tests/00_auth_stub.sql لكيفية محاكاة منحة Supabase الافتراضية محلياً
   (أضيفت بعد أن اجتازت هذه الدوال كل الاختبارات المحلية القديمة رغم كونها مفتوحة فعلياً على الحي).
+  **جولة فحص حي ثانية** (بعد تطبيق ما سبق) وجدت 7 دوال أخرى لم تكن ضمن أي قائمة فحص سابقة — cancel_
+  appointment (كانت تمنح anon صراحة، فاتها الفحص الأول لأنه لم يشمل كل الدوال)، وcurrent_device_id،
+  kiosk_claim_pos_transaction، claim_unclaimed_invoices، record_otp_request، approve_device_pairing،
+  claim_or_create_verified_profile (هذه الستّ لم تُمنَح anon بالاسم إطلاقاً، لكن منحة PUBLIC الضمنية
+  من create function وحدها كانت تكفي ليَرى anon نفسه قادراً على تنفيذها — has_function_privilege
+  يتحقق من منحة PUBLIC أيضاً، لا من منحة الدور المُسمّى فقط). **الدرس الأهم**: فحص قائمة دوال محدَّدة
+  يدوياً غير موثوق أبداً — أُضيف اختبار عام غير مرتبط بأي قائمة أسماء (run_tests.js وrun_lockdown_
+  tests.js): يستعلم كل دالة SECURITY DEFINER في public فعلياً ويتحقق أن لا واحدة منها تمنح anon
+  التنفيذ، باستثناء قائمة سماح صريحة (فارغة حالياً) — هذا الاختبار نفسه كشف ثغرة ثامنة أثناء كتابته
+  (redeem_reward في سلسلة القفل الأمني المصغّرة التي يستخدمها run_lockdown_tests.js، منفصلة عن سلسلة
+  التشغيل الكاملة). rls_auto_enable تبقى استثناءً معروفاً (من Supabase نفسها، غير موجودة في أي ملف هنا
+  ولا في قاعدة الاختبار المحلية، فلا تظهر في نتيجة هذا الاستعلام أصلاً) — لا تُضَف لقائمة السماح، ولا
+  تُمَس.

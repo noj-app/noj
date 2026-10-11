@@ -169,6 +169,12 @@ as $$
   select id from public.devices where auth_user_id = auth.uid();
 $$;
 
+-- revokes PUBLIC's own separate implicit grant from plain `create
+-- function` — never granted to anon by name, but PUBLIC alone was already
+-- enough to make it reachable by anon too (has_function_privilege checks
+-- PUBLIC's grant as well as the role's own) until revoked explicitly. See
+-- the fuller note on claim_or_create_profile(text) in supabase-schema.sql.
+revoke execute on function public.current_device_id() from public, anon;
 grant execute on function public.current_device_id() to authenticated;
 
 drop policy if exists "device can select its branch pos transactions" on public.pos_transactions;
@@ -302,6 +308,9 @@ begin
 end;
 $$;
 
+-- revokes PUBLIC's own separate implicit grant — see the note on
+-- current_device_id() above in this same file.
+revoke execute on function public.kiosk_claim_pos_transaction(uuid, text) from public, anon;
 grant execute on function public.kiosk_claim_pos_transaction(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -375,6 +384,9 @@ begin
 end;
 $$;
 
+-- revokes PUBLIC's own separate implicit grant — see the note on
+-- current_device_id() above in this same file.
+revoke execute on function public.claim_unclaimed_invoices() from public, anon;
 grant execute on function public.claim_unclaimed_invoices() to authenticated;
 
 -- ---------------------------------------------------------------------------
