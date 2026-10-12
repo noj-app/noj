@@ -96,6 +96,10 @@ begin
 end;
 $$;
 
+-- revokes PUBLIC's own separate implicit grant from plain `create
+-- function` — see the fuller note on claim_or_create_profile(text) in
+-- supabase-schema.sql for how this exact gap was found.
+revoke execute on function public.record_otp_request() from public, anon;
 grant execute on function public.record_otp_request() to authenticated;
 
 -- ---------------------------------------------------------------------------
@@ -154,4 +158,7 @@ begin
 end;
 $$;
 
+-- revokes PUBLIC's own separate implicit grant — see the note on
+-- record_otp_request() above in this same file.
+revoke execute on function public.claim_or_create_verified_profile() from public, anon;
 grant execute on function public.claim_or_create_verified_profile() to authenticated;

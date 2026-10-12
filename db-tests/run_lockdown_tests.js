@@ -212,6 +212,28 @@ async function newClaimedUser(phone) {
   // (cost_points=1) instead, it would have wrongly succeeded.
   check('search_path pinning: redeem_reward ignores a same-named decoy table in the caller\'s search_path', !hijackResult.ok && /غير كافٍ/.test(hijackResult.msg));
 
+  // =========================================================================
+  // 6) GENERAL LOCKDOWN INVARIANT, re-checked against THIS chain's subset of
+  //    functions too (base schema + lockdown fix only) — see run_tests.js
+  //    for the full rationale. Same empty allow-list, same rule.
+  // =========================================================================
+  {
+    const ALLOWED_ANON_FUNCTIONS = [];
+    const anonOpen = await admin(c => c.query(`
+      select p.proname, pg_get_function_identity_arguments(p.oid) as args
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.prosecdef = true
+        and has_function_privilege('anon', p.oid, 'EXECUTE')
+      order by p.proname
+    `));
+    const unexpected = anonOpen.rows.filter(r => !ALLOWED_ANON_FUNCTIONS.includes(r.proname));
+    if (unexpected.length) console.log('  unexpected anon-reachable SECURITY DEFINER functions:', JSON.stringify(unexpected));
+    check('GENERAL LOCKDOWN: no SECURITY DEFINER function in public grants EXECUTE to anon, except the explicit allow-list (currently empty)',
+      unexpected.length === 0);
+  }
+
   console.log('\n=== LOCKDOWN SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));
   process.exit(fail > 0 ? 1 : 0);

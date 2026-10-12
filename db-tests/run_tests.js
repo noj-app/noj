@@ -1288,6 +1288,44 @@ async function asServiceRole(fn) {
       attemptsAfterReset.rows[0].fail_count === 1 && attemptsAfterReset.rows[0].locked_until === null);
   }
 
+  // =========================================================================
+  // 18) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
+  //     grants EXECUTE to anon, period — not scoped to any specific function
+  //     list. Catches exactly the kind of gap the per-function checks above
+  //     missed: cancel_appointment() had anon granted BY NAME and nobody
+  //     noticed until a live audit; current_device_id(), kiosk_claim_pos_
+  //     transaction(), claim_unclaimed_invoices(), record_otp_request(),
+  //     approve_device_pairing(), claim_or_create_verified_profile() were
+  //     never granted to anon by name but still had PUBLIC's own separate
+  //     implicit grant left unrevoked — anon inherits whatever PUBLIC has.
+  //     Any function added later without this invariant in mind fails here
+  //     immediately, instead of waiting for the next live audit.
+  // =========================================================================
+  {
+    // explicit allow-list — empty on purpose. Add a function name here only
+    // with a comment explaining exactly why anon genuinely needs it; do not
+    // add anything Supabase itself creates outside this repo's migration
+    // files (e.g. rls_auto_enable, seen live but never defined here — not
+    // reachable in this local test DB at all, so it cannot appear below
+    // regardless, but the exclusion is named here for anyone reading this
+    // later and wondering why the list isn't literally empty-empty).
+    const ALLOWED_ANON_FUNCTIONS = [];
+
+    const anonOpen = await admin(c => c.query(`
+      select p.proname, pg_get_function_identity_arguments(p.oid) as args
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.prosecdef = true
+        and has_function_privilege('anon', p.oid, 'EXECUTE')
+      order by p.proname
+    `));
+    const unexpected = anonOpen.rows.filter(r => !ALLOWED_ANON_FUNCTIONS.includes(r.proname));
+    if (unexpected.length) console.log('  unexpected anon-reachable SECURITY DEFINER functions:', JSON.stringify(unexpected));
+    check('GENERAL LOCKDOWN: no SECURITY DEFINER function in public grants EXECUTE to anon, except the explicit allow-list (currently empty)',
+      unexpected.length === 0);
+  }
+
   console.log('\n=== SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));
   process.exit(fail > 0 ? 1 : 0);
