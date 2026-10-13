@@ -56,6 +56,17 @@
   بوابة Supabase الافتراضية ترفض أي طلب لا يحمل JWT صادراً منها قبل وصول كود الدالة، وكلتا الدالتين
   تتوثّق بآليتها الخاصة داخل الطلب (توكن الفرع لـ pos-intake، توقيع Standard Webhooks لـ
   send-sms-hook) لا بـ JWT. خطوات الإعداد اليدوية الكاملة في supabase-edge-functions-deploy.md.
+- محاكاة فاتورة كاشير (المرحلة ٤، لاختبار المسار كاملاً بلا كاشير حقيقي ولا حاسوب): workflow جديد
+  .github/workflows/simulate-pos-invoice.yml (workflow_dispatch فقط، بمدخلات amount إلزامي وvat
+  وdevice_id اختياريان) يرسل POST واحدة إلى pos-intake بنفس الحمولة الموحّدة وX-POS-Vendor: generic —
+  فلا فرق من جهة الخادم بين فاتورة محاكاة وفاتورة كاشير حقيقي، فالاختبار يغطي المسار الفعلي بالكامل.
+  external_ref فريد تلقائياً (sim-<رقم التشغيل>-<الوقت>)، وmetadata.source='github-actions-simulator'
+  يميّزها (source_adapter نفسه يبقى 'generic'، مُحدَّد بقيمة رأس X-POS-Vendor الثابتة، فلا يصلح
+  للتمييز). التوثيق بسر NOJ_TEST_POS_TOKEN (توكن فرع اختبار حقيقي من issue_branch_pos_token، لا يُطبع
+  في أي خطوة من الـ workflow إطلاقاً — تُطبع فقط حالة الاستجابة ومعرّف العملية)، ورابط الدالة من
+  SUPABASE_PROJECT_ID الموجود مسبقاً. scripts/simulate-pos-invoice.js سكربت CLI اختياري بنفس المنطق
+  بالضبط للمطورين (Node 18+، بلا اعتماديات، fetch العامة فقط). خطوات الإعداد والاختبار اليدوي الكاملة
+  بالترتيب في supabase-pos-simulator.md.
 - القيم في القالب T (invoiceAmount, ticket, ahead, doctorName, topCard) تجريبية حتى يُبنى الربط،
   وزر "التالي (تجربة)" هو المحفّز الوحيد حالياً. لا يُحذف قبل وجود محفّز حقيقي.
 - رمز إعدادات الكشك يُتحقق منه في الخادم عبر verify_admin_pin وجدول branch_admin_pins. لا رموز في الكود أبداً.
