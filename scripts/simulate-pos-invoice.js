@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-// NOJ — محاكاة فاتورة كاشير من سطر الأوامر، لمطوّر لديه حاسوب (مقابل
-// .github/workflows/simulate-pos-invoice.yml الذي يعمل بلا حاسوب من
-// متصفح). نفس منطق الإرسال بالضبط: POST واحدة إلى pos-intake بالحمولة
-// الموحّدة، X-POS-Vendor: generic، external_ref فريد تلقائياً. لا اعتماديات
-// خارجية — يستخدم fetch العامة في Node 18+ فقط.
+// NOJ — محاكاة فاتورة كاشير: نقطة الدخول الوحيدة فعلياً، يستدعيها كل من
+// مطوّر لديه حاسوب مباشرة، و.github/workflows/simulate-pos-invoice.yml (بلا
+// أي إعادة تنفيذ للمنطق داخل YAML — الـ workflow يستدعي هذا الملف نفسه عبر
+// node scripts/simulate-pos-invoice.js، فلا يوجد تطبيقان منفصلان قد يختلفان).
+// بناء الحمولة نفسه في pos-invoice-payload.mjs (وحدة نقية، تُختبَر مباشرة في
+// supabase/functions/pos-intake/simulator-payload.test.ts عبر Deno). لا
+// اعتماديات خارجية — يستخدم fetch العامة في Node 18+ فقط.
 //
 // الاستخدام:
 //   NOJ_TEST_POS_TOKEN=<توكن الفرع> SUPABASE_PROJECT_ID=<معرّف المشروع> \
 //     node scripts/simulate-pos-invoice.js --amount 125.50 [--vat 0] [--device-id <uuid>]
+//
+// يكتشف تلقائياً أنه يعمل داخل GitHub Actions (GITHUB_ACTIONS=true، تضبطها
+// منصة Actions نفسها لكل خطوة، لا حاجة لتمريرها يدوياً) ليضع external_ref
+// ومعرّفات التشغيل المناسبة بدل القيم الافتراضية لتشغيل مطوّر محلي.
 //
 // لا يطبع التوكن أبداً تحت أي ظرف.
 
@@ -27,6 +33,12 @@ function parseArgs(argv) {
 }
 
 async function main() {
+  // import() ديناميكي لا import ثابت: يعمل من ملف CommonJS عادي (.js، بلا
+  // "type": "module" في أي package.json) على أي إصدار Node 18+، بخلاف
+  // import الثابت الذي يعتمد على اكتشاف صيغة ESM التلقائي (ميزة أحدث، غير
+  // مضمونة على كل إصدار Node مثبَّت مسبقاً على عدّاد GitHub Actions).
+  const { buildPosInvoicePayload } = await import('./pos-invoice-payload.mjs');
+
   const args = parseArgs(process.argv.slice(2));
 
   const token = process.env.NOJ_TEST_POS_TOKEN;
@@ -40,27 +52,22 @@ async function main() {
     console.error('متغيّر البيئة SUPABASE_PROJECT_ID مطلوب.');
     process.exit(1);
   }
-
-  const amount = Number(args.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    console.error('--amount مطلوب، ويجب أن يكون رقماً أكبر من صفر.');
-    process.exit(1);
-  }
-  const vat = Number(args.vat);
-  if (!Number.isFinite(vat) || vat < 0) {
-    console.error('--vat يجب أن يكون رقماً صفراً أو أكبر.');
+  if (!args.amount) {
+    console.error('--amount مطلوب.');
     process.exit(1);
   }
 
-  const externalRef = `sim-cli-${Date.now()}`;
-  const body = {
-    external_ref: externalRef,
-    amount,
-    vat,
-    metadata: { source: 'cli-simulator' },
-  };
-  const deviceId = (args.deviceId || '').trim();
-  if (deviceId) body.device_id = deviceId;
+  const ci = process.env.GITHUB_ACTIONS === 'true'
+    ? { runId: process.env.GITHUB_RUN_ID, runNumber: process.env.GITHUB_RUN_NUMBER }
+    : null;
+
+  let body;
+  try {
+    body = buildPosInvoicePayload({ amount: args.amount, vat: args.vat, deviceId: args.deviceId, ci });
+  } catch (err) {
+    console.error(err.message || String(err));
+    process.exit(1);
+  }
 
   const url = `https://${projectId}.supabase.co/functions/v1/pos-intake`;
 

@@ -41,8 +41,10 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | `supabase/config.toml` | — | إعداد Supabase CLI: `verify_jwt = false` لكلتا الدالتين `send-sms-hook`/`pos-intake` — كلتاهما تتوثّق بآليتها الخاصة داخل الطلب نفسه لا بـ JWT صادر من Supabase، راجع `supabase-edge-functions-deploy.md` |
 | `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه، بما فيها ملف القفل الأمني — راجع `db-tests/README.md` |
 | `kiosk-tests/` | — | اختبارات Playwright لـ `kiosk.html` (Chromium حقيقي + عميل Supabase مزيَّف، بلا شبكة حية) — الالتقاط المباشر لعمليات POS (المرحلة ٣) — راجع `kiosk-tests/README.md` |
-| `.github/workflows/simulate-pos-invoice.yml` | — | محاكاة فاتورة كاشير (مرحلة ٤ من ربط POS): workflow يدوي حصراً يرسل فاتورة حقيقية إلى `pos-intake` بلا كاشير فعلي ولا حاسوب — راجع "محاكاة فاتورة كاشير" أدناه و`supabase-pos-simulator.md` |
-| `scripts/simulate-pos-invoice.js` | — | سكربت CLI اختياري بنفس منطق محاكاة فاتورة الكاشير أعلاه، لمطوّر لديه حاسوب (Node 18+، بلا اعتماديات) |
+| `.github/workflows/simulate-pos-invoice.yml` | — | محاكاة فاتورة كاشير (مرحلة ٤ من ربط POS): workflow يدوي حصراً يستدعي `scripts/simulate-pos-invoice.js` مباشرة (لا يعيد بناء الحمولة بمنطق منفصل) لإرسال فاتورة حقيقية إلى `pos-intake` بلا كاشير فعلي ولا حاسوب — راجع "محاكاة فاتورة كاشير" أدناه و`supabase-pos-simulator.md` |
+| `scripts/pos-invoice-payload.mjs` | — | مصدر الحقيقة الوحيد لبناء حمولة محاكاة فاتورة الكاشير (وحدة ES نقية) — يستخدمه كل من `scripts/simulate-pos-invoice.js` واختبار Deno `supabase/functions/pos-intake/simulator-payload.test.ts` |
+| `scripts/simulate-pos-invoice.js` | — | سكربت CLI محاكاة فاتورة الكاشير، يستدعيه كل من الـ workflow أعلاه ومطوّر لديه حاسوب مباشرة (Node 18+، بلا اعتماديات) |
+| `supabase/functions/pos-intake/simulator-payload.test.ts` | — | اختبار Deno يمرّر الحمولة التي تبنيها أداة المحاكاة فعلياً عبر المحوّل والتحقق الحقيقيين في `pos-intake` — يمنع تكرار عطل حي سابق (راجع CLAUDE.md) |
 | `supabase-pos-simulator.md` | — | توثيق فقط: خطوات محاكاة فاتورة كاشير بالترتيب (إصدار توكن فرع الاختبار، إضافته سرّاً، تشغيل المحاكاة، التحقق على الكشك وفي `index.html`) |
 | `manifest.json` | — | بيان تثبيت `index.html` فقط (الاسم، الأيقونات، ألوان الهوية) |
 | `sw.js` | — | Service Worker يخزّن ملفات `index.html` مؤقتاً للعمل بلا اتصال (الواجهة فقط — البيانات الحيّة تحتاج اتصالاً بـ Supabase) |
@@ -1296,18 +1298,37 @@ Realtime مع الاستعلام الاحتياطي، وتأكيد أن الوض
 
 `.github/workflows/simulate-pos-invoice.yml` — **يدوي حصراً**
 (`workflow_dispatch`، بلا أي تشغيل تلقائي)، بمدخلات `amount` (إلزامي)،
-`vat` (افتراضي 0)، `device_id` (اختياري). يرسل POST بالحمولة الموحّدة
-ورأس `X-POS-Vendor: generic`، بـ`external_ref` فريد تلقائياً
-(`sim-<رقم التشغيل>-<الوقت>`)، ويُشير في `metadata.source` إلى أنها
-محاكاة (`source_adapter` نفسه يبقى `generic`، محدَّد برأس `X-POS-Vendor`
-الثابت، فلا يصلح للتمييز). التوثيق بسرّ `NOJ_TEST_POS_TOKEN` — توكن فرع
-اختبار حقيقي صادر عبر `issue_branch_pos_token`، لا يُطبع في أي خطوة
-إطلاقاً (تُطبع فقط حالة الاستجابة ومعرّف العملية). رابط الدالة من سرّ
-`SUPABASE_PROJECT_ID` الموجود مسبقاً (نفس السرّ المستخدم في نشر Edge
-Functions).
+`vat` (افتراضي 0)، `device_id` (اختياري). يستدعي `scripts/simulate-pos-
+invoice.js` مباشرة (لا يعيد بناء الحمولة بمنطق bash/node منفصل داخل
+YAML) ليرسل POST بالحمولة الموحّدة ورأس `X-POS-Vendor: generic`،
+بـ`external_ref` فريد تلقائياً (`sim-<رقم التشغيل>-<الوقت>`)، ويُشير في
+`metadata.source` إلى أنها محاكاة (`source_adapter` نفسه يبقى `generic`،
+محدَّد برأس `X-POS-Vendor` الثابت، فلا يصلح للتمييز). التوثيق بسرّ
+`NOJ_TEST_POS_TOKEN` — توكن فرع اختبار حقيقي صادر عبر
+`issue_branch_pos_token`، لا يُطبع في أي خطوة إطلاقاً (تُطبع فقط حالة
+الاستجابة ومعرّف العملية). رابط الدالة من سرّ `SUPABASE_PROJECT_ID`
+الموجود مسبقاً (نفس السرّ المستخدم في نشر Edge Functions).
 
-`scripts/simulate-pos-invoice.js` — سكربت CLI اختياري بنفس المنطق بالضبط،
-لمطوّر لديه حاسوب (Node 18+، بلا اعتماديات خارجية، `fetch` العامة فقط).
+`scripts/simulate-pos-invoice.js` — سكربت CLI محاكاة فاتورة الكاشير، يستدعيه
+الـ workflow أعلاه ومطوّر لديه حاسوب مباشرة بنفس المنطق بالضبط (Node 18+،
+بلا اعتماديات خارجية، `fetch` العامة فقط). يبني الحمولة عبر
+`scripts/pos-invoice-payload.mjs` — **مصدر الحقيقة الوحيد** لشكلها (وحدة ES
+نقية بلا `process`/`fetch`)، فلا يوجد تطبيقان منفصلان للمنطق نفسه قد
+ينحرفان عن بعضهما. يكتشف تلقائياً أنه يعمل داخل GitHub Actions
+(`GITHUB_ACTIONS=true`) ليضبط `external_ref`/`metadata` المناسبين بدل
+القيم الافتراضية لتشغيل مطوّر محلي.
+
+`supabase/functions/pos-intake/simulator-payload.test.ts` (اختبار Deno) —
+يمرّر الحمولة التي تبنيها `buildPosInvoicePayload()` فعلياً عبر المحوّل
+والتحقق الحقيقيين في `pos-intake` (`handlePosIntake`)، لا حمولة يدوية
+معزولة عن الأداة الفعلية. أُضيف بعد عطل حي: التصميم الأول كان يعيد بناء
+الحمولة مباشرة داخل YAML الـ workflow (`node -e` بمتغيّرات bash)،
+فأسقط `external_ref` بصمت (متغيّر bash محسوب محلياً لم يُصدَّر `export`
+فلم يصل لعملية node الفرعية، وJSON.stringify يُسقط القيمة `undefined`
+بدل أن يفشل) رغم وصول `amount`/`vat` بسلامة — فرفض `pos-intake` الطلب
+بـ"external_ref مطلوب". عقد `pos-intake` نفسه سليم ولم يتغيّر؛ الإصلاح
+كان توحيد منطق بناء الحمولة في ملف واحد يستورده كل من الـ workflow (عبر
+استدعاء السكربت) والاختبار معاً.
 
 خطوات الإعداد والاختبار اليدوي الكاملة بالترتيب (إصدار توكن فرع الاختبار
 من محرر SQL، إضافته سرّاً في GitHub، تحويل الكشك للوضع المباشر، تشغيل
