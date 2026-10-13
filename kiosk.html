@@ -844,6 +844,118 @@ function saveDeviceCache(d){
   catch(e){console.error('NOJ kiosk: تعذّر حفظ سياق الجهاز',e)}
 }
 
+/* ================= LIVE POS CAPTURE (المرحلة ٣) =================
+   في SETTINGS.mode==='live' فقط: يلتقط الجهاز صفوف pos_transactions
+   الخاصة بفرعه فور وصولها، بدل انتظار زر "التالي (تجربة)" اليدوي —
+   Realtime أولاً (أسرع)، واستعلام احتياطي كل 10 ثوانٍ عند انقطاعه فقط
+   (لا تكرار — الاستطلاع يتوقف فور عودة Realtime). كلا المصدرين يمرّان
+   عبر نفس handleIncomingTxn() فلا فرق في المعالجة بينهما.
+   LIVE_TXN: العملية المعروضة حالياً على الشاشة (أو null). عملية ثانية
+   تصل أثناء عرض الأولى تُحفَظ في LIVE_TXN_QUEUE بدل مقاطعة الحالية —
+   تُعرَض تلقائياً بمجرد عودة الجهاز لشاشة الانتظار (انظر renderIdle)
+   إن كانت لا تزال صالحة (لم تنتهِ صلاحيتها بعد). */
+var LIVE_TXN=null;
+var LIVE_TXN_QUEUE=[];
+var LIVE_CLAIM_RESULT=null;
+var liveRealtimeChannel=null;
+var liveFallbackPollTimer=null;
+var liveExpiryTimer=null;
+var liveNoticeTimer=null;
+
+function isTxnValid(row){
+  return !!row&&row.status==='pending'&&new Date(row.expires_at).getTime()>Date.now();
+}
+/* عملية ثانية لنفس id قد تصل مرتين (Realtime ثم الاستطلاع الاحتياطي
+   يلتقطان نفس الصف، أو إعادة اتصال Realtime تعيد بث نفس الحدث) — تُرفَض
+   بصمت إن كانت هي نفسها المعروضة حالياً أو موجودة أصلاً في الطابور. */
+function handleIncomingTxn(row){
+  if(!isTxnValid(row))return;
+  if(LIVE_TXN&&LIVE_TXN.id===row.id)return;
+  if(LIVE_TXN||S.page!=='idle'){
+    if(!LIVE_TXN_QUEUE.some(function(r){return r.id===row.id}))LIVE_TXN_QUEUE.push(row);
+    return;
+  }
+  LIVE_TXN=row;
+  goToCheckoutScreen();
+}
+/* تُستدعى فقط من renderIdle() — أي مسار يعيد الجهاز لشاشة الانتظار يمر
+   حتماً عبر render()/renderIdle()، فتفقّد الطابور هنا نقطة واحدة تكفي
+   كل تلك المسارات دون تكرار الاستدعاء في كل واحد منها. */
+function checkLiveQueueForNext(){
+  while(LIVE_TXN_QUEUE.length){
+    var next=LIVE_TXN_QUEUE.shift();
+    if(isTxnValid(next)){LIVE_TXN=next;goToCheckoutScreen();return true}
+  }
+  return false;
+}
+async function pollForPendingTxn(){
+  if(SETTINGS.mode!=='live'||!DEVICE.branchId)return;
+  var sb=await getSb();
+  if(!sb)return;
+  try{
+    var res=await sb.from('pos_transactions').select('*')
+      .eq('branch_id',DEVICE.branchId).eq('status','pending')
+      .gt('expires_at',new Date().toISOString())
+      .order('received_at',{ascending:false}).limit(1);
+    if(res.error)throw res.error;
+    if(res.data&&res.data[0])handleIncomingTxn(res.data[0]);
+  }catch(e){console.error('NOJ kiosk: pollForPendingTxn error',e)}
+}
+function startLiveFallbackPoll(){
+  if(liveFallbackPollTimer)return;
+  // window.__NOJ_POLL_MS__: اختبار فقط (نفس نمط window.__NOJ_SUPABASE_CLIENT__
+  // أعلاه) — لتقصير فترة الانتظار في Playwright بدل حقيقة 10 ثوانٍ؛ غير
+  // معرَّفة أبداً خارج بيئة الاختبار فلا تغيّر شيئاً في الإنتاج.
+  liveFallbackPollTimer=setInterval(pollForPendingTxn,window.__NOJ_POLL_MS__||10000);
+  pollForPendingTxn();
+}
+function stopLiveFallbackPoll(){
+  clearInterval(liveFallbackPollTimer);liveFallbackPollTimer=null;
+}
+function stopLiveTxnWatch(){
+  if(liveRealtimeChannel){try{liveRealtimeChannel.unsubscribe()}catch(e){}liveRealtimeChannel=null}
+  stopLiveFallbackPoll();
+}
+/* تُستدعى مرة واحدة فقط بعد كل إقلاع ناجح (bootKiosk) — لا علاقة لها
+   بـ SETTINGS.mode وقت الاشتراك نفسه (قد يتبدّل لاحقاً من الإعدادات بلا
+   إعادة تشغيل الجهاز)، فالتحقق من الوضع يبقى داخل handleIncomingTxn/
+   pollForPendingTxn فقط. تُعيد إنشاء الاشتراك من الصفر في كل استدعاء
+   (stopLiveTxnWatch أولاً) فلا تتراكم اشتراكات مكرّرة عند إعادة محاولة
+   الاتصال أكثر من مرة. */
+async function startLiveTxnWatch(){
+  stopLiveTxnWatch();
+  if(!DEVICE.branchId)return;
+  var sb=await getSb();
+  if(!sb)return;
+  liveRealtimeChannel=sb.channel('pos-txn-'+DEVICE.branchId)
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'pos_transactions',filter:'branch_id=eq.'+DEVICE.branchId},function(payload){
+      handleIncomingTxn(payload.new);
+    })
+    .subscribe(function(status){
+      if(status==='SUBSCRIBED'){stopLiveFallbackPoll();return}
+      if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')startLiveFallbackPoll();
+    });
+}
+/* رسالة عربية قصيرة عابرة على شاشة الانتظار (مثل أخطاء ربط عملية فشلت)
+   — تُمسَح تلقائياً بعد 6 ثوانٍ. */
+function showIdleNotice(text){
+  S.liveNotice=text;
+  clearTimeout(liveNoticeTimer);
+  liveNoticeTimer=setTimeout(function(){S.liveNotice=null;if(S.page==='idle')renderIdle()},6000);
+}
+function liveTxnExpiredReturn(){
+  if(!(S.page==='checkout'&&(S.view==='main'||S.view==='pad')))return;
+  LIVE_TXN=null;S.view='main';S.phone='';
+  S.page='idle';render();
+}
+function scheduleLiveExpiryReturn(){
+  clearTimeout(liveExpiryTimer);
+  if(!LIVE_TXN)return;
+  var ms=new Date(LIVE_TXN.expires_at).getTime()-Date.now();
+  if(ms<=0){liveTxnExpiredReturn();return}
+  liveExpiryTimer=setTimeout(liveTxnExpiredReturn,ms);
+}
+
 /* ================= DEVICE SETTINGS (persisted) =================
    إعدادات الجهاز المحمية (القطاع، بيانات المنشأة، ربط نظام الكاشير،
    الوضع) — تُحفظ في localStorage فتبقى بعد إعادة تشغيل الجهاز، وتُحدَّث
@@ -912,7 +1024,7 @@ function currentBiz(){
 /* page تبدأ 'connecting' الآن (لا 'idle' مباشرة) — bootKiosk() في نهاية
    الملف هي من تقرر الصفحة الفعلية الأولى (pairing/idle) بعد التحقق من
    حالة الإقران، فلا تظهر شاشة الخمول قبل التأكد أن الجهاز مُقارَن فعلاً. */
-var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:'',page:'connecting',pairingCodeLive:null};
+var S={t:SETTINGS.sector,view:'main',phone:'',pin:'',pinErr:'',page:'connecting',pairingCodeLive:null,liveNotice:null};
 /* علم تجريبي مؤقت: يظهر زر صغير غير بارز في شاشة الخمول لنقل الشاشة
    يدوياً إلى الشاشة الرئيسية (main)، لأن الربط الفعلي مع نقطة البيع
    (الذي سيتولى هذا الانتقال تلقائياً عند بدء عملية دفع حقيقية) غير
@@ -935,9 +1047,15 @@ function cardOn(id){
    merchants.points_rate) في الوضع المباشر إن كان محمَّلاً فعلاً؛ وإلا
    (الوضع التجريبي، أو تعذّر تحميله) c.pointsRate الثابت كما كان دائماً
    — لا تغيير على الوضع التجريبي بأي حال. */
+/* مبلغ هذه الفاتورة تحديداً: المبلغ الحقيقي من LIVE_TXN (نقطة استقبال
+   POS، المرحلة ٣) إن وُجدت عملية مباشرة نشطة، وإلا c.invoiceAmount
+   الثابت التجريبي كما كان دائماً — لا تغيير على الوضع التجريبي بأي حال. */
+function currentAmount(){
+  return (SETTINGS.mode==='live'&&LIVE_TXN)?Number(LIVE_TXN.amount).toFixed(2):C().invoiceAmount;
+}
 function invoicePoints(c){
   var rate=(SETTINGS.mode==='live'&&DEVICE.pointsRate)?DEVICE.pointsRate:c.pointsRate;
-  return Math.round(parseFloat(c.invoiceAmount)*rate);
+  return Math.round(parseFloat(currentAmount())*rate);
 }
 
 /* ================= CUSTOMER IDENTIFICATION (الرصيد التراكمي) =========
@@ -1071,12 +1189,18 @@ function header(){
 function leftCol(){
   var c=C(),t=c.topCard;
   var boxes='';
+  var live=SETTINGS.mode==='live';
   /* بطاقة "نوع العيادة" (kind==='unit') ليست جزءاً من okItems/small2
      إطلاقاً فلا يشتق لها sectorCardToggles أي مفتاح، وتظهر دوماً بصرف
      النظر عن أي إعداد؛ بطاقة النقاط (hasPoints) تخضع لمفتاح
-     loyaltyPoints المشتق من الإعدادات. */
-  if(t.kind==='unit'||(c.hasPoints&&cardOn('loyaltyPoints')))boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(c)+'</div>';
-  if(c.hasQueue){
+     loyaltyPoints المشتق من الإعدادات. المرحلة ٣: بطاقة "نوع العيادة"
+     كلها قيم تجريبية ثابتة (clinicType/subValue/doctorName) بلا مصدر
+     حقيقي بعد، فتُخفى كاملة في الوضع المباشر؛ بطاقة النقاط تبقى (تعرض
+     الآن تقديراً حقيقياً: معامل حقيقي × مبلغ حقيقي عبر invoicePoints). */
+  if((t.kind==='unit'?!live:(c.hasPoints&&cardOn('loyaltyPoints'))))boxes+='<div class="box" id="loyaltyCard">'+loyaltyCardInner(c)+'</div>';
+  /* بطاقة الدور (ticket/ahead) بلا مصدر حقيقي بعد لأي قطاع — تُخفى
+     كاملة في الوضع المباشر أيضاً، بصرف النظر عن hasQueue. */
+  if(c.hasQueue&&!live){
     var qItem=leftoverOkItem(c);
     if(!qItem||cardOn(qItem.id))boxes+='<div class="box queue-box" id="queueCard">'+queueCardInner(c)+'</div>';
   }
@@ -1146,7 +1270,7 @@ function invChip(label,valueHtml){
 function centerCol(){
   var c=C();
   var amount=c.showInvoiceAmount?
-   '<div class="inv-row">'+invChip('مبلغ الفاتورة',c.invoiceAmount+' <span>ريال</span>')+'</div>':'';
+   '<div class="inv-row">'+invChip('مبلغ الفاتورة',currentAmount()+' <span>ريال</span>')+'</div>':'';
   var coupon=c.showCouponBtn?
    '<button class="coupon-btn" id="couponBtn">'+ic('gift',18,'#2D7BF4')+' لديك كوبون خصم؟</button>':'';
   return '<div class="col"><div class="tap">'+
@@ -1260,6 +1384,7 @@ function idleScreen(){
    '<div class="idle-hd">'+
     '<div class="idle-clock" id="idleClock">'+idleClockInner()+
      (DEVICE.connError?'<div style="font-size:11px;color:#C47A1E;font-weight:700;margin-top:4px">غير متصل — تُعرض بيانات محفوظة</div>':'')+
+     (S.liveNotice?'<div style="font-size:11px;color:#8A93AD;font-weight:700;margin-top:4px">'+escAttr(S.liveNotice)+'</div>':'')+
     '</div>'+
     '<div class="idle-noj">'+
      '<button class="idle-noj-btn" id="idleNojBtn" aria-label="إعدادات التاجر (اضغط مطولاً ثانية ونصف)">'+
@@ -1285,7 +1410,7 @@ function idleScreen(){
       '<div class="idle-menu-txt"><b>'+btn.label+'</b><small>'+btn.sub+'</small></div>'+
       '<div class="idle-menu-chev">'+ic('chevL',18,'#B08968',2.2)+'</div>'+
      '</button>':'')+
-    (DEV_SHOW_NEXT_BUTTON?'<button class="idle-devnext" id="idleDevNext">التالي (تجربة) ›</button>':'')+
+    (SETTINGS.mode==='demo'&&DEV_SHOW_NEXT_BUTTON?'<button class="idle-devnext" id="idleDevNext">التالي (تجربة) ›</button>':'')+
    '</div>'+
   '</div>';
 }
@@ -1327,13 +1452,14 @@ function bindIdle(){
   var next=document.getElementById('idleDevNext');
   if(next)next.onclick=goToCheckoutScreen;
 }
-/* الانتقال من شاشة الخمول إلى الشاشة الرئيسية (main) — مؤقتاً عبر زر
-   "التالي" التجريبي فقط (خلف DEV_SHOW_NEXT_BUTTON أعلاه)؛ نقطة الربط
-   الحقيقية المستقبلية: تُستدعى هذه الدالة نفسها تلقائياً عند استلام
-   إشارة بدء عملية دفع فعلية من نقطة البيع. */
+/* الانتقال من شاشة الخمول إلى الشاشة الرئيسية (main) — إما يدوياً عبر
+   زر "التالي" التجريبي (الوضع التجريبي فقط)، أو تلقائياً عند وصول عملية
+   pos_transactions حقيقية (LIVE_TXN مضبوطة مسبقاً من handleIncomingTxn/
+   checkLiveQueueForNext قبل استدعاء هذه الدالة في الوضع المباشر). */
 function goToCheckoutScreen(){
   clearInterval(idleClockTimer);
   S.page='checkout';
+  if(LIVE_TXN)scheduleLiveExpiryReturn();
   render();
 }
 
@@ -1400,6 +1526,7 @@ function keypad(){
    '<button class="close" id="closePad">'+ic('close',16,'#8A93AD')+' إغلاق</button>'+
    '<div class="kp"><h2>أدخل رقم جوالك</h2>'+
    '<p>لتصلك فاتورتك وخدماتك في تطبيق '+NOJ_BLUE+'</p>'+
+   (SETTINGS.mode==='live'?'<p style="font-size:12px;color:var(--muted);margin-top:-8px">تُحفظ فاتورتك ونقاطك لمدة سنة لاستلامها عند التسجيل في '+NOJ_BLUE+'</p>':'')+
    '<div class="disp"><span class="cc">+966</span>'+
    '<span class="dg"><span id="phDg">'+(disp||'<span class="plc">5X XXX XXXX</span>')+'</span><span class="car"></span></span></div>'+
    '<div class="warn" id="phWarn">'+(bad?'رقم الجوال السعودي يبدأ بالرقم 5':'')+'</div>'+
@@ -1470,13 +1597,28 @@ function loyaltyOkCard(c){
    '<div class="g-pts-total">'+total+' <span>نقطة</span></div>'+
    '<div class="g-pts-break">سابق '+prev+' + مضاف '+added+'</div>'+note+'</div>';
 }
+/* المرحلة ٣: عميل غير مسجَّل في تطبيق NOJ (kiosk_claim_pos_transaction
+   أعادت is_registered=false) — فاتورته ونقاطه محفوظة فعلاً على رقمه
+   المطبَّع (invoices.pending_phone/unclaimed_customers، راجع CLAUDE.md)
+   لكن لا حساب ليعرضها الآن؛ رسالة واضحة بدل أي بطاقة نقاط/رصيد مزيَّفة. */
+function unregisteredSuccess(){
+  var linked=S.phone?('+966 '+maskPhone(S.phone)):'';
+  return '<div class="ok"><div class="ok-in">'+
+   '<div class="ok-c">'+ic('check',54,'#22A87A',3)+'</div>'+
+   '<h2>حُفظت فاتورتك</h2>'+
+   '<p>فاتورتك ونقاطك من '+linked+' محفوظة — سجّل في تطبيق '+NOJ_BLUE+' لاستلامها (تُحفظ لمدة سنة من هذه الزيارة)</p>'+
+   '<div class="timer" id="timer"></div>'+
+  '</div></div>';
+}
 function success(){
+  if(SETTINGS.mode==='live'&&LIVE_CLAIM_RESULT&&LIVE_CLAIM_RESULT.is_registered===false)return unregisteredSuccess();
   var c=C();
   var linked=S.phone?('+966 '+maskPhone(S.phone)):('تطبيق '+NOJ_BLUE);
   /* رقم الدور المعروض هنا يأتي من CUST.queue (نفس مصدر بطاقة الدور على
      الشاشة الرئيسية، عبر getQueueInfo) لا من c.ticket مباشرة؛ الرجوع
-     لـ c.ticket لا يحدث إلا في الوضع المباشر حيث لا يوجد اتصال حقيقي
-     بعد (CUST.queue فارغة عندها) كقيمة احتياطية مؤقتة فقط. */
+     لـ c.ticket لا يحدث إلا في الوضع التجريبي (CUST.queue فارغة في
+     الوضع المباشر دوماً، وبلا مصدر حقيقي بديل بعد — فتُخفى بطاقة الدور
+     بالكامل هناك بدل عرض رقم مُلفَّق، انظر أسفله). */
   var ticket=(CUST.queue&&CUST.queue.ticket!=null)?CUST.queue.ticket:c.ticket;
   /* ترتيب صف بطاقات النجاح: فاتورتك (أول عنصر في okItems) أولاً، ثم
      بطاقة نقاط الولاء (إن وُجدت لهذا القطاع) مباشرة بعدها، ثم بقية
@@ -1495,7 +1637,7 @@ function success(){
    '<h2>تم الربط بنجاح</h2>'+
    '<p>أُرسلت فاتورتك إلى '+linked+'</p>'+
    gotRow+
-   '<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>'+
+   (SETTINGS.mode==='live'?'':'<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>')+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
 }
@@ -1511,6 +1653,7 @@ function renderMain(){
    طبقاتها العلوية (لوحة الأرقام/النجاح/PIN/الإعدادات) تعمل دون أي تعديل
    بصرف النظر عن الشاشة الأساسية الظاهرة تحتها. */
 function renderIdle(){
+  if(SETTINGS.mode==='live'&&checkLiveQueueForNext())return;
   document.getElementById('screen').innerHTML=idleScreen()+'<div id="layer"></div>';
   bindIdle();
   startIdleClock();
@@ -1734,6 +1877,7 @@ async function bootKiosk(){
     }
     await loadDeviceContext(dev.branch_id);
     S.page='idle';render();
+    startLiveTxnWatch();
   }catch(e){
     console.error('NOJ kiosk: bootKiosk error',e);
     var cached=loadDeviceCache();
@@ -1741,62 +1885,114 @@ async function bootKiosk(){
       DEVICE=Object.assign({connError:true},cached);
       applyBranchSettingsToLocal(cached.branchSettings);
       S.page='idle';render();
+      startLiveTxnWatch();
       return;
     }
     S.page='connFatal';render();
   }
 }
+function timerLabel(s){
+  return (SETTINGS.mode==='live'?'العودة لشاشة الانتظار خلال ':'العودة للشاشة الرئيسية خلال ')+s+' ثانية';
+}
 function startTimer(s){
   clearInterval(tmr);secs=s;
   var el=document.getElementById('timer');
-  if(el)el.textContent='العودة للشاشة الرئيسية خلال '+secs+' ثانية';
+  if(el)el.textContent=timerLabel(secs);
   tmr=setInterval(function(){
     secs--;
     var e=document.getElementById('timer');
-    if(e)e.textContent='العودة للشاشة الرئيسية خلال '+secs+' ثانية';
-    if(secs<=0){clearInterval(tmr);S.view='main';S.phone='';resetCustomerState();renderLayer()}
+    if(e)e.textContent=timerLabel(secs);
+    if(secs<=0){
+      clearInterval(tmr);
+      S.phone='';resetCustomerState();
+      if(SETTINGS.mode==='live'){
+        LIVE_CLAIM_RESULT=null;
+        S.view='main';S.page='idle';render();
+      }else{
+        S.view='main';renderLayer();
+      }
+    }
   },1000);
 }
-/* يحاكي إرسال الفاتورة إلى الخادم — يحمل حقل category ليصنَّف الإنفاق
-   لاحقاً في تطبيق العميل (index.html). لا يوجد نظام نقطة بيع حقيقي بعد
-   (c.invoiceAmount يبقى ثابتاً تجريبياً لكل قطاع)، فالمحاكاة هنا تبقى
-   كما كانت دائماً.
-   الجديد: إن كان الوضع مباشراً، والقطاع ذا نقاط، والعميل تم التعرّف
-   عليه فعلاً (CUST.status==='identified') — تُستدعى kiosk_earn_points
-   فعلياً. الدالة نفسها مُعطَّلة افتراضياً لكل فرع (branch_settings.
-   demo_earn_enabled=false) ولا تُستدعى بتاتاً إلا بتفعيل صريح لاحقاً —
-   محاولتها هنا مجرد استدعاء عادي، سترفضه الدالة نفسها إن لم يُفعَّل.
-   أي فشل (الوضع التجريبي مُعطَّل، العميل بلا موافقة، أو أي عطل آخر)
-   يُسجَّل في CUST.earnFailReason ليعرضه loyaltyOkCard برسالة مفهومة —
-   لا يُفسَد تدفّق "تم الربط بنجاح" نفسه بسببه، لأن ربط الفاتورة بالجوال
-   نجح فعلاً بصرف النظر عن نجاح تسجيل النقاط. */
+/* يحاكي إرسال الفاتورة إلى الخادم (الوضع التجريبي فقط من الآن) — يحمل
+   حقل category ليصنَّف الإنفاق لاحقاً في تطبيق العميل (index.html).
+   كانت هذه الدالة تستدعي kiosk_earn_points فعلياً في الوضع المباشر أيضاً
+   (بمبلغ c.invoiceAmount الثابت، قبل وجود نقطة استقبال POS حقيقية) —
+   أُزيل ذلك الفرع بعد المرحلة ٣: الوضع المباشر الآن يمر حصراً عبر
+   claimLiveTransaction()/kiosk_claim_pos_transaction() بالمبلغ الحقيقي
+   من LIVE_TXN، فلا تُستدعى هذه الدالة إطلاقاً إلا في الوضع التجريبي
+   (انظر handlePhoneSubmit). kiosk_earn_points() تبقى معرَّفة ومُختبَرة في
+   قاعدة البيانات، لم تُعد تُستدعى من هنا فقط. */
 async function sendInvoice(){
   var c=C(),biz=currentBiz();
   var ticket=(CUST.queue&&CUST.queue.ticket!=null)?CUST.queue.ticket:c.ticket;
   var payload={category:c.category,merchant:biz.name,ticket:ticket,phone:S.phone||null,linked_at:new Date().toISOString()};
   console.log('NOJ kiosk → إرسال الفاتورة (محاكاة):',payload);
-
   CUST.added=null;CUST.earnFailReason=null;
-  if(SETTINGS.mode==='live'&&c.hasPoints&&CUST.status==='identified'){
-    var sb=await getSb();
-    if(!sb){CUST.added=0;CUST.earnFailReason='error';return payload}
-    try{
-      var res=await sb.rpc('kiosk_earn_points',{p_phone:S.phone,p_amount:Number(c.invoiceAmount),p_category:null});
-      if(res.error)throw res.error;
-      var row=Array.isArray(res.data)?res.data[0]:res.data;
-      CUST.added=Number(row.added_points);
-      CUST.points=Number(row.prev_points);
-    }catch(e){
-      console.error('NOJ kiosk: kiosk_earn_points error',e);
-      var msg=e.message||'';
-      if(/NOJ_CUSTOMER_NOT_FOUND/.test(msg))CUST.earnFailReason='notfound';
-      else if(/موافقة/.test(msg))CUST.earnFailReason='consent';
-      else if(/الوضع التجريبي/.test(msg))CUST.earnFailReason='disabled';
-      else CUST.earnFailReason='error';
-      CUST.added=0;
-    }
-  }
   return payload;
+}
+
+/* المرحلة ٣: يربط LIVE_TXN الحالية برقم جوال العميل فعلياً عبر
+   kiosk_claim_pos_transaction() — الكشك لا يرسل المبلغ أبداً (القاعدة
+   تقرؤه من الصف نفسه الذي وصل عبر pos-intake). */
+async function claimLiveTransaction(phone){
+  var sb=await getSb();
+  if(!sb||!LIVE_TXN)return{ok:false,reason:'error'};
+  try{
+    var res=await sb.rpc('kiosk_claim_pos_transaction',{p_transaction_id:LIVE_TXN.id,p_phone:phone});
+    if(res.error)throw res.error;
+    var row=Array.isArray(res.data)?res.data[0]:res.data;
+    return{ok:true,row:row};
+  }catch(e){
+    console.error('NOJ kiosk: kiosk_claim_pos_transaction error',e);
+    var msg=e.message||'';
+    var reason=/NOJ_TRANSACTION_EXPIRED/.test(msg)?'expired'
+      :/NOJ_TRANSACTION_NOT_PENDING/.test(msg)?'not_pending'
+      :/NOJ_TRANSACTION_NOT_FOUND/.test(msg)?'not_found'
+      :'error';
+    return{ok:false,reason:reason};
+  }
+}
+/* نقطة الدخول الموحَّدة لكل من لمسة NFC وتأكيد رقم الجوال (الوضع
+   المباشر مع عملية نشطة فقط — الوضع التجريبي يتبع المسار القديم
+   identifyCustomer/sendInvoice دون أي تغيير). phone=null (لمسة NFC بلا
+   رقم) لا معنى حقيقياً له هنا — kiosk_claim_pos_transaction يشترط رقماً
+   دوماً — فلا يُستدعى هذا الفرع إطلاقاً من مسار NFC في الوضع المباشر
+   (انظر bindMain: NFC يفتح لوحة الأرقام مباشرة بدلاً منه هناك). */
+function handlePhoneSubmit(phone){
+  if(SETTINGS.mode==='live'&&LIVE_TXN){
+    S.phone=phone||'';
+    clearTimeout(liveExpiryTimer);
+    claimLiveTransaction(phone).then(function(r){
+      // عملية أخرى (أو مغادرة الشاشة) قد تكون غيّرت LIVE_TXN/الصفحة أثناء
+      // انتظار الرد — تجاهل نتيجة متأخرة لا تخص الشاشة الحالية.
+      if(S.page!=='checkout')return;
+      if(r.ok){
+        LIVE_CLAIM_RESULT=r.row;
+        LIVE_TXN=null;
+        // loyaltyOkCard() تقرأ من CUST (لا من LIVE_CLAIM_RESULT مباشرة) —
+        // نفس البنية المستخدَمة أصلاً لمسار الوضع التجريبي، فتُغذَّى هنا
+        // بالأرقام الحقيقية من استجابة kiosk_claim_pos_transaction بدل
+        // تكرار منطق عرض منفصل لكل مسار.
+        CUST.status='identified';
+        CUST.points=Number(r.row.prev_points)||0;
+        CUST.added=Number(r.row.added_points)||0;
+        CUST.earnFailReason=null;
+        S.view='ok';renderLayer();
+        return;
+      }
+      LIVE_TXN=null;
+      var msg=r.reason==='expired'?'انتهت صلاحية هذه الفاتورة'
+        :r.reason==='not_pending'?'هذه الفاتورة سبق ربطها بعميل آخر'
+        :r.reason==='not_found'?'تعذّر العثور على هذه الفاتورة'
+        :'تعذّر الاتصال بالخادم، حاول مرة أخرى';
+      showIdleNotice(msg);
+      S.view='main';S.phone='';
+      S.page='idle';render();
+    });
+    return;
+  }
+  identifyCustomer(phone,function(){sendInvoice().then(function(){S.view='ok';renderLayer()})});
 }
 
 function bindMain(){
@@ -1805,7 +2001,8 @@ function bindMain(){
   var nfc=document.querySelector('.nfc');
   if(nfc)nfc.onclick=function(){
     S.phone='';
-    identifyCustomer(null,function(){sendInvoice().then(function(){S.view='ok';renderLayer()})});
+    if(SETTINGS.mode==='live'&&LIVE_TXN){S.view='pad';renderLayer();return}
+    handlePhoneSubmit(null);
   };
   var logo=document.getElementById('nojLogo');
   if(logo)bindLogoLongPress(logo);
@@ -1830,7 +2027,7 @@ function bindLayer(){
          خلفها أثناء التعرّف (نفس ما يحدث في مسار NFC)، بدل بقاء المستخدم
          حابساً أمام لوحة أرقام لا تعكس تقدّم التحقق. */
       S.view='main';renderLayer();
-      identifyCustomer(phone,function(){sendInvoice().then(function(){S.view='ok';renderLayer()})});
+      handlePhoneSubmit(phone);
     }};
   var mc=document.getElementById('menuClose');
   if(mc)mc.onclick=function(){S.view='main';renderLayer()};

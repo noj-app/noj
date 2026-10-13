@@ -100,7 +100,8 @@ async function asServiceRole(fn) {
     'supabase-migration-phone-format.sql', 'supabase-migration-timezone.sql',
     'supabase-migration-kiosk-device-auth.sql', 'supabase-migration-kiosk-balance-lookup.sql',
     'supabase-migration-kiosk-admin-pin.sql', 'supabase-migration-admin-pin-lockdown.sql',
-    'supabase-migration-pos-transactions.sql', 'supabase-migration-phone-otp-foundation.sql',
+    'supabase-migration-pos-transactions.sql', 'supabase-migration-pos-transactions-realtime.sql',
+    'supabase-migration-phone-otp-foundation.sql',
     'supabase-migration-pos-intake.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
