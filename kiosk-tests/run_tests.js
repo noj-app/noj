@@ -80,6 +80,15 @@ async function enterPhoneAndConfirm(page, phone) {
   await page.click('#confirm');
 }
 
+async function openAdminSettingsViaPin(page, pin) {
+  await page.evaluate(() => window.openPinScreen());
+  await page.waitForSelector('#pinDots');
+  for (const digit of pin) {
+    await page.click('[data-pk="' + digit + '"]');
+  }
+  await page.waitForSelector('#adminBox', { timeout: 3000 });
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: CHROMIUM_PATH });
 
@@ -241,6 +250,12 @@ async function enterPhoneAndConfirm(page, phone) {
     check('6) الوضع التجريبي: الزر ينقل لشاشة الطلب كما كان', reached);
     const amountText = reached ? await page.textContent('.inv-chip b') : '';
     check('6) الوضع التجريبي: المبلغ المعروض هو قيمة القالب الثابتة (86.00 لمطعم مذاق)، لا أي قيمة عملية حقيقية', /86\.00/.test(amountText));
+    // الوضع التجريبي لم يتغيّر: بطاقات okItems الإضافية (رقم طاولتك) تبقى
+    // ظاهرة في شاشة النجاح كما كانت قبل إخفائها في الوضع المباشر فقط.
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok-in', { timeout: 3000 }).catch(() => {});
+    const gotText = await page.textContent('.got').catch(() => '');
+    check('6) الوضع التجريبي: بطاقة "رقم طاولتك" لا تزال ظاهرة في شاشة النجاح (لم تُخفَ، فقط الوضع المباشر)', /رقم طاولتك/.test(gotText));
     await context.close();
   }
   {
@@ -248,6 +263,112 @@ async function enterPhoneAndConfirm(page, phone) {
     const { context, page } = await openKiosk(browser, { mode: 'live', scenario });
     const devBtn = await page.$('#idleDevNext');
     check('6) زر "التالي (تجربة)" غائب تماماً في الوضع المباشر', devBtn === null);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 7) تأكيد أن العملية تصل عبر قناة Realtime نفسها لا عبر الاستعلام
+  //    الاحتياطي — القناة SUBSCRIBED منذ البداية، فيجب ألا يُستدعى
+  //    pollForPendingTxn() إطلاقاً (العدّاد المخصَّص في fake-supabase.js).
+  // =========================================================================
+  {
+    const scenario = baseScenario({ initialChannelStatus: 'SUBSCRIBED' });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario });
+    await sleep(100); // تأكيد استقرار حالة SUBSCRIBED قبل إرسال الحدث
+    const pollBefore = await page.evaluate(() => window.__TEST__.getPollCount());
+    check('7) القناة SUBSCRIBED: لا استعلام احتياطي قبل أي حدث', pollBefore === 0);
+    await page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), {
+      id: 'txn-7', branch_id: 'branch-1', amount: '33.00', vat: '0',
+      status: 'pending', expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
+    });
+    const reached = await waitForCheckout(page);
+    check('7) العملية وصلت والقناة لا تزال SUBSCRIBED', reached);
+    const amountText = reached ? await page.textContent('.inv-chip b') : '';
+    check('7) المبلغ صحيح (33.00)', /33\.00/.test(amountText));
+    const pollAfter = await page.evaluate(() => window.__TEST__.getPollCount());
+    check('7) لم يُستدعَ الاستعلام الاحتياطي إطلاقاً — الالتقاط عبر Realtime فعلياً لا عبر poll', pollAfter === 0);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 8) تشخيص الإعدادات: سطر حالة Realtime ووقت آخر حدث يظهر في شاشة
+  //    إعدادات الجهاز بلا أي بيانات عميل.
+  // =========================================================================
+  {
+    const scenario = baseScenario({ initialChannelStatus: 'SUBSCRIBED', adminPin: '1234' });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario });
+    await sleep(100);
+    await openAdminSettingsViaPin(page, '1234');
+    const diagBefore = await page.textContent('#rtDiagLine').catch(() => '');
+    check('8) سطر التشخيص يظهر حالة "متصل" قبل أي حدث', /متصل/.test(diagBefore));
+    check('8) سطر التشخيص يظهر "لم يصل بعد" قبل أي حدث Realtime', /لم يصل بعد/.test(diagBefore));
+    await page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), {
+      id: 'txn-8', branch_id: 'branch-1', amount: '11.00', vat: '0',
+      status: 'pending', expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
+    });
+    await waitForCheckout(page);
+    // سطر التشخيص يتحدَّث كل ثانيتين (startRtDiagTimer) — ننتظره بدل إعادة
+    // بنائه يدوياً، للتأكد أن التحديث الدوري نفسه يعمل لا فقط العرض الأول.
+    await page.waitForFunction(() => {
+      var el = document.getElementById('rtDiagLine');
+      return el && !/لم يصل بعد/.test(el.textContent);
+    }, { timeout: 4000 }).catch(() => {});
+    const diagAfter = await page.textContent('#rtDiagLine').catch(() => '');
+    check('8) سطر التشخيص يُحدَّث بوقت آخر حدث Realtime فعلي بعد وصوله', !/لم يصل بعد/.test(diagAfter));
+    check('8) سطر التشخيص لا يحتوي أي رقم جوال أو بيانات عميل', !/\d{9}/.test(diagAfter));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 9) تجديد توكن الجلسة (TOKEN_REFRESHED): يُمرَّر التوكن الجديد لـ
+  //    Realtime (realtime.setAuth) وتُعاد إعادة الاشتراك بقناة جديدة —
+  //    لا الاعتماد وحده على الربط الداخلي الضمني في supabase-js.
+  // =========================================================================
+  {
+    const scenario = baseScenario({ initialChannelStatus: 'SUBSCRIBED' });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario });
+    await sleep(100);
+    const channelsBefore = await page.evaluate(() => window.__TEST__.getChannelCreateCount());
+    await page.evaluate(() => window.__TEST__.triggerTokenRefresh('fresh-token-123'));
+    await sleep(100);
+    const setAuthCalls = await page.evaluate(() => window.__TEST__.getSetAuthCalls());
+    check('9) تجديد التوكن يُمرَّر فوراً لـ realtime.setAuth()', setAuthCalls.indexOf('fresh-token-123') !== -1);
+    const channelsAfter = await page.evaluate(() => window.__TEST__.getChannelCreateCount());
+    check('9) تجديد التوكن يُعيد إنشاء اشتراك Realtime من جديد (قناة جديدة)', channelsAfter > channelsBefore);
+    // بعد إعادة الاشتراك، لا تزال العمليات الجديدة تصل بلا مشكلة
+    await page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), {
+      id: 'txn-9', branch_id: 'branch-1', amount: '19.00', vat: '0',
+      status: 'pending', expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
+    });
+    const reached = await waitForCheckout(page);
+    check('9) العملية لا تزال تُلتقَط بعد إعادة الاشتراك', reached);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 10) الوضع المباشر: شاشة النجاح لا تعرض "رقم دورك"/"موعدك القادم" (بلا
+  //     مصدر حقيقي) — تبقى فقط "فاتورتك" ونقاط الولاء.
+  // =========================================================================
+  {
+    const scenario = baseScenario({
+      branchSettingsRow: {
+        sector_code: 'medical', biz_name: 'مركز اختبار', biz_branch: 'فرع الاختبار',
+        biz_slogan: '', biz_logo: '', show_menu_btn: false, menu_images: [], card_toggles: {}, dark_mode: false,
+      },
+      claimResults: { 'txn-10': { row: { is_registered: true, profile_id: 'p', prev_points: 0, added_points: 5, total_points: 5, invoice_id: 'i' } } },
+    });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario });
+    await page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), {
+      id: 'txn-10', branch_id: 'branch-1', amount: '10.00', vat: '0', status: 'pending',
+      expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
+    });
+    check('10) وصلت العملية', await waitForCheckout(page));
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok-in', { timeout: 3000 }).catch(() => {});
+    const gotText = await page.textContent('.got').catch(() => '');
+    check('10) "فاتورتك" لا تزال ظاهرة (حدث حقيقي)', /فاتورتك/.test(gotText));
+    check('10) لا بطاقة "رقم طلبك"/"رقم دورك" (بلا مصدر حقيقي) في الوضع المباشر', !/رقم طلبك|رقم دورك/.test(gotText));
+    check('10) لا بطاقة "موعدك القادم" في الوضع المباشر', !/موعدك القادم/.test(gotText));
     await context.close();
   }
 

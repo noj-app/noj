@@ -861,6 +861,13 @@ var liveRealtimeChannel=null;
 var liveFallbackPollTimer=null;
 var liveExpiryTimer=null;
 var liveNoticeTimer=null;
+/* تشخيص الاتصال المباشر (شاشة الإعدادات، البند 3 من العطل المُبلَّغ): حالة
+   قناة Realtime الحالية ووقت آخر حدث INSERT وصل فعلياً عبرها (لا عبر
+   الاستعلام الاحتياطي) — بلا أي بيانات عميل، فقط للتشخيص الميداني حين
+   "التقطها الاستعلام الاحتياطي" بدل Realtime كما حدث على الحي. */
+var LIVE_RT_STATUS=null;
+var LIVE_RT_STATUS_AT=null;
+var LIVE_RT_LAST_EVENT_AT=null;
 
 function isTxnValid(row){
   return !!row&&row.status==='pending'&&new Date(row.expires_at).getTime()>Date.now();
@@ -927,14 +934,42 @@ async function startLiveTxnWatch(){
   if(!DEVICE.branchId)return;
   var sb=await getSb();
   if(!sb)return;
+  attachAuthListener(sb);
+  LIVE_RT_STATUS='connecting';LIVE_RT_STATUS_AT=new Date();
   liveRealtimeChannel=sb.channel('pos-txn-'+DEVICE.branchId)
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'pos_transactions',filter:'branch_id=eq.'+DEVICE.branchId},function(payload){
+      LIVE_RT_LAST_EVENT_AT=new Date();
       handleIncomingTxn(payload.new);
     })
     .subscribe(function(status){
+      LIVE_RT_STATUS=status;LIVE_RT_STATUS_AT=new Date();
       if(status==='SUBSCRIBED'){stopLiveFallbackPoll();return}
       if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')startLiveFallbackPoll();
     });
+}
+/* يُمرَّر توكن الجلسة لـ Realtime صراحة بدل الاعتماد وحده على الربط
+   التلقائي الداخلي في supabase-js (توقيته/وجوده يختلف فعلياً بين إصدارات
+   @supabase/supabase-js@2 التي يجلبها esm.sh بلا تثبيت رقم إصدار دقيق،
+   راجع getSb) — عند تسجيل الدخول وعند كل تجديد توكن. التجديد تحديداً
+   يُعيد إنشاء الاشتراك من الصفر (startLiveTxnWatch) بدل الاكتفاء بـ
+   setAuth: قناة مفتوحة مسبقاً قد لا "تُعيد التوثيق" تلقائياً لنفسها عند
+   تبدّل accessToken (تفصيل تطبيق داخلي في realtime-js لا نملك تأكيداً
+   قاطعاً عليه من هذه البيئة بلا وصول لمشروع Supabase حي فعلي) — إعادة
+   انضمام نظيفة بتوكن طازج أضمن من محاولة التحايل على ذلك التفصيل. مُعلَّقة
+   مرة واحدة فقط (__authListenerAttached) — بصرف النظر عن كم مرة استُدعيت
+   bootKiosk()/startLiveTxnWatch() (إعادة محاولة الاتصال، تبديل القطاع...). */
+var __authListenerAttached=false;
+function attachAuthListener(sb){
+  if(__authListenerAttached)return;
+  if(!sb||!sb.auth||typeof sb.auth.onAuthStateChange!=='function')return;
+  __authListenerAttached=true;
+  sb.auth.onAuthStateChange(function(event,session){
+    if(event!=='TOKEN_REFRESHED'&&event!=='SIGNED_IN')return;
+    if(session&&session.access_token&&sb.realtime&&typeof sb.realtime.setAuth==='function'){
+      try{sb.realtime.setAuth(session.access_token)}catch(e){}
+    }
+    if(event==='TOKEN_REFRESHED'&&DEVICE.branchId)startLiveTxnWatch();
+  });
 }
 /* رسالة عربية قصيرة عابرة على شاشة الانتظار (مثل أخطاء ربط عملية فشلت)
    — تُمسَح تلقائياً بعد 6 ثوانٍ. */
@@ -1624,13 +1659,19 @@ function success(){
      بطاقة نقاط الولاء (إن وُجدت لهذا القطاع) مباشرة بعدها، ثم بقية
      عناصر okItems كما هي — بهذا الترتيب يظهر "فاتورتك ← نقاط الولاء ←
      رقم طلبك" للقطاعات ذات النقاط، و"فاتورتك ← رقم دورك ← موعدك القادم"
-     للقطاع الطبي دون أي تغيير (loyaltyOkCard تُعيد '' فيُستبعَد تلقائياً). */
+     للقطاع الطبي في الوضع التجريبي. في الوضع المباشر، عناصر okItems بعد
+     الأول (رقم دورك/رقم طلبك/موعدك القادم...) بلا مصدر حقيقي بعد — نفس
+     فئة ticket/ahead/topCard kind==='unit' المخفية أصلاً في leftCol/
+     loyaltyCardInner (المرحلة ٣) — فتُخفى هنا أيضاً، ويبقى فقط "فاتورتك"
+     (حدث حقيقي فعلاً: الفاتورة وصلت) و"نقاط الولاء" (loyaltyOkCard، رصيد
+     حقيقي من الخادم). */
+  var live=SETTINGS.mode==='live';
   var okHtml=c.okItems.map(function(o){
     if(!cardOn(o.id))return '';
     return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
     '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
   });
-  var gotCards=[okHtml[0]||''].concat(loyaltyOkCard(c)).concat(okHtml.slice(1)).filter(Boolean).join('');
+  var gotCards=[okHtml[0]||''].concat(loyaltyOkCard(c)).concat(live?[]:okHtml.slice(1)).filter(Boolean).join('');
   var gotRow=gotCards?'<div class="got">'+gotCards+'</div>':'';
   return '<div class="ok"><div class="ok-in">'+
    '<div class="ok-c">'+ic('check',54,'#22A87A',3)+'</div>'+
@@ -1848,6 +1889,7 @@ async function bootKiosk(){
   S.page='connecting';render();
   var sb=await getSb();
   if(!sb){S.page='connFatal';render();return}
+  attachAuthListener(sb);
 
   try{
     var sessionRes=await sb.auth.getSession();
@@ -2163,6 +2205,45 @@ function bindPin(){
   });
 }
 
+/* ================= REALTIME DIAGNOSTICS (شاشة الإعدادات) =================
+   سطر تشخيص بلا أي بيانات عميل: حالة قناة Realtime الحالية ووقت آخر حدث
+   INSERT وصل فعلياً عبرها (LIVE_RT_LAST_EVENT_AT) — يفرّق بين "التُقطت
+   عبر Realtime" و"التُقطت عبر الاستعلام الاحتياطي" الذي كان غامضاً تماماً
+   على الجهاز قبل هذا. يتحدّث كل ثانيتين تلقائياً بينما الشاشة مفتوحة
+   (startRtDiagTimer/stopRtDiagTimer من openAdminSettings/closeAdmin). */
+function rtStatusLabel(){
+  if(LIVE_RT_STATUS==='SUBSCRIBED')return 'متصل';
+  if(LIVE_RT_STATUS==='CHANNEL_ERROR'||LIVE_RT_STATUS==='TIMED_OUT'||LIVE_RT_STATUS==='CLOSED')return 'منقطع (الاستعلام الاحتياطي يعمل كل 10 ثوانٍ)';
+  if(LIVE_RT_STATUS==='connecting')return 'جارٍ الاتصال...';
+  return 'لم يبدأ بعد';
+}
+function fmtDiagTime(d){
+  if(!d)return 'لم يصل بعد';
+  // بناء يدوي لا toLocaleTimeString('ar-...') — نفس سبب formatIdleTime
+  // أعلاه (أرقام غربية مضمونة، بلا الاعتماد على دعم محرك المتصفح للاحقة
+  // locale؛ ar-SA يُرجع أرقاماً شرقية افتراضياً فعلياً، مؤكَّد محلياً).
+  function pad(n){return (n<10?'0':'')+n}
+  return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+}
+function rtDiagText(){
+  return 'حالة القناة: '+rtStatusLabel()+' — آخر حدث INSERT وصل عبر Realtime: '+fmtDiagTime(LIVE_RT_LAST_EVENT_AT);
+}
+function realtimeDiagHtml(){
+  return '<div class="adm-sec"><h3>تشخيص الاتصال المباشر (POS)</h3>'+
+   '<p class="adm-note" id="rtDiagLine">'+rtDiagText()+'</p>'+
+  '</div>';
+}
+var rtDiagTimer=null;
+function startRtDiagTimer(){
+  stopRtDiagTimer();
+  rtDiagTimer=setInterval(function(){
+    var el=document.getElementById('rtDiagLine');
+    if(!el){stopRtDiagTimer();return}
+    el.textContent=rtDiagText();
+  },2000);
+}
+function stopRtDiagTimer(){clearInterval(rtDiagTimer);rtDiagTimer=null}
+
 /* ================= ADMIN SETTINGS SCREEN =================
    تعمل على نسخة مسودة (DRAFT) مستقلة عن SETTINGS المحفوظة فعلياً؛ لا
    يُطبَّق أو يُحفَظ أي تغيير إلا بالضغط على "حفظ". الخروج أو انتهاء وقت
@@ -2172,8 +2253,10 @@ function openAdminSettings(){
   DRAFT=JSON.parse(JSON.stringify(SETTINGS));
   S.pin='';S.pinErr='';S.view='settings';
   renderLayer();
+  startRtDiagTimer();
 }
 function closeAdmin(){
+  stopRtDiagTimer();
   DRAFT=null;S.view='main';
   /* أي معاينة حية للوضع الليلي لم تُحفَظ (بدّلها المستخدم ثم خرج بلا
      ضغط "حفظ") تُتجاهَل هنا بإعادة تطبيق القيمة المحفوظة فعلياً في
@@ -2220,6 +2303,7 @@ function settingsScreen(){
       '<button data-m="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
       '<button data-m="live" class="'+(d.mode==='live'?'on':'')+'">مباشر</button>'+
      '</div></div>'+
+     realtimeDiagHtml()+
      '<div class="adm-sec"><h3>المظهر</h3>'+
       '<div class="card-tog-row">'+
        '<span class="card-tog-label">الوضع الليلي</span>'+
@@ -2663,6 +2747,7 @@ function resetAdminIdle(){
   clearTimeout(adminIdleTimer);
   if(S.view==='pin'||S.view==='settings'){
     adminIdleTimer=setTimeout(function(){
+      stopRtDiagTimer();
       DRAFT=null;S.pin='';S.pinErr='';S.view='main';
       applyTheme(SETTINGS.darkMode);
       renderLayer();

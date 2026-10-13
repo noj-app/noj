@@ -9,7 +9,7 @@
 // dependency-free browser JS, no require/module here.
 (function () {
   function buildFakeSupabase(scenario) {
-    var state = { session: null, channelCb: null, channelStatusCb: null };
+    var state = { session: null, channelCb: null, channelStatusCb: null, authStateCb: null, pollCount: 0, setAuthCalls: [], channelCreateCount: 0 };
 
     function singleRowFor(table) {
       if (table === 'branches') return scenario.branchRow;
@@ -29,6 +29,11 @@
       var filters = [], limitN = null, isUpdate = false;
       function resolveList() {
         if (table === 'pos_transactions') {
+          // عدّاد "poll" حقيقي — pollForPendingTxn() في kiosk.html هو
+          // المستدعي الوحيد لـ from('pos_transactions') (راجعنا الملف)،
+          // فهذا العدّاد يثبت فعلياً أن التقاط عملية ما مرّ عبر Realtime
+          // لا عبر الاستعلام الاحتياطي (راجع اختبار "7" في run_tests.js).
+          state.pollCount++;
           var rows = (scenario.pendingTxns || []).filter(function (r) { return matchesFilters(r, filters); });
           if (limitN != null) rows = rows.slice(0, limitN);
           return Promise.resolve({ data: rows, error: null });
@@ -78,12 +83,25 @@
         getSession: function () { return Promise.resolve({ data: { session: state.session } }); },
         signInAnonymously: function () {
           state.session = { user: { id: scenario.deviceAuthId || 'device-auth-id' } };
+          if (state.authStateCb) state.authStateCb('SIGNED_IN', state.session);
           return Promise.resolve({ data: { session: state.session }, error: null });
         },
+        // kiosk.html's attachAuthListener(sb) — يحاكي الربط الحقيقي بين
+        // supabase-js وRealtime: التجديد (TOKEN_REFRESHED) محاكى عبر
+        // window.__TEST__.triggerTokenRefresh أدناه، لا تلقائياً هنا (لا
+        // مهلة جلسة حقيقية في بيئة اختبار).
+        onAuthStateChange: function (cb) {
+          state.authStateCb = cb;
+          return { data: { subscription: { unsubscribe: function () { state.authStateCb = null; } } } };
+        },
+      },
+      realtime: {
+        setAuth: function (token) { state.setAuthCalls.push(token); },
       },
       rpc: rpc,
       from: function (table) { return makeBuilder(table); },
       channel: function () {
+        state.channelCreateCount++;
         var ch = {
           on: function (event, opts, cb) { state.channelCb = cb; return ch; },
           subscribe: function (statusCb) {
@@ -104,6 +122,13 @@
       setClaimResult: function (txnId, result) {
         scenario.claimResults = scenario.claimResults || {};
         scenario.claimResults[txnId] = result;
+      },
+      getPollCount: function () { return state.pollCount; },
+      getSetAuthCalls: function () { return state.setAuthCalls.slice(); },
+      getChannelCreateCount: function () { return state.channelCreateCount; },
+      triggerTokenRefresh: function (accessToken) {
+        state.session = { user: { id: scenario.deviceAuthId || 'device-auth-id' }, access_token: accessToken || 'refreshed-token' };
+        if (state.authStateCb) state.authStateCb('TOKEN_REFRESHED', state.session);
       },
     };
     return client;
