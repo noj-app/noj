@@ -56,7 +56,7 @@
   بوابة Supabase الافتراضية ترفض أي طلب لا يحمل JWT صادراً منها قبل وصول كود الدالة، وكلتا الدالتين
   تتوثّق بآليتها الخاصة داخل الطلب (توكن الفرع لـ pos-intake، توقيع Standard Webhooks لـ
   send-sms-hook) لا بـ JWT. خطوات الإعداد اليدوية الكاملة في supabase-edge-functions-deploy.md.
-- محاكاة فاتورة كاشير (المرحلة ٤، لاختبار المسار كاملاً بلا كاشير حقيقي ولا حاسوب): workflow جديد
+- محاكاة فاتورة كاشير (المرحلة ٤، لاختبار المسار كاملاً بلا كاشير حقيقي ولا حاسوب): workflow
   .github/workflows/simulate-pos-invoice.yml (workflow_dispatch فقط، بمدخلات amount إلزامي وvat
   وdevice_id اختياريان) يرسل POST واحدة إلى pos-intake بنفس الحمولة الموحّدة وX-POS-Vendor: generic —
   فلا فرق من جهة الخادم بين فاتورة محاكاة وفاتورة كاشير حقيقي، فالاختبار يغطي المسار الفعلي بالكامل.
@@ -64,9 +64,21 @@
   يميّزها (source_adapter نفسه يبقى 'generic'، مُحدَّد بقيمة رأس X-POS-Vendor الثابتة، فلا يصلح
   للتمييز). التوثيق بسر NOJ_TEST_POS_TOKEN (توكن فرع اختبار حقيقي من issue_branch_pos_token، لا يُطبع
   في أي خطوة من الـ workflow إطلاقاً — تُطبع فقط حالة الاستجابة ومعرّف العملية)، ورابط الدالة من
-  SUPABASE_PROJECT_ID الموجود مسبقاً. scripts/simulate-pos-invoice.js سكربت CLI اختياري بنفس المنطق
-  بالضبط للمطورين (Node 18+، بلا اعتماديات، fetch العامة فقط). خطوات الإعداد والاختبار اليدوي الكاملة
-  بالترتيب في supabase-pos-simulator.md.
+  SUPABASE_PROJECT_ID الموجود مسبقاً.
+  **مصدر حقيقة واحد لبناء الحمولة**: scripts/pos-invoice-payload.mjs (وحدة ES نقية، بلا process/fetch)
+  — يستوردها كل من scripts/simulate-pos-invoice.js (سكربت CLI اختياري للمطورين، Node 18+ بلا
+  اعتماديات) واختبار Deno supabase/functions/pos-intake/simulator-payload.test.ts، والـ workflow نفسه
+  لا يعيد بناء الحمولة بمنطق منفصل بل يستدعي scripts/simulate-pos-invoice.js مباشرة (actions/setup-node
+  لضمان Node معروف الإصدار؛ import() ديناميكي في السكربت لا import ثابت، ليعمل كملف CommonJS عادي بلا
+  الاعتماد على اكتشاف ESM التلقائي غير المضمون على كل إصدار Node). **سبب هذا التصميم**: عطل حي اكتُشف
+  فعلياً — التصميم الأول كرّر منطق بناء الحمولة مباشرة داخل YAML (bash يحسب external_ref كمتغيّر عادي
+  غير مُصدَّر، ثم يمرّره لعملية node -e فرعية)، فوصل amount/vat بسلامة (كانا عبر env: في YAML) لكن
+  external_ref لم يصل إطلاقاً (JSON.stringify يُسقط الحقل undefined بصمت بدل أن يفشل)، فرفض pos-intake
+  الطلب بـ"external_ref مطلوب". عقد pos-intake نفسه (supabase/functions/pos-intake/intake.ts) سليم ولم
+  يُعدَّل — العطل كان فقط في تكرار منطق بناء الحمولة بتطبيقين قد ينحرفان عن بعضهما. اختبار Deno الجديد
+  يمرّر نفس الحمولة التي تبنيها buildPosInvoicePayload() فعلياً عبر handlePosIntake الحقيقية (لا حمولة
+  يدوية معزولة عن الأداة الفعلية)، ليمنع تكرار هذا النوع من الانحراف مستقبلاً.
+  خطوات الإعداد والاختبار اليدوي الكاملة بالترتيب في supabase-pos-simulator.md.
 - القيم في القالب T (invoiceAmount, ticket, ahead, doctorName, topCard) تجريبية حتى يُبنى الربط،
   وزر "التالي (تجربة)" هو المحفّز الوحيد حالياً. لا يُحذف قبل وجود محفّز حقيقي.
 - رمز إعدادات الكشك يُتحقق منه في الخادم عبر verify_admin_pin وجدول branch_admin_pins. لا رموز في الكود أبداً.

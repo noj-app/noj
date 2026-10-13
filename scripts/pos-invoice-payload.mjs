@@ -1,0 +1,38 @@
+// NOJ — المصدر الوحيد لمنطق بناء حمولة محاكاة فاتورة الكاشير، يستخدمه كل من
+// scripts/simulate-pos-invoice.js (الـ workflow والـ CLI يستدعيان هذا الملف
+// نفسه، لا تطبيقين منفصلين) واختبار Deno
+// supabase/functions/pos-intake/simulator-payload.test.ts (يمرّر نفس الحمولة
+// فعلياً عبر المحوّل والتحقق الحقيقيين في pos-intake). وحدة ES نقية — بلا
+// process/fetch/I.O — لتبقى قابلة للاستيراد من Node وDeno معاً بلا تحويل.
+//
+// يجب أن يطابق هذا الملف عقد supabase/functions/pos-intake/intake.ts
+// (genericAdapter) تماماً: external_ref إلزامي غير فارغ، amount/vat أرقام
+// JS حقيقية لا نصوصاً، device_id يُحذف كلياً من الحمولة إن كان فارغاً (لا
+// يُرسل كنص فارغ أبداً).
+
+export function buildPosInvoicePayload({ amount, vat, deviceId, ci }) {
+  const amountNum = Number(amount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    throw new Error('amount يجب أن يكون رقماً أكبر من صفر');
+  }
+
+  const vatNum = Number(vat ?? '0');
+  if (!Number.isFinite(vatNum) || vatNum < 0) {
+    throw new Error('vat يجب أن يكون رقماً صفراً أو أكبر');
+  }
+
+  const externalRef = ci
+    ? `sim-${ci.runNumber}-${Date.now()}`
+    : `sim-cli-${Date.now()}`;
+
+  const metadata = ci
+    ? { source: 'github-actions-simulator', run_id: ci.runId, run_number: Number(ci.runNumber) }
+    : { source: 'cli-simulator' };
+
+  const body = { external_ref: externalRef, amount: amountNum, vat: vatNum, metadata };
+
+  const trimmedDeviceId = (deviceId || '').trim();
+  if (trimmedDeviceId) body.device_id = trimmedDeviceId;
+
+  return body;
+}

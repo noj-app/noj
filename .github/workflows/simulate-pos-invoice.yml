@@ -6,14 +6,19 @@ name: محاكاة فاتورة كاشير
 # supabase-pos-simulator.md لخطوات الإعداد الكاملة بالترتيب (إصدار توكن فرع
 # الاختبار، وضعه سرّاً هنا باسم NOJ_TEST_POS_TOKEN، تشغيل هذا الـ workflow).
 #
-# ترسل POST واحدة إلى pos-intake بنفس الحمولة الموحّدة التي يرسلها أي نظام
-# كاشير حقيقي (راجع supabase-migration-pos-intake.sql وsupabase/functions/
-# pos-intake/intake.ts) — لا فرق من جهة الخادم بين هذه المحاكاة وفاتورة
-# حقيقية، فالاختبار يغطي المسار الفعلي بالكامل لا مساراً موازياً له.
+# يستدعي scripts/simulate-pos-invoice.js مباشرة — لا يُعاد بناء الحمولة هنا
+# بمنطق bash/node منفصل (كان هذا بالضبط مصدر عطل حي سابق: external_ref
+# يُحسَب كمتغيّر bash عادي غير مُصدَّر export، فلا يصل لعملية node الفرعية
+# أصلاً، وJSON.stringify يُسقط الحقل بصمت بدل أن يفشل — pos-intake رفض
+# الطلب برسالة "external_ref مطلوب" رغم أن amount وvat وصلا بسلامة، لأنهما
+# فقط ضُبطا عبر env: في YAML هذا الملف، لا كمتغيّرات bash محسوبة لاحقاً).
+# مصدر الحقيقة الوحيد الآن لبناء الحمولة: scripts/pos-invoice-payload.mjs،
+# يستخدمه هذا الـ workflow والسكربت نفسه من حاسوب مطوّر، ويُختبَر مباشرة في
+# supabase/functions/pos-intake/simulator-payload.test.ts عبر Deno.
 #
-# NOJ_TEST_POS_TOKEN هو توكن فرع اختبار حقيقي (نفس آلية التوثيق في CLAUDE.md:
-# Bearer <توكن الفرع>) — سرّ GitHub فقط، لا يُطبع أبداً في أي خطوة من هذا
-# الملف، ولا في سجلات الاستجابة (نطبع الحالة ومعرّف العملية فقط).
+# NOJ_TEST_POS_TOKEN توكن فرع اختبار حقيقي (نفس آلية Bearer <توكن الفرع> في
+# CLAUDE.md) — سرّ GitHub فقط، لا يُطبع أبداً في أي خطوة من هذا الملف ولا من
+# السكربت (يُطبع فقط حالة الاستجابة ومعرّف العملية).
 
 on:
   workflow_dispatch:
@@ -34,75 +39,24 @@ jobs:
   simulate:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: إرسال فاتورة محاكاة إلى pos-intake
         env:
           NOJ_TEST_POS_TOKEN: ${{ secrets.NOJ_TEST_POS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          # يمرّران عبر env: لا بتضمين ${{ }} مباشرة داخل run: (الأخيرة تُستبدَل
+          # بنص حرفي قبل أن يرى القشرة السكربت، ما يفتح باب حقن أوامر لو احتوى
+          # أحد مدخلات workflow_dispatch على رموز خاصة بالقشرة).
           AMOUNT: ${{ github.event.inputs.amount }}
           VAT: ${{ github.event.inputs.vat }}
           DEVICE_ID: ${{ github.event.inputs.device_id }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          set -euo pipefail
-
-          if [ -z "${NOJ_TEST_POS_TOKEN:-}" ]; then
-            echo "::error::سرّ NOJ_TEST_POS_TOKEN غير موجود — راجع supabase-pos-simulator.md"
-            exit 1
-          fi
-          if [ -z "${SUPABASE_PROJECT_ID:-}" ]; then
-            echo "::error::سرّ SUPABASE_PROJECT_ID غير موجود"
-            exit 1
-          fi
-
-          EXTERNAL_REF="sim-${RUN_NUMBER}-$(date +%s)"
-          URL="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/pos-intake"
-
-          PAYLOAD=$(node -e '
-            const amount = Number(process.env.AMOUNT);
-            const vat = Number(process.env.VAT || "0");
-            if (!Number.isFinite(amount) || amount <= 0) {
-              console.error("amount يجب أن يكون رقماً أكبر من صفر");
-              process.exit(1);
-            }
-            if (!Number.isFinite(vat) || vat < 0) {
-              console.error("vat يجب أن يكون رقماً صفراً أو أكبر");
-              process.exit(1);
-            }
-            const body = {
-              external_ref: process.env.EXTERNAL_REF,
-              amount,
-              vat,
-              metadata: {
-                source: "github-actions-simulator",
-                run_id: process.env.RUN_ID,
-                run_number: Number(process.env.RUN_NUMBER),
-              },
-            };
-            const deviceId = (process.env.DEVICE_ID || "").trim();
-            if (deviceId) body.device_id = deviceId;
-            process.stdout.write(JSON.stringify(body));
-          ')
-
-          HTTP_STATUS=$(curl -sS -o /tmp/pos-intake-response.json -w '%{http_code}' \
-            -X POST "$URL" \
-            -H "Authorization: Bearer ${NOJ_TEST_POS_TOKEN}" \
-            -H "X-POS-Vendor: generic" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
-
-          echo "حالة الاستجابة: $HTTP_STATUS"
-          node -e '
-            const fs = require("fs");
-            let body = {};
-            try { body = JSON.parse(fs.readFileSync("/tmp/pos-intake-response.json", "utf8")); } catch (e) {}
-            if (body.transaction_id) console.log("معرّف العملية:", body.transaction_id);
-            if (body.status) console.log("الحالة:", body.status);
-            if (body.external_ref) console.log("external_ref:", body.external_ref);
-            if (body.ok === false && body.error) console.log("رسالة الخطأ:", body.error);
-          '
-
-          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
-            echo "::error::فشل إرسال فاتورة المحاكاة (حالة $HTTP_STATUS)"
-            exit 1
-          fi
+          node scripts/simulate-pos-invoice.js \
+            --amount "$AMOUNT" \
+            --vat "$VAT" \
+            --device-id "$DEVICE_ID"
