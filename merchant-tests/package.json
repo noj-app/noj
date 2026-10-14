@@ -1,0 +1,12 @@
+{
+  "name": "noj-merchant-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright end-to-end tests for merchant.html (merchant dashboard, stage 1 — devices screen) — real Chromium, fake Supabase client (window.__NOJ_SUPABASE_CLIENT__), no live network.",
+  "scripts": {
+    "test": "node run_tests.js"
+  },
+  "dependencies": {
+    "playwright": "^1.56.1"
+  }
+}

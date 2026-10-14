@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
+<title>لوحة التاجر — NOJ</title>
+<meta name="theme-color" content="#12235C">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<style>
+  :root{
+    --navy:#12235C; --navy-2:#1B3A7A;
+    --bg:#F7F8FC; --card:#FFFFFF; --line:#EDF0F7;
+    --text:#12235C; --muted:#8A93AD;
+    --green:#22A87A; --red:#DC2626; --orange:#F59E0B;
+    --ease-brand:cubic-bezier(.22,.9,.3,1);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow-x:hidden}
+  body{font-family:-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text)}
+  button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  input,select{font:inherit}
+  h1,h2,h3,p{margin:0}
+
+  /* ================= AUTH (دخول برقم الجوال — نفس أسلوب index.html) ================= */
+  .auth{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;overflow-y:auto}
+  .auth-inner{max-width:420px;width:100%;margin:0 auto;padding:0 24px 40px;display:flex;flex-direction:column;min-height:100%}
+  .auth-brand{text-align:center;padding:56px 0 8px}
+  .auth-mark{width:72px;height:72px;border-radius:20px;border:4px solid var(--navy);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:800;margin:0 auto 14px;direction:ltr}
+  .auth-brand b{font-size:28px;font-weight:800;letter-spacing:-.5px;display:block}
+  .auth-brand span{font-size:13px;color:var(--muted);display:block;margin-top:4px}
+  .auth-body{margin-top:36px;animation:fadeUp .4s ease both}
+  .auth-body h2{font-size:22px;font-weight:800;margin-bottom:6px}
+  .auth-body p{font-size:14px;color:var(--muted);line-height:1.7}
+  .field{margin-top:24px}
+  .phone-box{display:flex;align-items:center;gap:10px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:0 14px;transition:border-color .2s,box-shadow .2s}
+  .phone-box:focus-within{border-color:var(--navy);box-shadow:0 0 0 4px rgba(18,35,92,.07)}
+  .phone-box .cc{font-size:15px;font-weight:700;color:var(--muted);white-space:nowrap}
+  .phone-box input{flex:1;border:none;outline:none;background:none;padding:16px 0;font-size:17px;font-weight:600;letter-spacing:1px;direction:ltr;text-align:left;color:var(--text)}
+  .phone-box input::placeholder{letter-spacing:1px;color:#C3C9D9;font-weight:500}
+  .hint{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.6}
+  .err{font-size:12px;color:var(--red);margin-top:10px;font-weight:600}
+  .otp-row{display:flex;gap:10px;direction:ltr;justify-content:center;margin-top:6px}
+  .otp-row input{width:48px;height:56px;text-align:center;font-size:22px;font-weight:800;border:1.5px solid var(--line);border-radius:14px;background:var(--card);outline:none;color:var(--text);transition:border-color .18s,box-shadow .18s}
+  .otp-row input:focus{border-color:var(--navy);box-shadow:0 0 0 4px rgba(18,35,92,.07)}
+  .otp-row input.filled{border-color:var(--navy)}
+  .otp-row.bad input{border-color:var(--red);animation:shake .4s ease}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+  .cta{width:100%;padding:16px;border-radius:16px;background:var(--navy);color:#fff;font-size:15px;font-weight:700;margin-top:24px;transition:transform .16s,opacity .2s}
+  .cta:active{transform:scale(.97)}
+  .cta:disabled{opacity:.4;cursor:not-allowed}
+  .ghost{width:100%;padding:14px;font-size:13px;font-weight:600;color:var(--muted);margin-top:6px}
+  .auth-foot{margin-top:auto;padding-top:28px;text-align:center;font-size:11.5px;color:var(--muted);line-height:1.8}
+  #turnstile-container{margin-top:16px;display:flex;justify-content:center;min-height:1px}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+
+  /* ================= لا صلاحية ================= */
+  .noaccess{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
+  .noaccess-box{max-width:360px;text-align:center}
+  .noaccess-box h2{font-size:20px;font-weight:800;margin-top:18px}
+  .noaccess-box p{font-size:14px;color:var(--muted);line-height:1.8;margin-top:10px}
+
+  /* ================= اللوحة ================= */
+  .app{max-width:720px;margin:0 auto;padding:0 20px 60px;min-height:100vh}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1.5px solid var(--line);margin-bottom:20px;flex-wrap:wrap;gap:10px}
+  .topbar-brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:16px}
+  .topbar-brand .mk{width:34px;height:34px;border-radius:10px;border:2.5px solid var(--navy);display:flex;align-items:center;justify-content:center;font-weight:800;direction:ltr}
+  .topbar-right{display:flex;align-items:center;gap:10px}
+  #merchantSelect{border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--card);font-weight:700;font-size:13px;color:var(--text)}
+  .merchant-name{font-weight:700;font-size:14px}
+  .logout-btn{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--muted);padding:8px 10px;border-radius:10px}
+  .logout-btn:hover{background:var(--line)}
+
+  .sec-h{display:flex;align-items:center;justify-content:space-between;margin:28px 0 14px}
+  .sec-h h2{font-size:17px;font-weight:800}
+  .add-btn{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--navy);background:rgba(18,35,92,.07);padding:9px 14px;border-radius:12px}
+
+  .card{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:16px}
+  .empty{font-size:13px;color:var(--muted);text-align:center;padding:30px 10px}
+
+  .dev-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 0;border-bottom:1px solid var(--line)}
+  .dev-row:last-child{border-bottom:none}
+  .dev-info b{font-size:14px;display:block}
+  .dev-info small{font-size:12px;color:var(--muted);display:block;margin-top:3px;direction:ltr;text-align:right}
+  .badge{font-size:11.5px;font-weight:800;padding:5px 11px;border-radius:99px;white-space:nowrap}
+  .badge.active{color:var(--green);background:rgba(34,168,122,.12)}
+  .badge.revoked{color:var(--red);background:rgba(220,38,38,.1)}
+  .dev-actions{display:flex;align-items:center;gap:8px}
+  .revoke-btn{font-size:12.5px;font-weight:700;color:var(--red);padding:7px 12px;border-radius:10px;background:rgba(220,38,38,.07)}
+
+  .form-f{display:block;margin-bottom:14px}
+  .form-f label{font-size:12.5px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px}
+  .form-f input,.form-f select{width:100%;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--bg);color:var(--text)}
+  .form-f input:focus,.form-f select:focus{outline:none;border-color:var(--navy)}
+  .approve-btn{width:100%;padding:13px;border-radius:12px;background:var(--navy);color:#fff;font-size:14px;font-weight:700;margin-top:4px;transition:transform .16s,opacity .2s}
+  .approve-btn:active{transform:scale(.98)}
+  .approve-btn:disabled{opacity:.5;cursor:not-allowed}
+  .form-warn{font-size:12.5px;color:var(--red);margin-top:8px;font-weight:600}
+
+  /* ================= تأكيد الإلغاء (overlay) ================= */
+  .ov{position:fixed;inset:0;z-index:200;background:rgba(18,35,92,.35);display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s ease both}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  .confirm-box{background:var(--card);border-radius:18px;max-width:340px;width:100%;padding:22px;text-align:center}
+  .confirm-box h3{font-size:16px;font-weight:800}
+  .confirm-box p{font-size:13.5px;color:var(--muted);margin-top:8px;line-height:1.7}
+  .confirm-row{display:flex;gap:10px;margin-top:20px}
+  .confirm-row button{flex:1;padding:12px;border-radius:12px;font-size:13.5px;font-weight:700}
+  .confirm-cancel{background:var(--bg);color:var(--text)}
+  .confirm-ok{background:var(--red);color:#fff}
+
+  .spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(14px);opacity:0;transition:.3s;z-index:300;pointer-events:none}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast div{background:var(--navy);color:#fff;font-size:13px;font-weight:600;padding:11px 20px;border-radius:99px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+
+  .loading-row{text-align:center;padding:40px 0;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="auth" id="auth"></div>
+<div class="noaccess" id="noaccess" style="display:none"></div>
+<div class="app" id="app" style="display:none"></div>
+<div class="toast" id="toast"><div id="toast-text"></div></div>
+
+<script>
+/* ============================================================================
+   لوحة التاجر — merchant.html
+   ============================================================================
+   ملف قائم بذاته (بلا اعتماديات خارجية سوى Supabase/Turnstile، نفس استثناء
+   index.html/kiosk.html) — المرحلة الأولى: دخول برقم الجوال + شاشة الأجهزة
+   فقط (اعتماد/إلغاء). لا تطبيق مبدئي لأي من: توكن POS، رمز PIN، الفواتير،
+   العملاء — تلك مراحل لاحقة منفصلة حسب التصميم المعتمد.
+
+   دخول برقم الجوال مباشرة (Supabase Phone OTP)، لا ترقية جلسة مجهولة
+   إطلاقاً (خلافاً لـ index.html) — لا داعي هنا: لا تصفّح قبل تسجيل الدخول،
+   فالجلسة الحقيقية تُنشأ من أول استدعاء. signInWithOtp()/verifyOtp() مباشرة.
+
+   storageKey مختلف تماماً عن index.html/kiosk.html (اللذين يعتمدان مفتاح
+   supabase-js الافتراضي، المشتق من رابط المشروع فقط لا من مسار الصفحة) —
+   لازم لأن الثلاثة تعمل من نفس الأصل (origin) على GitHub Pages، فـ
+   localStorage مشترك فعلياً بينها؛ تاجر قد يكون عميلاً مسجَّلاً بنفس رقم
+   جواله على نفس الجهاز (نفس المتصفح) — بلا storageKey مستقل هنا، تسجيل
+   الدخول للوحة كان سيستبدل جلسة الكشك/التطبيق في نفس المتصفح بصمت.
+
+   بعد الدخول: التحقق من merchant_members لـ auth.uid() فقط (لا ثقة بأي
+   شيء آخر) — صف غير موجود = "لا تملك صلاحية وصول"، بلا أي بيانات. لا
+   إنشاء profile ولا صف merchant_members من هذه الصفحة أبداً تحت أي ظرف.
+*/
+
+const SUPABASE_URL='https://jqddjswxsacejbqjeehw.supabase.co';
+const SUPABASE_KEY='sb_publishable_tv2luaaynJu1c5Ce9loWFg_GQmMRTD-';
+const MERCHANT_STORAGE_KEY='sb-noj-merchant-auth';
+
+var __sbPromise=null;
+function getSb(){
+  if(!__sbPromise){
+    __sbPromise=(async function(){
+      if(window.__NOJ_SUPABASE_CLIENT__) return window.__NOJ_SUPABASE_CLIENT__;
+      try{
+        const mod=await import('https://esm.sh/@supabase/supabase-js@2');
+        return mod.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{storageKey:MERCHANT_STORAGE_KEY}});
+      }catch(e){
+        console.error('NOJ merchant: تعذّر تحميل مكتبة Supabase',e);
+        return null;
+      }
+    })();
+  }
+  return __sbPromise;
+}
+
+/* ================= TURNSTILE (CAPTCHA) =================
+   نفس المفتاح والأسلوب في index.html/kiosk.html بالضبط — رمز طازج قبل كل
+   نداء signInWithOtp على حدة (استهلاك مرة واحدة فقط لدى Cloudflare/
+   Supabase، مؤكَّد عملياً، راجع CLAUDE.md). verifyOtp نفسها لا تحتاج
+   captchaToken (تحقق من رمز صادر فعلاً، لا إصدار جديد). */
+var TURNSTILE_SITE_KEY='0x4AAAAAAFQQChrEhtP_Q7DQ';
+var __turnstileScriptPromise=null;
+function loadTurnstileScript(){
+  if(window.turnstile)return Promise.resolve();
+  if(!__turnstileScriptPromise){
+    __turnstileScriptPromise=new Promise(function(resolve,reject){
+      var s=document.createElement('script');
+      s.src='https://challenges.cloudflare.com/turnstile/v0/api.js';
+      s.async=true;
+      s.onload=function(){resolve()};
+      s.onerror=function(){reject(new Error('turnstile-script-load-failed'))};
+      document.head.appendChild(s);
+    });
+  }
+  return __turnstileScriptPromise;
+}
+var turnstileToken=null;
+var turnstileWidgetId=null;
+function renderTurnstileWidget(){
+  loadTurnstileScript().then(function(){
+    var el=document.getElementById('turnstile-container');
+    if(!el||!window.turnstile)return;
+    if(turnstileWidgetId!==null){try{turnstile.remove(turnstileWidgetId)}catch(e){}}
+    turnstileToken=null;
+    turnstileWidgetId=turnstile.render(el,{
+      sitekey:TURNSTILE_SITE_KEY,
+      callback:function(token){turnstileToken=token},
+      'expired-callback':function(){turnstileToken=null},
+      'error-callback':function(){turnstileToken=null}
+    });
+  }).catch(function(e){console.error('NOJ merchant: تعذّر تحميل Turnstile',e)});
+}
+function resetTurnstileToken(){
+  turnstileToken=null;
+  if(turnstileWidgetId!==null&&window.turnstile){try{turnstile.reset(turnstileWidgetId)}catch(e){}}
+}
+function waitForTurnstileToken(maxMs){
+  if(turnstileToken)return Promise.resolve(turnstileToken);
+  return new Promise(function(resolve){
+    var waited=0;
+    var iv=setInterval(function(){
+      waited+=150;
+      if(turnstileToken||waited>=maxMs){clearInterval(iv);resolve(turnstileToken)}
+    },150);
+  });
+}
+async function freshTurnstileToken(maxMs){
+  var token=await waitForTurnstileToken(maxMs);
+  resetTurnstileToken();
+  return token;
+}
+
+function toast(m){
+  var e=document.getElementById('toast');
+  document.getElementById('toast-text').textContent=m;
+  e.classList.add('on');
+  setTimeout(function(){e.classList.remove('on')},2400);
+}
+
+/* ================= حالة الدخول ================= */
+var OTP_LENGTH=6;
+var A={phone:'',code:'',step:'phone',sending:false,err:'',secs:0,timer:null};
+
+function fmtPhone(p){return p.replace(/(\d{2})(\d{3})(\d{4})/,'$1 $2 $3').trim()}
+
+function authPhone(){
+  return '<div class="auth-body">'+
+    '<h2>دخول التاجر</h2>'+
+    '<p>أدخل رقم جوالك المسجَّل وسنرسل لك رمز تحقق مكوّن من '+OTP_LENGTH+' أرقام.</p>'+
+    '<div class="field"><label>رقم الجوال</label>'+
+      '<div class="phone-box"><span class="cc">🇸🇦 +966</span>'+
+      '<input id="ph" type="tel" inputmode="numeric" maxlength="9" placeholder="5X XXX XXXX" value="'+escAttr(A.phone)+'"></div>'+
+      (A.err?'<div class="err">'+A.err+'</div>':'<div class="hint">سيصلك الرمز عبر رسالة نصية على هذا الرقم.</div>')+
+    '</div>'+
+    '<button class="cta" id="send">'+(A.sending?'<span class="spinner"></span> جارٍ الإرسال...':'إرسال رمز التحقق')+'</button>'+
+    '<div id="turnstile-container"></div>'+
+  '</div>';
+}
+
+function authCode(){
+  var boxes='';
+  for(var i=0;i<OTP_LENGTH;i++){
+    var v=A.code[i]||'';
+    boxes+='<input type="tel" inputmode="numeric" maxlength="1" data-otp="'+i+'" value="'+v+'"'+(v?' class="filled"':'')+'>';
+  }
+  return '<div class="auth-body">'+
+    '<h2>رمز التحقق</h2>'+
+    '<p>أرسلنا رمزًا مكوّنًا من '+OTP_LENGTH+' أرقام إلى<br><b style="color:var(--text);direction:ltr;display:inline-block">+966 '+fmtPhone(A.phone)+'</b> '+
+    '<button id="edit" style="color:var(--navy);font-weight:700;font-size:13px">تعديل</button></p>'+
+    '<div class="field"><div class="otp-row'+(A.err?' bad':'')+'" id="otp">'+boxes+'</div>'+
+    (A.err?'<div class="err" style="text-align:center">'+A.err+'</div>':'')+'</div>'+
+    '<button class="cta" id="verify"'+(A.code.length<OTP_LENGTH?' disabled':'')+'>'+(A.verifying?'<span class="spinner"></span> جارٍ التحقق...':'تأكيد الدخول')+'</button>'+
+    '<button class="ghost" id="resend">'+(A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>')+'</button>'+
+  '</div>';
+}
+
+function renderAuth(){
+  var el=document.getElementById('auth');
+  el.innerHTML='<div class="auth-inner">'+
+    '<div class="auth-brand"><div class="auth-mark">N</div><b>لوحة التاجر</b><span>NOJ — No Ordinary Journey</span></div>'+
+    (A.step==='phone'?authPhone():authCode())+'</div>';
+  bindAuth();
+}
+
+function startTimer(){
+  A.secs=30;
+  clearInterval(A.timer);
+  var updateResend=function(){
+    var r=document.getElementById('resend');
+    if(r)r.innerHTML=A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>';
+  };
+  updateResend();
+  A.timer=setInterval(function(){
+    A.secs--;
+    if(A.secs<=0){clearInterval(A.timer);A.secs=0}
+    updateResend();
+  },1000);
+}
+
+function bindAuth(){
+  var ph=document.getElementById('ph');
+  if(ph){
+    ph.oninput=function(){
+      this.value=this.value.replace(/\D/g,'').slice(0,9);
+      A.phone=this.value;
+      if(A.err){
+        A.err='';
+        var e=document.querySelector('.auth-body .err');
+        if(e)e.outerHTML='<div class="hint">سيصلك الرمز عبر رسالة نصية على هذا الرقم.</div>';
+      }
+    };
+    ph.onkeydown=function(e){if(e.key==='Enter')document.getElementById('send').click()};
+    setTimeout(function(){ph.focus()},250);
+  }
+
+  var send=document.getElementById('send');
+  if(send)send.onclick=function(){sendOtp()};
+
+  var edit=document.getElementById('edit');
+  if(edit)edit.onclick=function(){A.step='phone';A.code='';A.err='';clearInterval(A.timer);renderAuth()};
+
+  var otps=document.querySelectorAll('[data-otp]');
+  function readCode(){var s='';[].forEach.call(otps,function(b){s+=(b.value||'')});return s}
+  [].forEach.call(otps,function(box,idx){
+    box.oninput=function(){
+      var v=this.value.replace(/\D/g,'');
+      if(v.length>1){
+        for(var k=0;k<otps.length;k++){
+          otps[k].value=v[k]||'';
+          if(otps[k].value)otps[k].classList.add('filled');else otps[k].classList.remove('filled');
+        }
+        this.blur();
+      }else{
+        this.value=v;
+        if(v)this.classList.add('filled');else this.classList.remove('filled');
+        if(v&&idx<OTP_LENGTH-1)otps[idx+1].focus();
+      }
+      A.code=readCode();A.err='';
+      var vb=document.getElementById('verify');
+      if(vb)vb.disabled=A.code.length<OTP_LENGTH;
+      if(A.code.length===OTP_LENGTH)setTimeout(doVerify,180);
+    };
+    box.onkeydown=function(e){
+      if(e.key==='Backspace'&&!this.value&&idx>0){
+        otps[idx-1].focus();otps[idx-1].value='';otps[idx-1].classList.remove('filled');
+        A.code=readCode();
+        var vb=document.getElementById('verify');
+        if(vb)vb.disabled=A.code.length<OTP_LENGTH;
+      }
+    };
+    box.onfocus=function(){this.select()};
+  });
+  if(otps.length)setTimeout(function(){
+    var next=A.code.length<OTP_LENGTH?otps[A.code.length]:otps[OTP_LENGTH-1];
+    (next||otps[0]).focus();
+  },250);
+
+  if(A.step==='phone')renderTurnstileWidget();
+
+  var v=document.getElementById('verify');
+  if(v)v.onclick=doVerify;
+
+  var rs=document.getElementById('resend');
+  if(rs)rs.onclick=function(){if(A.secs>0)return;resendOtp()};
+}
+
+/* يُرسِل OTP مباشرة (signInWithOtp) — لا جلسة مجهولة تُرقَّى هنا إطلاقاً،
+   خلافاً لـ index.html؛ لا داعي لذلك التعقيد أصلاً لأن لا تصفّح قبل تسجيل
+   الدخول في هذه الصفحة. */
+async function sendOtp(){
+  if(A.phone.length<9||A.phone[0]!=='5'){
+    A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
+    renderAuth();return;
+  }
+  A.sending=true;A.err='';renderAuth();
+
+  var sb=await getSb();
+  if(!sb){A.sending=false;A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
+
+  var fullPhone='+966'+A.phone;
+  var captchaToken=await freshTurnstileToken(2500);
+  var res=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
+  if(res.error){
+    A.sending=false;
+    var msg=(res.error.message||'').toLowerCase();
+    A.err=/captcha/i.test(msg)?'تعذّر التحقق الأمني، أعد تحميل الصفحة وحاول مرة أخرى.':'تعذّر إرسال رمز التحقق، حاول مرة أخرى.';
+    renderAuth();return;
+  }
+
+  A.sending=false;A.step='code';A.code='';A.err='';
+  renderAuth();startTimer();
+}
+
+async function resendOtp(){
+  var captchaToken=await freshTurnstileToken(2500);
+  var sb=await getSb();
+  if(!sb){toast('تعذّر الاتصال بالخادم');return}
+
+  var fullPhone='+966'+A.phone;
+  var res=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
+  if(res.error){toast('تعذّر إعادة الإرسال، حاول مرة أخرى لاحقاً.');return}
+
+  A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
+}
+
+async function doVerify(){
+  var sb=await getSb();
+  if(!sb){A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
+
+  A.verifying=true;renderAuth();
+
+  var fullPhone='+966'+A.phone;
+  var res=await sb.auth.verifyOtp({phone:fullPhone,token:A.code,type:'sms'});
+  if(res.error){
+    A.verifying=false;
+    A.err='رمز التحقق غير صحيح أو منتهي الصلاحية. حاول مرة أخرى.';
+    A.code='';
+    renderAuth();
+    return;
+  }
+  clearInterval(A.timer);
+  await checkAccess();
+}
+
+/* ================= التحقق من الصلاحية + بيانات اللوحة =================
+   لا ثقة بأي شيء غير merchant_members لـ auth.uid() الفعلي — لا بالرقم
+   المُدخَل، ولا بأي معامل آخر. صف غير موجود = لا صلاحية، نقطة واحدة،
+   بلا أي استثناء. لا إنشاء profile ولا صف merchant_members من هنا أبداً
+   تحت أي ظرف — هذه الصفحة تقرأ فقط، لا تُسجِّل أحداً. */
+var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null};
+
+async function checkAccess(){
+  var sb=await getSb();
+  if(!sb)return;
+
+  var memRes=await sb.from('merchant_members').select('merchant_id,role');
+  if(memRes.error){
+    // خطأ اتصال فعلي — لا نجزم "لا تملك صلاحية" لمعلومة لم تصل أصلاً.
+    showNoAccess('تعذّر التحقق من صلاحيتك، تحقق من اتصالك وحاول مرة أخرى.',true);
+    return;
+  }
+  if(!memRes.data||!memRes.data.length){
+    showNoAccess('هذا الرقم غير مرتبط بأي حساب تاجر في نوج. تواصل مع فريق نوج إن كنت تتوقع صلاحية.',false);
+    return;
+  }
+
+  M.merchants=memRes.data;
+  var ids=M.merchants.map(function(m){return m.merchant_id});
+  var namesRes=await sb.from('merchants').select('id,name').in('id',ids);
+  M.merchantNames={};
+  (namesRes.data||[]).forEach(function(m){M.merchantNames[m.id]=m.name});
+
+  M.activeMerchantId=M.merchants[0].merchant_id;
+  var authEl=document.getElementById('auth');
+  authEl.style.display='none';authEl.innerHTML='';
+  var noAccessEl=document.getElementById('noaccess');
+  noAccessEl.style.display='none';noAccessEl.innerHTML='';
+  document.getElementById('app').style.display='block';
+  await loadDashboardData();
+  resetIdleTimer();
+}
+
+function showNoAccess(message,retryable){
+  var authEl=document.getElementById('auth');
+  authEl.style.display='none';authEl.innerHTML='';
+  var appEl=document.getElementById('app');
+  appEl.style.display='none';appEl.innerHTML='';
+  var el=document.getElementById('noaccess');
+  el.style.display='flex';
+  el.innerHTML='<div class="noaccess-box">'+
+    '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>'+
+    '<h2>'+(retryable?'تعذّر التحقق':'لا تملك صلاحية وصول')+'</h2>'+
+    '<p>'+escAttr(message)+'</p>'+
+    (retryable?'<button class="cta" id="noAccessRetry" style="margin-top:20px">إعادة المحاولة</button>':'')+
+    '<button class="'+(retryable?'ghost':'cta')+'" id="noAccessLogout" style="margin-top:'+(retryable?'6px':'20px')+'">تسجيل خروج</button>'+
+  '</div>';
+  var retry=document.getElementById('noAccessRetry');
+  if(retry)retry.onclick=checkAccess;
+  var b=document.getElementById('noAccessLogout');
+  if(b)b.onclick=doLogout;
+}
+
+/* ================= الأجهزة =================
+   اعتماد: approve_device_pairing() الموجودة أصلاً (RPC، تتحقق من عضوية
+   المالك/الموظف داخلياً عبر auth.uid()). إلغاء: تحديث مباشر على devices
+   عبر سياسة RLS الموجودة أصلاً ("merchant staff can manage their
+   devices") — لا دالة جديدة لأي من الاثنين. */
+async function loadDashboardData(){
+  M.loading=true;renderApp();
+  var sb=await getSb();
+  if(!sb){M.loading=false;renderApp();return}
+
+  var brRes=await sb.from('branches').select('id,name').eq('merchant_id',M.activeMerchantId);
+  M.branches=brRes.data||[];
+
+  var branchIds=M.branches.map(function(b){return b.id});
+  if(branchIds.length){
+    var devRes=await sb.from('devices').select('*').in('branch_id',branchIds).order('created_at',{ascending:false});
+    M.devices=devRes.data||[];
+  }else{
+    M.devices=[];
+  }
+
+  M.loading=false;
+  renderApp();
+}
+
+function branchName(id){
+  var b=M.branches.find(function(x){return x.id===id});
+  return b?b.name:'—';
+}
+
+function fmtDateTime(s){
+  if(!s)return null;
+  var d=new Date(s);
+  function pad(n){return (n<10?'0':'')+n}
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+
+function devicesListHtml(){
+  if(M.loading)return '<div class="loading-row">جارٍ التحميل...</div>';
+  if(!M.devices.length)return '<div class="empty">لا أجهزة مُقارَنة لفروع هذا التاجر بعد.</div>';
+  return M.devices.map(function(d){
+    var active=d.is_active&&!d.revoked_at;
+    var lastSeen=fmtDateTime(d.last_seen_at);
+    return '<div class="dev-row">'+
+      '<div class="dev-info">'+
+        '<b>'+escAttr(d.label||'تابلت')+' — '+escAttr(branchName(d.branch_id))+'</b>'+
+        '<small>'+(lastSeen?'آخر نشاط: '+lastSeen:'لا نشاط مسجَّل')+'</small>'+
+      '</div>'+
+      '<div class="dev-actions">'+
+        '<span class="badge '+(active?'active':'revoked')+'">'+(active?'فعّال':'مُلغى')+'</span>'+
+        (active?'<button class="revoke-btn" data-revoke="'+d.id+'">إلغاء</button>':'')+
+      '</div>'+
+    '</div>';
+  }).join('');
+}
+
+function escAttr(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function merchantSwitcherHtml(){
+  if(M.merchants.length<=1){
+    return '<span class="merchant-name">'+escAttr(M.merchantNames[M.activeMerchantId]||'')+'</span>';
+  }
+  return '<select id="merchantSelect">'+M.merchants.map(function(m){
+    return '<option value="'+m.merchant_id+'"'+(m.merchant_id===M.activeMerchantId?' selected':'')+'>'+escAttr(M.merchantNames[m.merchant_id]||m.merchant_id)+'</option>';
+  }).join('')+'</select>';
+}
+
+function approveFormHtml(){
+  if(!M.branches.length){
+    return '<div class="card"><div class="empty">لا فروع لهذا التاجر بعد — تواصل مع فريق نوج.</div></div>';
+  }
+  return '<div class="card">'+
+    '<label class="form-f"><label>رمز الإقران الظاهر على شاشة الكشك (6 أرقام)</label>'+
+      '<input type="text" inputmode="numeric" maxlength="6" id="pairCode" placeholder="000000"></label>'+
+    '<label class="form-f"><label>الفرع</label><select id="pairBranch">'+
+      M.branches.map(function(b){return '<option value="'+b.id+'">'+escAttr(b.name)+'</option>'}).join('')+
+    '</select></label>'+
+    '<button class="approve-btn" id="approveBtn">'+(M.approving?'<span class="spinner"></span> جارٍ الاعتماد...':'اعتماد الجهاز')+'</button>'+
+    (M.approveErr?'<div class="form-warn">'+escAttr(M.approveErr)+'</div>':'')+
+  '</div>';
+}
+
+function confirmRevokeHtml(){
+  if(!M.confirmRevokeId)return '';
+  var d=M.devices.find(function(x){return x.id===M.confirmRevokeId});
+  if(!d)return '';
+  return '<div class="ov" id="revokeOv"><div class="confirm-box">'+
+    '<h3>إلغاء هذا الجهاز؟</h3>'+
+    '<p>'+escAttr(d.label||'تابلت')+' — '+escAttr(branchName(d.branch_id))+'<br>لن يستطيع هذا الجهاز الوصول لبيانات الفرع بعد الإلغاء.</p>'+
+    '<div class="confirm-row">'+
+      '<button class="confirm-cancel" id="revokeCancel">تراجع</button>'+
+      '<button class="confirm-ok" id="revokeConfirm">'+(M.revoking?'<span class="spinner"></span>':'إلغاء الجهاز')+'</button>'+
+    '</div>'+
+  '</div></div>';
+}
+
+function renderApp(){
+  var el=document.getElementById('app');
+  el.innerHTML=
+    '<div class="topbar">'+
+      '<div class="topbar-brand"><div class="mk">N</div>لوحة التاجر</div>'+
+      '<div class="topbar-right">'+merchantSwitcherHtml()+
+        '<button class="logout-btn" id="logoutBtn">خروج</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="sec-h"><h2>الأجهزة</h2></div>'+
+    '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
+    '<div class="sec-h"><h2>اعتماد كشك جديد</h2></div>'+
+    approveFormHtml()+
+  confirmRevokeHtml();
+  bindApp();
+}
+
+function bindApp(){
+  var ms=document.getElementById('merchantSelect');
+  if(ms)ms.onchange=async function(){
+    M.activeMerchantId=ms.value;
+    await loadDashboardData();
+  };
+
+  var logout=document.getElementById('logoutBtn');
+  if(logout)logout.onclick=doLogout;
+
+  var pairCode=document.getElementById('pairCode');
+  if(pairCode)pairCode.oninput=function(){this.value=this.value.replace(/\D/g,'').slice(0,6)};
+
+  var approveBtn=document.getElementById('approveBtn');
+  if(approveBtn)approveBtn.onclick=async function(){
+    var code=(document.getElementById('pairCode')||{}).value||'';
+    var branchId=(document.getElementById('pairBranch')||{}).value;
+    if(!/^\d{6}$/.test(code)){
+      M.approveErr='أدخل رمز إقران صحيحاً من 6 أرقام.';renderApp();return;
+    }
+    M.approving=true;M.approveErr='';renderApp();
+
+    var sb=await getSb();
+    var res=await sb.rpc('approve_device_pairing',{p_pairing_code:code,p_branch_id:branchId});
+    M.approving=false;
+    if(res.error){
+      var msg=res.error.message||'';
+      M.approveErr=/رمز الإقران غير صالح/.test(msg)?'رمز الإقران غير صالح أو استُخدم من قبل.'
+        :/لا تملك صلاحية/.test(msg)?'لا تملك صلاحية على هذا الفرع.'
+        :'تعذّر اعتماد الجهاز، حاول مرة أخرى.';
+      renderApp();return;
+    }
+    await loadDashboardData();
+    toast('تم اعتماد الجهاز بنجاح');
+  };
+
+  [].forEach.call(document.querySelectorAll('[data-revoke]'),function(b){
+    b.onclick=function(){
+      M.confirmRevokeId=b.getAttribute('data-revoke');
+      renderApp();
+    };
+  });
+
+  var revokeCancel=document.getElementById('revokeCancel');
+  if(revokeCancel)revokeCancel.onclick=function(){M.confirmRevokeId=null;renderApp()};
+
+  var revokeConfirm=document.getElementById('revokeConfirm');
+  if(revokeConfirm)revokeConfirm.onclick=async function(){
+    M.revoking=true;renderApp();
+    var sb=await getSb();
+    var res=await sb.from('devices').update({is_active:false,revoked_at:new Date().toISOString()}).eq('id',M.confirmRevokeId);
+    M.revoking=false;M.confirmRevokeId=null;
+    if(res.error){toast('تعذّر إلغاء الجهاز، حاول مرة أخرى');renderApp();return}
+    await loadDashboardData();
+    toast('تم إلغاء الجهاز');
+  };
+}
+
+async function doLogout(){
+  var sb=await getSb();
+  if(sb)await sb.auth.signOut();
+  stopIdleTimer();
+  M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null};
+  A={phone:'',code:'',step:'phone',sending:false,err:'',secs:0,timer:null};
+  var appEl=document.getElementById('app');
+  appEl.style.display='none';appEl.innerHTML='';
+  var noAccessEl=document.getElementById('noaccess');
+  noAccessEl.style.display='none';noAccessEl.innerHTML='';
+  document.getElementById('auth').style.display='flex';
+  renderAuth();
+}
+
+/* ================= مؤقت خمول =================
+   30 دقيقة بلا أي تفاعل (نقرة أو كتابة) بينما اللوحة مفتوحة — جلسة
+   Supabase نفسها تدوم أياماً (راجع التوثيق)، هذا المؤقت طبقة إضافية على
+   جانب العميل فقط، أطول من مؤقت كشك الإعدادات (60 ثانية) لأن هذا جهاز
+   شخصي للموظف/المالك، لا شاشة عامة. */
+// window.__NOJ_IDLE_MS__: اختبار فقط (نفس نمط window.__NOJ_POLL_MS__ في
+// kiosk.html) — لتقصير فترة الخمول في Playwright بدل انتظار 30 دقيقة
+// حقيقية؛ غير معرَّفة أبداً خارج بيئة الاختبار فلا تغيّر شيئاً في الإنتاج.
+var IDLE_MS=window.__NOJ_IDLE_MS__||30*60*1000;
+var idleTimer=null;
+function resetIdleTimer(){
+  clearTimeout(idleTimer);
+  if(document.getElementById('app').style.display==='none')return;
+  idleTimer=setTimeout(function(){doLogout();toast('انتهت الجلسة بسبب الخمول')},IDLE_MS);
+}
+function stopIdleTimer(){clearTimeout(idleTimer);idleTimer=null}
+document.addEventListener('click',resetIdleTimer);
+document.addEventListener('input',resetIdleTimer);
+
+/* ================= الإقلاع ================= */
+async function boot(){
+  var sb=await getSb();
+  if(!sb){
+    document.getElementById('auth').innerHTML='<div class="auth-inner"><div class="auth-body"><h2>تعذّر الاتصال بالخادم</h2><p>تحقق من اتصالك بالإنترنت وأعد تحميل الصفحة.</p></div></div>';
+    return;
+  }
+  var sessionRes=await sb.auth.getSession();
+  if(sessionRes.data&&sessionRes.data.session){
+    await checkAccess();
+  }else{
+    renderAuth();
+  }
+}
+boot();
+</script>
+</body>
+</html>
