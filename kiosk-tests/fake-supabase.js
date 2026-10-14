@@ -46,7 +46,16 @@
         gt: function (col, val) { filters.push({ op: 'gt', col: col, val: val }); return builder; },
         order: function () { return builder; },
         limit: function (n) { limitN = n; return builder; },
-        update: function () { isUpdate = true; return builder; },
+        update: function (payload) {
+          isUpdate = true;
+          state.lastUpdate = { table: table, payload: payload };
+          // محاكاة واقعية: UPDATE حقيقي يُبقي الصف محدَّثاً لأي قراءة لاحقة
+          // (مثال: إعادة إقلاع الجهاز بعد حفظ الوضع من الإعدادات).
+          if (table === 'branch_settings') {
+            scenario.branchSettingsRow = Object.assign({}, scenario.branchSettingsRow, payload);
+          }
+          return builder;
+        },
         single: function () {
           var row = singleRowFor(table);
           return Promise.resolve(row ? { data: row, error: null } : { data: null, error: { message: 'not found' } });
@@ -124,6 +133,7 @@
         scenario.claimResults[txnId] = result;
       },
       getPollCount: function () { return state.pollCount; },
+      getLastUpdate: function () { return state.lastUpdate || null; },
       getSetAuthCalls: function () { return state.setAuthCalls.slice(); },
       getChannelCreateCount: function () { return state.channelCreateCount; },
       triggerTokenRefresh: function (accessToken) {
