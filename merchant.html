@@ -235,7 +235,7 @@ function toast(m){
 
 /* ================= حالة الدخول ================= */
 var OTP_LENGTH=6;
-var A={phone:'',code:'',step:'phone',sending:false,err:'',secs:0,timer:null};
+var A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
 
 function fmtPhone(p){return p.replace(/(\d{2})(\d{3})(\d{4})/,'$1 $2 $3').trim()}
 
@@ -248,7 +248,7 @@ function authPhone(){
       '<input id="ph" type="tel" inputmode="numeric" maxlength="9" placeholder="5X XXX XXXX" value="'+escAttr(A.phone)+'"></div>'+
       (A.err?'<div class="err">'+A.err+'</div>':'<div class="hint">سيصلك الرمز عبر رسالة نصية على هذا الرقم.</div>')+
     '</div>'+
-    '<button class="cta" id="send">'+(A.sending?'<span class="spinner"></span> جارٍ الإرسال...':'إرسال رمز التحقق')+'</button>'+
+    '<button class="cta" id="send">إرسال رمز التحقق</button>'+
     '<div id="turnstile-container"></div>'+
   '</div>';
 }
@@ -267,6 +267,7 @@ function authCode(){
     (A.err?'<div class="err" style="text-align:center">'+A.err+'</div>':'')+'</div>'+
     '<button class="cta" id="verify"'+(A.code.length<OTP_LENGTH?' disabled':'')+'>'+(A.verifying?'<span class="spinner"></span> جارٍ التحقق...':'تأكيد الدخول')+'</button>'+
     '<button class="ghost" id="resend">'+(A.secs>0?'إعادة الإرسال بعد '+A.secs+' ثانية':'لم يصلك الرمز؟ <b>إعادة الإرسال</b>')+'</button>'+
+    '<div id="turnstile-container"></div>'+
   '</div>';
 }
 
@@ -351,7 +352,11 @@ function bindAuth(){
     (next||otps[0]).focus();
   },250);
 
-  if(A.step==='phone')renderTurnstileWidget();
+  // كلا الشاشتين (رقم الجوال ورمز التحقق) تحمل #turnstile-container — بلا
+  // شرط على A.step، تطابقاً حرفياً مع index.html: resendOtp() من شاشة
+  // الرمز تحتاج ودجتاً حياً هناك أيضاً، لا الودجت المتبقي (والمُستهلَك
+  // غالباً) من شاشة رقم الجوال فقط.
+  renderTurnstileWidget();
 
   var v=document.getElementById('verify');
   if(v)v.onclick=doVerify;
@@ -362,39 +367,70 @@ function bindAuth(){
 
 /* يُرسِل OTP مباشرة (signInWithOtp) — لا جلسة مجهولة تُرقَّى هنا إطلاقاً،
    خلافاً لـ index.html؛ لا داعي لذلك التعقيد أصلاً لأن لا تصفّح قبل تسجيل
-   الدخول في هذه الصفحة. */
+   الدخول في هذه الصفحة.
+
+   عطل حي مُصلَح هنا: السطر القديم "A.sending=true;A.err='';renderAuth();"
+   كان يُعاد بناء الشاشة بالكامل (innerHTML) **بعد** أن ودجت Turnstile
+   أنجز تحققه فعلاً وعرض "تم بنجاح" — renderAuth()→bindAuth()→
+   renderTurnstileWidget() يُزيل الودجت المُتحقَّق ويُنشئ ودجتاً جديداً من
+   الصفر (turnstileToken=null)، فيُضطر freshTurnstileToken() التالي مباشرة
+   للانتظار من جديد — سباق حقيقي قد لا يكتمل خلال المهلة، يظهر كـ"تعذّر
+   التحقق الأمني" للمستخدم رغم أن الودجت كان قد نجح فعلاً قبل الضغط على
+   الزر. الإصلاح: تعديل الزر مباشرة (disabled/innerHTML) بدل renderAuth()،
+   فلا يُلمَس حاوية Turnstile إطلاقاً أثناء وجود رمز صالح بالفعل. */
 async function sendOtp(){
   if(A.phone.length<9||A.phone[0]!=='5'){
     A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
     renderAuth();return;
   }
-  A.sending=true;A.err='';renderAuth();
+  var sendBtn=document.getElementById('send');
+  if(sendBtn){sendBtn.disabled=true;sendBtn.innerHTML='<span class="spinner"></span> جارٍ الإرسال...';}
 
   var sb=await getSb();
-  if(!sb){A.sending=false;A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
+  if(!sb){
+    if(sendBtn){sendBtn.disabled=false;sendBtn.textContent='إرسال رمز التحقق';}
+    A.err='تعذّر الاتصال بالخادم.';renderAuth();return;
+  }
 
   var fullPhone='+966'+A.phone;
   var captchaToken=await freshTurnstileToken(2500);
   var res=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
   if(res.error){
-    A.sending=false;
-    var msg=(res.error.message||'').toLowerCase();
-    A.err=/captcha/i.test(msg)?'تعذّر التحقق الأمني، أعد تحميل الصفحة وحاول مرة أخرى.':'تعذّر إرسال رمز التحقق، حاول مرة أخرى.';
+    A.err=captchaErrorMessage(res.error,captchaToken);
     renderAuth();return;
   }
 
-  A.sending=false;A.step='code';A.code='';A.err='';
+  A.step='code';A.code='';A.err='';
   renderAuth();startTimer();
 }
 
+/* يميّز مصدر رفض CAPTCHA: لم يصل أي رمز من المتصفح خلال المهلة (مشكلة
+   واجهة/شبكة محلية — captchaToken فارغ هنا) مقابل وصول رمز فعلاً
+   ورفضه من Supabase (مشكلة خادم/رمز مُستهلَك مسبقاً) — رسالتان مختلفتان
+   بدل رسالة واحدة عامة، حتى يسهل تشخيص أيهما يتكرر ميدانياً. */
+function captchaErrorMessage(error,captchaToken){
+  var msg=(error.message||'').toLowerCase();
+  if(!/captcha/i.test(msg))return 'تعذّر إرسال رمز التحقق، حاول مرة أخرى.';
+  return captchaToken
+    ? 'تعذّر التحقق الأمني من الخادم، حاول مرة أخرى بعد قليل.'
+    : 'تعذّر الحصول على رمز الأمان من المتصفح، انتظر لحظة ثم حاول مرة أخرى.';
+}
+
 async function resendOtp(){
+  var rs=document.getElementById('resend');
+  if(rs){rs.disabled=true;rs.innerHTML='<span class="spinner"></span> جارٍ الإرسال...';}
+
   var captchaToken=await freshTurnstileToken(2500);
   var sb=await getSb();
-  if(!sb){toast('تعذّر الاتصال بالخادم');return}
+  if(!sb){toast('تعذّر الاتصال بالخادم');if(rs)rs.disabled=false;return}
 
   var fullPhone='+966'+A.phone;
   var res=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
-  if(res.error){toast('تعذّر إعادة الإرسال، حاول مرة أخرى لاحقاً.');return}
+  if(res.error){
+    toast(captchaErrorMessage(res.error,captchaToken));
+    if(rs)rs.disabled=false;
+    return;
+  }
 
   A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
 }
@@ -654,7 +690,7 @@ async function doLogout(){
   if(sb)await sb.auth.signOut();
   stopIdleTimer();
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null};
-  A={phone:'',code:'',step:'phone',sending:false,err:'',secs:0,timer:null};
+  A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';
   var noAccessEl=document.getElementById('noaccess');
