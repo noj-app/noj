@@ -42,13 +42,24 @@ drop policy if exists "device can select its own branch" on public.branches;
 -- The standard fix: a SECURITY DEFINER helper whose OWN internal query
 -- bypasses RLS entirely (runs as the function owner), so it never
 -- re-triggers devices' policy in the first place — breaking the cycle.
+-- is_active and revoked_at is null: a revoked/disabled device (from the
+-- merchant dashboard, or manually) must stop resolving a branch at all —
+-- matching kiosk_lookup_customer_points()/kiosk_earn_points()/
+-- kiosk_claim_pos_transaction(), which already check both on every call.
+-- This function and current_device_id() (supabase-migration-pos-
+-- transactions.sql) were the two call sites that DIDN'T, discovered while
+-- designing a merchant "revoke device" screen — until fixed, a revoked
+-- device could still read its own branch_settings/pos_transactions via the
+-- RLS policies that key off these two functions, even though the write
+-- paths (kiosk_earn_points etc.) already correctly refused it.
 create or replace function public.current_device_branch_id() returns uuid
 language sql
 security definer
 set search_path = public
 stable
 as $$
-  select branch_id from public.devices where auth_user_id = auth.uid();
+  select branch_id from public.devices
+  where auth_user_id = auth.uid() and is_active and revoked_at is null;
 $$;
 
 -- authenticated only, not anon — every kiosk session signs in anonymously

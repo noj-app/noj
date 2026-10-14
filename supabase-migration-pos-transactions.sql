@@ -160,13 +160,18 @@ create index if not exists pos_transactions_branch_status_idx
 -- — needed because the SELECT policy below has to check device_id against
 -- the CALLING device's own id, and a naive subquery against devices here
 -- would recurse through devices' own policy exactly like branches once did.
+-- is_active and revoked_at is null: see the fuller note on
+-- current_device_branch_id() in supabase-migration-kiosk-balance-lookup.sql
+-- — a revoked device must stop resolving its own id (and therefore its
+-- branch's pos_transactions) just as it already stops resolving a branch.
 create or replace function public.current_device_id() returns uuid
 language sql
 security definer
 set search_path = public
 stable
 as $$
-  select id from public.devices where auth_user_id = auth.uid();
+  select id from public.devices
+  where auth_user_id = auth.uid() and is_active and revoked_at is null;
 $$;
 
 -- revokes PUBLIC's own separate implicit grant from plain `create
