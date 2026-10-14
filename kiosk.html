@@ -53,7 +53,6 @@
     --dur-panel:.32s;  /* استقرار محتوى اللوحة/الشاشة في مكانها بعد الظهور */
     --dur-enter:.34s;  /* دخول بطاقات المحتوى عند تحميل الشاشة */
     --dur-toggle:.22s; /* مفتاح التبديل on/off */
-    --dur-spin:.7s;    /* دورة مؤشر التحميل الدوّار */
   }
   /* الوضع الليلي: رمادي داكن (#1A1D24) بدل الأسود الخالص لتخفيف التباين
      الحاد على عين تنظر للشاشة طويلاً، ونصوص بيضاء مائلة للرمادي لا بيضاء
@@ -308,15 +307,8 @@
   #fBizBranch{font-size:13px}
   .adm-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:6px}
   .adm-testbtn{background:var(--navy);color:#fff;border-radius:12px;padding:12px 20px;font-size:14px;font-weight:800;transition:transform var(--dur-press) var(--ease-brand);display:inline-flex;align-items:center;justify-content:center;gap:8px}
-  /* مؤشر تحميل دوّار بنفس منحنى/مدة الدوران المستخدَمين في مؤشر السحب
-     للتحديث (pull-to-refresh) في تطبيق العميل — الاستخدام الوحيد لحالة
-     "جارٍ التحميل" في شاشة الكاشير (اختبار الاتصال بنظام الكاشير). */
-  .spinner{width:15px;height:15px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;flex-shrink:0;animation:spin var(--dur-spin) linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
   .adm-testbtn:active{transform:scale(.97)}
   .adm-testbtn:disabled{opacity:.55}
-  .conn-badge{font-size:13.5px;font-weight:800;padding:7px 14px;border-radius:99px;background:var(--surface);border:1.5px solid var(--line);color:var(--muted);transition:background-color .3s ease,border-color .3s ease}
-  .conn-badge.connected{color:#22A87A;border-color:#22A87A}
   .adm-note{font-size:12.5px;color:var(--muted-2);margin-top:10px;line-height:1.6}
   /* لوحة معاينة الشعار في الإعدادات تبقى فاتحة ثابتة (--logo-plate) بصرف
      النظر عن الوضع، لا شبه شفافة داكنة — كي تبقى الصورة المرفوعة نفسها
@@ -1002,7 +994,7 @@ function scheduleLiveExpiryReturn(){
    أو بيانات اعتماد حقيقية في هذا الملف. */
 var SETTINGS_KEY='noj_kiosk_settings';
 
-var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',pairingCode:'',posConnected:false,mode:'demo',showMenuBtn:true,menuImages:[],cardToggles:{},darkMode:false};
+var DEFAULT_SETTINGS={sector:'medical',bizName:'',bizBranch:'',bizSlogan:'',bizLogo:'',mode:'demo',showMenuBtn:true,menuImages:[],cardToggles:{},darkMode:false};
 function loadSettings(){
   try{
     var raw=localStorage.getItem(SETTINGS_KEY);
@@ -1832,9 +1824,14 @@ function bindPairingScreen(){
 }
 
 /* applyBranchSettingsToLocal: تُحدِّث SETTINGS من صف branch_settings
-   الحقيقي (المصدر الرسمي)، ثم تحفظه في localStorage كنسخة احتياطية —
-   pairingCode/posConnected/mode (المظهر القديم الوهمي "الربط بنظام
-   الكاشير"/"الوضع") محلية بالكامل، لا تُقرأ ولا تُكتب من هنا إطلاقاً. */
+   الحقيقي (المصدر الرسمي)، ثم تحفظه في localStorage كنسخة احتياطية عند
+   انقطاع الاتصال فقط — بما فيها الوضع (mode/pos_mode) الآن: عمود
+   pos_mode كان موجوداً أصلاً في branch_settings منذ supabase-migration-
+   branches-devices.sql (default 'demo') ومحمياً بسياسة تعديل الجهاز
+   لفرعه (supabase-migration-kiosk-device-auth.sql)، لكن kiosk.html لم
+   يكن يقرأه أو يكتبه إطلاقاً — الوضع كان محلياً بحتاً (localStorage)،
+   فأي جهاز جديد أو مُعاد ضبطه يبدأ تجريبياً دوماً بصرف النظر عن وضع بقية
+   أجهزة الفرع. الآن: جهاز جديد يرث وضع فرعه تلقائياً من أول إقلاع ناجح. */
 function applyBranchSettingsToLocal(row){
   if(!row)return;
   SETTINGS.sector=(row.sector_code&&T[row.sector_code])?row.sector_code:SETTINGS.sector;
@@ -1846,6 +1843,7 @@ function applyBranchSettingsToLocal(row){
   SETTINGS.menuImages=row.menu_images||[];
   SETTINGS.cardToggles=row.card_toggles||{};
   SETTINGS.darkMode=!!row.dark_mode;
+  SETTINGS.mode=row.pos_mode==='live'?'live':'demo';
   saveSettingsToStorage(SETTINGS);
   applyTheme(SETTINGS.darkMode);
   S.t=SETTINGS.sector;
@@ -2292,13 +2290,6 @@ function settingsScreen(){
      '</div>'+
      '<div id="idleSectionWrap">'+idleSectionAdminHtml(d)+'</div>'+
      '<div id="cardTogglesWrap">'+cardTogglesAdminHtml(d)+'</div>'+
-     '<div class="adm-sec"><h3>الربط بنظام الكاشير</h3>'+
-      '<label class="adm-f">رمز الإقران (6 أرقام)<input type="text" inputmode="numeric" id="fPairing" value="'+escAttr(d.pairingCode)+'" placeholder="000000"></label>'+
-      '<div class="adm-row"><button class="adm-testbtn" id="testConn">اختبار الاتصال</button>'+
-      '<span class="conn-badge'+(d.posConnected?' connected':'')+'" id="connBadge">'+(d.posConnected?'● متصل':'○ غير متصل')+'</span></div>'+
-      '<div class="warn" id="pairingWarn"></div>'+
-      '<p class="adm-note">يُولَّد رمز الإقران من لوحة تحكم التاجر (Merchant Dashboard) عند ربط جهاز جديد بنظام الكاشير.</p>'+
-     '</div>'+
      '<div class="adm-sec"><h3>الوضع</h3><div class="sw" id="adminMode">'+
       '<button data-m="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
       '<button data-m="live" class="'+(d.mode==='live'?'on':'')+'">مباشر</button>'+
@@ -2532,13 +2523,6 @@ function convertPdfToImages(arrayBuffer){
     });
   });
 }
-function updateConnBadge(){
-  var el=document.getElementById('connBadge');
-  if(el){
-    el.className='conn-badge'+(DRAFT.posConnected?' connected':'');
-    el.textContent=DRAFT.posConnected?'● متصل':'○ غير متصل';
-  }
-}
 /* يُحدَّث فقط الزر النشط (وحقول العناصر النائبة عند تغيّر القطاع)، بلا
    إعادة بناء شاشة الإعدادات كاملةً — لتفادي وميضها مع كل ضغطة. */
 function updateSectorButtons(){
@@ -2663,36 +2647,6 @@ function bindAdmin(){
   var fSlogan=document.getElementById('fBizSlogan');
   if(fSlogan)fSlogan.oninput=function(){DRAFT.bizSlogan=fSlogan.value};
 
-  var fPairing=document.getElementById('fPairing');
-  if(fPairing)fPairing.oninput=function(){
-    var v=fPairing.value.replace(/\D/g,'').slice(0,6);
-    if(v!==fPairing.value)fPairing.value=v;
-    DRAFT.pairingCode=v;
-    DRAFT.posConnected=false;
-    updateConnBadge();
-    var w=document.getElementById('pairingWarn');
-    if(w)w.textContent='';
-  };
-
-  var testBtn=document.getElementById('testConn');
-  if(testBtn)testBtn.onclick=function(){
-    var w=document.getElementById('pairingWarn');
-    if(!/^\d{6}$/.test(DRAFT.pairingCode||'')){
-      DRAFT.posConnected=false;
-      updateConnBadge();
-      if(w)w.textContent='أدخل رمز إقران صحيحاً من 6 أرقام أولاً';
-      return;
-    }
-    if(w)w.textContent='';
-    testBtn.disabled=true;
-    testBtn.innerHTML='<span class="spinner"></span> جارٍ الاختبار...';
-    setTimeout(function(){
-      DRAFT.posConnected=true;
-      testBtn.disabled=false;testBtn.textContent='اختبار الاتصال';
-      updateConnBadge();
-    },700);
-  };
-
   var saveBtn=document.getElementById('adminSave');
   /* الحفظ يكتب إلى branch_settings الحقيقية أولاً (القاعدة هي المصدر
      الرسمي) — لا يُحدَّث SETTINGS/localStorage ولا تُغلَق اللوحة إلا بعد
@@ -2725,7 +2679,8 @@ function bindAdmin(){
         show_menu_btn:DRAFT.showMenuBtn,
         menu_images:DRAFT.menuImages||[],
         card_toggles:DRAFT.cardToggles||{},
-        dark_mode:DRAFT.darkMode
+        dark_mode:DRAFT.darkMode,
+        pos_mode:DRAFT.mode
       }).eq('branch_id',DEVICE.branchId);
       if(res.error)throw res.error;
       SETTINGS=JSON.parse(JSON.stringify(DRAFT));

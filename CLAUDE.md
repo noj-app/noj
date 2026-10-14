@@ -107,6 +107,23 @@
   يمرّر نفس الحمولة التي تبنيها buildPosInvoicePayload() فعلياً عبر handlePosIntake الحقيقية (لا حمولة
   يدوية معزولة عن الأداة الفعلية)، ليمنع تكرار هذا النوع من الانحراف مستقبلاً.
   خطوات الإعداد والاختبار اليدوي الكاملة بالترتيب في supabase-pos-simulator.md.
+- تنظيف بعد اكتمال ربط الكاشير: قسم "الربط بنظام الكاشير" في شاشة إعدادات الكشك (حقل "رمز الإقران" من
+  6 أرقام مُدخَل يدوياً + زر "اختبار الاتصال") كان محاكاة بالكامل من مرحلة ما قبل بناء الربط الحقيقي —
+  بلا أي اتصال شبكة أو RPC حقيقي (زر الاختبار كان يضبط posConnected=true محلياً بعد setTimeout وهمي
+  فقط)، ولا علاقة له بإقران الجهاز الحقيقي (request_device_pairing/pairingCodeLive، شاشة "pairing"
+  منفصلة تماماً). أُزيل كلياً من kiosk.html (الحقل، الزر، pairingCode/posConnected من DEFAULT_SETTINGS،
+  updateConnBadge()، CSS الخاص بـ.conn-badge/.spinner/@keyframes spin غير المستخدَم بعده).
+  وضع الكشك (demo/live) أصبح يُقرأ ويُكتَب فعلياً من/إلى branch_settings.pos_mode — **عمود كان موجوداً
+  أصلاً** منذ supabase-migration-branches-devices.sql (`pos_mode text not null default 'demo' check
+  (pos_mode in ('demo','live'))`) ومحمياً بسياسة تعديل كانت موجودة أصلاً أيضاً ("device can update its
+  own branch settings"، supabase-migration-kiosk-device-auth.sql) — **لا migration جديد ولا تعديل RLS
+  كانا لازمين إطلاقاً**، فقط kiosk.html لم يكن يقرأ pos_mode أو يكتبه؛ الوضع كان محلياً بحتاً
+  (localStorage)، فأي جهاز جديد أو مُعاد ضبطه يبدأ تجريبياً دوماً بصرف النظر عن وضع بقية أجهزة الفرع.
+  الآن applyBranchSettingsToLocal() (تُستدعى في كل إقلاع ناجح) تكتب SETTINGS.mode من row.pos_mode —
+  فجهاز جديد يرث وضع فرعه تلقائياً؛ وزر "حفظ" في الإعدادات يكتب pos_mode:DRAFT.mode ضمن نفس تحديث
+  branch_settings الموجود أصلاً لبقية الحقول. تحقَّق محلياً (db-tests) أن سياسة الجهاز تسمح فعلاً
+  بتحديث pos_mode دون أي تعديل. اختبارات Playwright جديدة (kiosk-tests) تغطي: غياب القسم المحذوف
+  كلياً، أن جهازاً demo محلياً يرث live من صف فرعه عند الإقلاع، وأن الحفظ يكتب pos_mode فعلياً.
 - القيم في القالب T (invoiceAmount, ticket, ahead, doctorName, topCard) تجريبية حتى يُبنى الربط،
   وزر "التالي (تجربة)" هو المحفّز الوحيد حالياً. لا يُحذف قبل وجود محفّز حقيقي.
 - رمز إعدادات الكشك يُتحقق منه في الخادم عبر verify_admin_pin وجدول branch_admin_pins. لا رموز في الكود أبداً.

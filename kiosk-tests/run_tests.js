@@ -34,7 +34,7 @@ function baseScenario(overrides) {
   }, overrides);
 }
 
-async function openKiosk(browser, { mode, scenario, pollMs }) {
+async function openKiosk(browser, { mode, scenario, pollMs, dbMode, localMode }) {
   const context = await browser.newContext();
   const page = await context.newPage();
   // no live network at all — fail fast instead of waiting out real timeouts
@@ -44,12 +44,20 @@ async function openKiosk(browser, { mode, scenario, pollMs }) {
   await page.route('**://challenges.cloudflare.com/**', (route) => route.abort());
   await page.route('**://esm.sh/**', (route) => route.abort());
 
+  // pos_mode على صف branch_settings هو المصدر الرسمي الآن (applyBranchSettingsToLocal
+  // تكتب SETTINGS.mode منه في كل إقلاع) — افتراضياً يطابق mode (أغلب الاختبارات لا
+  // تهتم بالفرق بين القيمة المحلية والمحفوظة)؛ dbMode/localMode يسمحان لاختبار محدَّد
+  // بمحاكاة قيمتين مختلفتين عمداً (جهاز جديد محلياً demo، فرعه فعلياً live).
+  const scenarioWithMode = Object.assign({}, scenario, {
+    branchSettingsRow: Object.assign({}, scenario.branchSettingsRow, { pos_mode: dbMode || mode }),
+  });
+
   await page.addInitScript((settings) => {
     localStorage.setItem('noj_kiosk_settings', JSON.stringify(settings));
-  }, { mode: mode });
+  }, { mode: localMode || mode });
   await page.addInitScript((s) => {
     window.__NOJ_SCENARIO__ = s;
-  }, scenario);
+  }, scenarioWithMode);
   if (pollMs) {
     await page.addInitScript((ms) => { window.__NOJ_POLL_MS__ = ms; }, pollMs);
   }
@@ -369,6 +377,55 @@ async function openAdminSettingsViaPin(page, pin) {
     check('10) "فاتورتك" لا تزال ظاهرة (حدث حقيقي)', /فاتورتك/.test(gotText));
     check('10) لا بطاقة "رقم طلبك"/"رقم دورك" (بلا مصدر حقيقي) في الوضع المباشر', !/رقم طلبك|رقم دورك/.test(gotText));
     check('10) لا بطاقة "موعدك القادم" في الوضع المباشر', !/موعدك القادم/.test(gotText));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 11) تنظيف: قسم "الربط بنظام الكاشير" القديم (رمز الإقران الوهمي/اختبار
+  //     الاتصال المزيَّف) أُزيل بالكامل من شاشة الإعدادات.
+  // =========================================================================
+  {
+    const scenario = baseScenario({ adminPin: '1234' });
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario });
+    await openAdminSettingsViaPin(page, '1234');
+    const hasOldSection = await page.evaluate(() => {
+      return !!(document.getElementById('fPairing') || document.getElementById('testConn') || document.getElementById('connBadge'));
+    });
+    check('11) لا أثر لعناصر القسم القديم (fPairing/testConn/connBadge) في شاشة الإعدادات', !hasOldSection);
+    const adminBodyText = await page.textContent('.adm-body').catch(() => '');
+    check('11) لا نص "الربط بنظام الكاشير"/"رمز الإقران" في شاشة الإعدادات', !/الربط بنظام الكاشير|رمز الإقران/.test(adminBodyText));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 12) الوضع (demo/live) يُقرأ من صف الفرع (branch_settings.pos_mode) لا من
+  //     localStorage وحده — جهاز جديد/مُعاد ضبطه (demo محلياً) يرث فعلياً
+  //     وضع فرعه الحقيقي (live) من أول إقلاع ناجح.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openKiosk(browser, { mode: 'demo', dbMode: 'live', localMode: 'demo', scenario });
+    const devBtn = await page.$('#idleDevNext');
+    check('12) جهاز جديد محلياً demo يرث فعلياً live من صف فرعه عند الإقلاع', devBtn === null);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 13) حفظ الوضع من شاشة الإعدادات يكتبه فعلياً إلى branch_settings.pos_mode
+  //     (لا محلياً فقط) — والوضع التجريبي لم يتغيّر (التبديل والحفظ يعملان
+  //     كما كانا).
+  // =========================================================================
+  {
+    const scenario = baseScenario({ adminPin: '1234' });
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario });
+    await openAdminSettingsViaPin(page, '1234');
+    await page.click('#adminMode button[data-m="live"]');
+    await page.click('#adminSave');
+    await page.waitForSelector('#adminBox', { state: 'detached', timeout: 3000 }).catch(() => {});
+    const lastUpdate = await page.evaluate(() => window.__TEST__.getLastUpdate());
+    check('13) الحفظ يكتب pos_mode=live فعلياً إلى branch_settings', !!lastUpdate && lastUpdate.table === 'branch_settings' && lastUpdate.payload.pos_mode === 'live');
+    const devBtnAfter = await page.$('#idleDevNext');
+    check('13) الشاشة الرئيسية تعكس الوضع المباشر فوراً بعد الحفظ (لا زر "التالي")', devBtnAfter === null);
     await context.close();
   }
 
