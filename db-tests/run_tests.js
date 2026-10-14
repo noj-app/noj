@@ -922,6 +922,54 @@ async function asServiceRole(fn) {
     const expiredRowAfter = await admin(c => c.query('select status from pos_transactions where id=$1', [posTxnExpired.rows[0].id]));
     check('kiosk_claim_pos_transaction: the expired row\'s status is NOT rewritten (removed dead code — a write right before raise exception is always rolled back)', expiredRowAfter.rows[0].status === 'pending');
 
+    // =========================================================================
+    // 13ب) current_device_branch_id()/current_device_id() + the inline
+    //      branch_settings device policies now all check is_active and
+    //      revoked_at is null — a revoked device loses branch_settings AND
+    //      pos_transactions access, not just the write-path RPCs
+    //      (kiosk_earn_points etc.) that already checked both. A dedicated
+    //      device/user here, not kioskUid — kioskUid stays a going concern
+    //      for every later section in this file (issue_branch_pos_token,
+    //      verify_admin_pin...).
+    // =========================================================================
+    const revokedKioskUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [revokedKioskUid]));
+    const revokedReq = await asUser(revokedKioskUid, c => c.query('select * from request_device_pairing()'));
+    await asUser(adminUid, c => c.query('select * from approve_device_pairing($1,$2)', [revokedReq.rows[0].pairing_code, BRANCH]));
+
+    const beforeRevokeSettings = await asUser(revokedKioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('revocation: a freshly-paired, active device CAN read its own branch_settings (sanity check before revoking)', beforeRevokeSettings.rows.length === 1);
+    const beforeRevokePos = await asUser(revokedKioskUid, c => c.query('select id from pos_transactions where branch_id=$1', [BRANCH]));
+    check('revocation: a freshly-paired, active device CAN read its branch\'s pos_transactions (sanity check before revoking)', beforeRevokePos.rows.length >= 1);
+
+    await admin(c => c.query('update devices set is_active=false where auth_user_id=$1', [revokedKioskUid]));
+
+    const afterRevokeSettings = await asUser(revokedKioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('revocation: is_active=false — the device can no longer read branch_settings at all', afterRevokeSettings.rows.length === 0);
+    const afterRevokePos = await asUser(revokedKioskUid, c => c.query('select id from pos_transactions where branch_id=$1', [BRANCH]));
+    check('revocation: is_active=false — the device can no longer read pos_transactions at all', afterRevokePos.rows.length === 0);
+    const afterRevokeBranchId = await asUser(revokedKioskUid, c => c.query('select current_device_branch_id() as b'));
+    check('revocation: current_device_branch_id() returns NULL for a revoked device', afterRevokeBranchId.rows[0].b === null);
+    const afterRevokeDeviceId = await asUser(revokedKioskUid, c => c.query('select current_device_id() as d'));
+    check('revocation: current_device_id() returns NULL for a revoked device', afterRevokeDeviceId.rows[0].d === null);
+
+    // re-activate, then revoke via revoked_at instead — the OTHER half of
+    // the "is_active and revoked_at is null" predicate, same assertions.
+    await admin(c => c.query('update devices set is_active=true, revoked_at=null where auth_user_id=$1', [revokedKioskUid]));
+    const reactivatedSettings = await asUser(revokedKioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('revocation: re-activating (is_active=true, revoked_at=null) restores branch_settings access', reactivatedSettings.rows.length === 1);
+
+    await admin(c => c.query('update devices set revoked_at=now() where auth_user_id=$1', [revokedKioskUid]));
+    const revokedAtSettings = await asUser(revokedKioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('revocation: revoked_at set (is_active still true) ALSO blocks branch_settings access', revokedAtSettings.rows.length === 0);
+    const revokedAtPos = await asUser(revokedKioskUid, c => c.query('select id from pos_transactions where branch_id=$1', [BRANCH]));
+    check('revocation: revoked_at set ALSO blocks pos_transactions access', revokedAtPos.rows.length === 0);
+
+    // kioskUid (used by every later section in this file) is untouched and
+    // still fully active — this block only ever acted on revokedKioskUid.
+    const kioskUidStillWorks = await asUser(kioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
+    check('revocation: the UNRELATED, still-active paired device (kioskUid) is completely unaffected', kioskUidStillWorks.rows.length === 1);
+
     // NOTE on points_rate NULL handling: attempted to test this directly
     // (update merchants set points_rate=null) and discovered merchants.
     // points_rate is `not null default 1.0` with `check (points_rate > 0)`

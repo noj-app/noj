@@ -76,6 +76,24 @@
   عناصر okItems بعد الأول (فاتورتك) — رقم دورك/رقم طلبك/موعدك القادم، بلا مصدر حقيقي بعد لأي قطاع — كانت
   تظهر رغم إخفاء نظيراتها (ticket/ahead/topCard نوع unit) في leftCol سابقاً؛ أُخفيت هذه أيضاً الآن في
   success() حين SETTINGS.mode==='live'، فيبقى فقط "فاتورتك" (حدث حقيقي) وبطاقة نقاط الولاء (رصيد حقيقي).
+- **إصلاح أمني: جهاز مُلغى (is_active=false أو revoked_at محدَّد) كان يبقى قادراً على قراءة branch_
+  settings وpos_transactions.** اكتُشف أثناء تصميم شاشة "لوحة التاجر" المستقبلية لإلغاء جهاز: current_
+  device_branch_id() وcurrent_device_id() (supabase-migration-kiosk-balance-lookup.sql وsupabase-
+  migration-pos-transactions.sql) كانتا الاستثناءين الوحيدين بين كل دوال سياق الجهاز — kiosk_lookup_
+  customer_points/kiosk_earn_points/kiosk_claim_pos_transaction تتحقق جميعها من `is_active and
+  revoked_at is null` عند كل استدعاء، لكن هاتين الدالتين (المُستخدَمتين في سياسات RLS القراءة لـ
+  branches/branch_settings/pos_transactions، وفي ربط الفرع داخل verify_admin_pin) لم تكونا تتحققان من
+  أي منهما إطلاقاً — فجهاز مُلغى بسياسة RLS فقط (بلا حذف صف auth.users) يبقى قادراً على قراءة إعدادات
+  فرعه وعملياته، رغم عجزه فعلاً عن الكتابة (المسارات الكاتبة كانت محصَّنة أصلاً). أُصلحتا لتضيفا نفس
+  الشرط. سياستا branch_settings الخاصتان بالجهاز ("device can select/update its own branch settings"،
+  supabase-migration-kiosk-device-auth.sql) كانتا تكرران استعلام devices داخلياً بمعزل عن current_
+  device_branch_id() (لا تستخدمانها، فهذا الملف يُشغَّل قبل تعريفها في السلسلة) ولم تتحققا من الشرط
+  أيضاً — أُضيف نفس الشرط إليهما مباشرة (inline، لا عبر الدالة، لعدم كسر ترتيب السلسلة). verify_admin_
+  pin() تستفيد تلقائياً (جهاز مُلغى يحاول فتح الإعدادات الآن يُرفض بـNOJ_PIN_WRONG_BRANCH، رسالة موجودة
+  أصلاً في kiosk.html). سياسة "device can select its own row" على devices نفسها (قراءة الجهاز لصفّه
+  الخاص فقط، لا فرعه) لم تُمسّ عمداً — لا تسرّب شيئاً عابراً للفروع أصلاً، وخارج نطاق هذا الإصلاح. كل
+  الاختبارات القديمة (176 قبل هذا الإصلاح) اجتازت دون تغيير — الكشك الفعّال لا يتأثر إطلاقاً، فقط الجهاز
+  المُلغى تحديداً.
 - نشر Edge Functions: عبر .github/workflows/deploy-edge-functions.yml (GitHub Actions)، لا يحتاج
   حاسوباً — زر "Run workflow" من متصفح فقط، **يدوي حصراً** (workflow_dispatch، بلا أي تشغيل تلقائي
   عند push). يخدم send-sms-hook و pos-intake معاً. التوثيق عبر سرّين في إعدادات المستودع

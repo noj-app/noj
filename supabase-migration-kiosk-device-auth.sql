@@ -129,12 +129,22 @@ create policy "device can select its own row"
   on public.devices for select
   using (auth_user_id = auth.uid());
 
+-- is_active and revoked_at is null: a revoked/disabled device must lose
+-- branch_settings access too, not just the write-path functions
+-- (kiosk_earn_points etc.) that already checked both. This predicate is
+-- inlined here (not routed through current_device_branch_id(), which this
+-- file runs BEFORE in the migration chain — supabase-migration-kiosk-
+-- balance-lookup.sql, which defines it, explicitly runs after this file) —
+-- discovered together with the same gap in current_device_branch_id()/
+-- current_device_id() themselves while designing a merchant "revoke
+-- device" screen.
 drop policy if exists "device can select its own branch settings" on public.branch_settings;
 create policy "device can select its own branch settings"
   on public.branch_settings for select
   using (exists (
     select 1 from public.devices d
     where d.branch_id = branch_settings.branch_id and d.auth_user_id = auth.uid()
+      and d.is_active and d.revoked_at is null
   ));
 
 drop policy if exists "device can update its own branch settings" on public.branch_settings;
@@ -143,6 +153,7 @@ create policy "device can update its own branch settings"
   using (exists (
     select 1 from public.devices d
     where d.branch_id = branch_settings.branch_id and d.auth_user_id = auth.uid()
+      and d.is_active and d.revoked_at is null
   ));
 
 -- ---------------------------------------------------------------------------
