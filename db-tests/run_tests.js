@@ -557,6 +557,20 @@ async function asServiceRole(fn) {
     const foreignSettings = await asUser(otherKioskUid, c => c.query('select * from branch_settings where branch_id=$1', [BRANCH]));
     check('pairing RLS: an unpaired device cannot see this branch\'s settings', foreignSettings.rows.length === 0);
 
+    // ---- merchant_members: a plain SELECT of one's own membership row —
+    //      exactly the query merchant.html's checkAccess() runs on login (no
+    //      RPC involved, just RLS + the existing grant). adminUid is the
+    //      owner who approved pairing above; strangerAdminUid belongs to a
+    //      DIFFERENT merchant (OTHER_MERCHANT) entirely. ----
+    const ownMembership = await asUser(adminUid, c => c.query('select merchant_id, role from merchant_members where auth_user_id=$1', [adminUid]));
+    check('merchant_members RLS: an owner can select their OWN membership row directly', ownMembership.rows.length === 1 && ownMembership.rows[0].merchant_id === MATAM && ownMembership.rows[0].role === 'owner');
+    const plainCustomerUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [plainCustomerUid]));
+    const noMembership = await asUser(plainCustomerUid, c => c.query('select merchant_id, role from merchant_members where auth_user_id=$1', [plainCustomerUid]));
+    check('merchant_members RLS: a session with no membership row at all gets zero rows (not an error)', noMembership.rows.length === 0);
+    const crossMerchantRead = await asUser(adminUid, c => c.query('select merchant_id from merchant_members where auth_user_id=$1', [strangerAdminUid]));
+    check('merchant_members RLS: one owner cannot read a DIFFERENT merchant\'s member row by guessing its auth_user_id', crossMerchantRead.rows.length === 0);
+
     // =========================================================================
     // 10) branch_settings: sector_code / biz_logo size CHECK constraints,
     //     and the device's own RLS-scoped UPDATE of its settings.
