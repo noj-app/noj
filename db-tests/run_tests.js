@@ -104,6 +104,7 @@ async function asServiceRole(fn) {
     'supabase-migration-phone-otp-foundation.sql',
     'supabase-migration-pos-intake.sql',
     'supabase-migration-merchant-admin-controls.sql',
+    'supabase-migration-pos-connections.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -785,6 +786,8 @@ async function asServiceRole(fn) {
     check('kiosk_claim_pos_transaction: invoice.vat came from pos_transactions.vat, not zero', Number(invRowPos1.rows[0].vat) === 3.75);
     check('kiosk_claim_pos_transaction: invoice.source = pos', invRowPos1.rows[0].source === 'pos');
     check('kiosk_claim_pos_transaction: invoice.external_ref threaded through from pos_transactions', invRowPos1.rows[0].external_ref === 'POS-TEST-1');
+    check('kiosk_claim_pos_transaction: the REGISTERED-customer invoice carries branch_id = the claiming device\'s branch', invRowPos1.rows[0].branch_id === BRANCH);
+    check('invoices.refunded_amount is NULL on a fresh invoice (nothing reads it yet)', invRowPos1.rows[0].refunded_amount === null);
 
     const posTxn1After = await admin(c => c.query('select * from pos_transactions where id=$1', [posTxn1.rows[0].id]));
     check('kiosk_claim_pos_transaction: pos_transactions.status is applied', posTxn1After.rows[0].status === 'applied');
@@ -816,6 +819,7 @@ async function asServiceRole(fn) {
 
     const pendingInvRow1 = await admin(c => c.query('select * from invoices where id=$1', [posRow2.invoice_id]));
     check('invoices: the unregistered invoice has pending_phone set and user_id null', pendingInvRow1.rows[0].pending_phone === UNREG_PHONE && pendingInvRow1.rows[0].user_id === null);
+    check('kiosk_claim_pos_transaction: the UNREGISTERED-customer invoice carries branch_id too', pendingInvRow1.rows[0].branch_id === BRANCH);
 
     // a second invoice for the same unregistered phone must bump last_invoice_at, not duplicate the row.
     await new Promise(r => setTimeout(r, 50));
@@ -1478,7 +1482,190 @@ async function asServiceRole(fn) {
   }
 
   // =========================================================================
-  // 19) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
+  // 19) POS CONNECTIONS (stage 0): pos_connections status mirror,
+  //     record_pos_connection_event(), and the additive side effects on
+  //     issue_branch_pos_token / merchant_issue_pos_token / intake_pos_
+  //     transaction — plus invoices.refunded_amount and the idempotent
+  //     backfill. Fresh fixtures on OTHER_MERCHANT's branch (branches.id ===
+  //     merchants.id), independent of every earlier block's scope.
+  // =========================================================================
+  {
+    const B2 = '20000000-0000-0000-0000-000000000002'; // بنده (merchant id === branch id)
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+    const conn = (provider) => admin(c => c.query('select * from pos_connections where branch_id=$1 and provider=$2', [B2, provider]));
+
+    const ownerUid2 = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [ownerUid2]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [B2, ownerUid2]));
+    const staffUid2 = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [staffUid2]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'staff')`, [B2, staffUid2]));
+    const otherMerchantOwner = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otherMerchantOwner]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [MATAM, otherMerchantOwner]));
+    const plainUid2 = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [plainUid2]));
+
+    await admin(c => c.query('delete from pos_connections where branch_id=$1', [B2]));
+
+    // ---- lockdown of the internal writer ----
+    const writerPriv = await admin(c => c.query(
+      `select has_function_privilege('anon', 'record_pos_connection_event(uuid,text,text,text)', 'EXECUTE') as anon_can,
+              has_function_privilege('authenticated', 'record_pos_connection_event(uuid,text,text,text)', 'EXECUTE') as auth_can,
+              has_function_privilege('service_role', 'record_pos_connection_event(uuid,text,text,text)', 'EXECUTE') as svc_can`
+    ));
+    check('record_pos_connection_event: NO role (anon/authenticated/service_role) can execute it directly',
+      writerPriv.rows[0].anon_can === false && writerPriv.rows[0].auth_can === false && writerPriv.rows[0].svc_can === false);
+    const writerAsOwner = await asUser(ownerUid2, async c => {
+      try { await c.query(`select record_pos_connection_event($1,'generic','token_issued','token_issued')`, [B2]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('record_pos_connection_event: a merchant owner calling it directly is refused (permission denied)', writerAsOwner !== 'ok' && /permission denied/.test(writerAsOwner));
+
+    // ---- issue_branch_pos_token: same return + the connection row ----
+    const t1 = await admin(c => c.query('select issue_branch_pos_token($1) as t', [B2]));
+    const raw1 = t1.rows[0].t;
+    check('issue_branch_pos_token (stage 0): still returns the raw token, hash stored exactly as before',
+      typeof raw1 === 'string' && raw1.length >= 32 &&
+      (await admin(c => c.query('select token_hash from branch_pos_credentials where branch_id=$1', [B2]))).rows[0].token_hash === sha(raw1));
+    const c1 = await conn('generic');
+    check('issue_branch_pos_token: wrote exactly one pos_connections row (generic / token_issued / connected)',
+      c1.rows.length === 1 && c1.rows[0].kind === 'token_issued' && c1.rows[0].status === 'connected' && c1.rows[0].connected_at !== null);
+    check('issue_branch_pos_token: no invoice has arrived yet, last_invoice_at is NULL', c1.rows[0].last_invoice_at === null);
+
+    // rotation: still one row, connected_at restarts, a prior error clears
+    await admin(c => c.query(`update pos_connections set status='error', last_error='boom' where id=$1`, [c1.rows[0].id]));
+    await sleep(30);
+    const t2 = await admin(c => c.query('select issue_branch_pos_token($1) as t', [B2]));
+    const c2 = await conn('generic');
+    check('issue_branch_pos_token: rotation yields a different token', t2.rows[0].t !== raw1);
+    check('issue_branch_pos_token: rotation keeps exactly ONE connection row, status back to connected, error cleared, connected_at advanced',
+      c2.rows.length === 1 && c2.rows[0].status === 'connected' && c2.rows[0].last_error === null &&
+      new Date(c2.rows[0].connected_at) > new Date(c1.rows[0].connected_at));
+
+    // merchant_issue_pos_token (untouched function) is covered via delegation
+    await admin(c => c.query('delete from pos_connections where branch_id=$1', [B2]));
+    const mt = await asUser(ownerUid2, c => c.query('select merchant_issue_pos_token($1) as t', [B2]));
+    check('merchant_issue_pos_token: still returns a token for the owner', typeof mt.rows[0].t === 'string' && mt.rows[0].t.length >= 32);
+    check('merchant_issue_pos_token: the connection row is written too, via issue_branch_pos_token (function itself unmodified)',
+      (await conn('generic')).rows.length === 1);
+    const staffTok = await asUser(staffUid2, async c => {
+      try { await c.query('select merchant_issue_pos_token($1)', [B2]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('merchant_issue_pos_token: a staff member is STILL refused (owner-only behaviour unchanged)', staffTok !== 'ok' && /لا تملك صلاحية/.test(staffTok));
+
+    // ---- intake_pos_transaction: last_invoice_at ----
+    const intake = (ref, adapter) => asServiceRole(c => c.query(
+      'select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)', [B2, null, ref, '25.00', '1.25', adapter || 'generic', null]
+    ));
+    const i1 = await intake('CONN-1');
+    check('intake_pos_transaction (stage 0): still returns the pending row exactly as before', i1.rows[0].status === 'pending' && Number(i1.rows[0].amount) === 25);
+    const afterI1 = await conn('generic');
+    check('intake_pos_transaction: a NEW invoice sets last_invoice_at', afterI1.rows[0].last_invoice_at !== null);
+    await sleep(40);
+    const i1retry = await intake('CONN-1');
+    const afterRetry = await conn('generic');
+    check('intake_pos_transaction: an idempotent re-post returns the SAME row id', i1retry.rows[0].id === i1.rows[0].id);
+    check('intake_pos_transaction: an idempotent re-post is NOT a new invoice — last_invoice_at unchanged',
+      afterRetry.rows[0].last_invoice_at.getTime() === afterI1.rows[0].last_invoice_at.getTime());
+    await intake('CONN-2');
+    const afterI2 = await conn('generic');
+    check('intake_pos_transaction: a second genuinely new invoice moves last_invoice_at forward',
+      afterI2.rows[0].last_invoice_at > afterI1.rows[0].last_invoice_at);
+
+    // a branch that never went through token issuing still gets a row on its first invoice
+    await admin(c => c.query('delete from pos_connections where branch_id=$1', [B2]));
+    await intake('CONN-3');
+    const created = await conn('generic');
+    check('intake_pos_transaction: first invoice for a branch with no connection row creates it (token_issued / connected / last_invoice_at set)',
+      created.rows.length === 1 && created.rows[0].kind === 'token_issued' && created.rows[0].status === 'connected' && created.rows[0].last_invoice_at !== null);
+
+    // ---- best-effort isolation: a failing status write must NEVER fail an intake ----
+    await admin(c => c.query(`alter table pos_connections add constraint tmp_conn_fail_chk check (provider <> 'failtest')`));
+    const failIntake = await asServiceRole(async c => {
+      try { const r = await c.query('select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)', [B2, null, 'CONN-FAIL', '9.00', '0', 'failtest', null]); return { ok: true, row: r.rows[0] }; }
+      catch (e) { return { ok: false, msg: e.message }; }
+    });
+    await admin(c => c.query('alter table pos_connections drop constraint tmp_conn_fail_chk'));
+    check('intake_pos_transaction: when the connection write fails, the invoice intake STILL succeeds', failIntake.ok === true && failIntake.row.status === 'pending');
+    check('intake_pos_transaction: the pos_transactions row really exists after the swallowed failure',
+      (await admin(c => c.query(`select 1 from pos_transactions where branch_id=$1 and external_ref='CONN-FAIL'`, [B2]))).rows.length === 1);
+    check('intake_pos_transaction: and no half-written connection row was left behind', (await conn('failtest')).rows.length === 0);
+
+    // ---- RLS: who can read pos_connections ----
+    const ownerRead = await asUser(ownerUid2, c => c.query('select * from pos_connections where branch_id=$1', [B2]));
+    check('pos_connections RLS: the merchant OWNER can read their branch connections', ownerRead.rows.length >= 1);
+    const staffRead = await asUser(staffUid2, c => c.query('select * from pos_connections where branch_id=$1', [B2]));
+    check('pos_connections RLS: a merchant STAFF member can read them too (status is not a secret)', staffRead.rows.length >= 1);
+    const strangerRead = await asUser(otherMerchantOwner, c => c.query('select * from pos_connections where branch_id=$1', [B2]));
+    check('pos_connections RLS: an owner of a DIFFERENT merchant sees zero rows', strangerRead.rows.length === 0);
+    const plainRead = await asUser(plainUid2, c => c.query('select * from pos_connections where branch_id=$1', [B2]));
+    check('pos_connections RLS: a session with no membership sees zero rows', plainRead.rows.length === 0);
+    const writeAttempts = await asUser(ownerUid2, async c => {
+      const out = [];
+      for (const q of [
+        [`insert into pos_connections (branch_id, provider, kind) values ($1,'x','oauth')`, [B2]],
+        [`update pos_connections set status='error' where branch_id=$1`, [B2]],
+        [`delete from pos_connections where branch_id=$1`, [B2]],
+      ]) {
+        try { await c.query(q[0], q[1]); out.push('ok'); } catch (e) { out.push('fail:' + e.message); }
+      }
+      return out;
+    });
+    check('pos_connections: even the OWNER has no insert/update/delete grant — every write goes through the definer function',
+      writeAttempts.every(r => r !== 'ok' && /permission denied/.test(r)));
+    const secretCols = await admin(c => c.query(
+      `select column_name from information_schema.columns where table_name='pos_connections' and column_name ~* '(token|secret|hash|key)'`
+    ));
+    check('pos_connections holds NO secret-looking column at all', secretCols.rows.length === 0);
+
+    // ---- invoices.refunded_amount ----
+    const invForRefund = await admin(c => c.query(
+      `insert into invoices (user_id, merchant_id, amount, vat, category, points_earned, status, source)
+       values ($1,$2,100,0,'x',0,'paid','pos') returning id`,
+      [DEMO_PROFILE, MATAM]
+    )).catch(() => null);
+    if (invForRefund) {
+      const ok1 = await admin(c => c.query('update invoices set refunded_amount=40 where id=$1 returning refunded_amount', [invForRefund.rows[0].id]));
+      check('invoices.refunded_amount: a partial refund amount (0..amount) is accepted', Number(ok1.rows[0].refunded_amount) === 40);
+      const bad = [-1, 100.01];
+      for (const v of bad) {
+        const r = await admin(async c => { try { await c.query('update invoices set refunded_amount=$1 where id=$2', [v, invForRefund.rows[0].id]); return 'ok'; } catch (e) { return 'fail'; } });
+        check(`invoices.refunded_amount: ${v} is rejected by the CHECK constraint`, r === 'fail');
+      }
+    } else {
+      check('invoices.refunded_amount tests: fixture invoice could be created', false);
+    }
+
+    // ---- backfill + idempotency: re-run the whole migration file against a "legacy-looking" state ----
+    const legacyInv = await admin(c => c.query(`select i.id, pt.branch_id from invoices i join pos_transactions pt on pt.invoice_id = i.id where i.source='pos' limit 1`));
+    await admin(c => c.query('update invoices set branch_id=null where id=$1', [legacyInv.rows[0].id]));
+    await admin(c => c.query('delete from pos_connections'));
+    execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, 'supabase-migration-pos-connections.sql')}'"`, { stdio: 'pipe' });
+    const restored = await admin(c => c.query('select branch_id from invoices where id=$1', [legacyInv.rows[0].id]));
+    check('backfill: a POS invoice with NULL branch_id is restored from its pos_transactions row (re-running the migration is safe)', restored.rows[0].branch_id === legacyInv.rows[0].branch_id);
+    const nullable = await admin(c => c.query(
+      `select count(*)::int as n from invoices i
+       where i.branch_id is null and (select count(*) from branches b where b.merchant_id = i.merchant_id) = 1`
+    ));
+    check('backfill: no invoice of a single-branch merchant is left with a NULL branch_id', nullable.rows[0].n === 0);
+    const credCount = await admin(c => c.query('select count(*)::int as n from branch_pos_credentials'));
+    const connCount = await admin(c => c.query(`select count(*)::int as n from pos_connections where provider='generic' and kind='token_issued'`));
+    check('backfill: every branch that already holds a token gets a connected pos_connections row', connCount.rows[0].n === credCount.rows[0].n && credCount.rows[0].n > 0);
+    const backfilledLast = await admin(c => c.query(
+      `select c.last_invoice_at, (select max(received_at) from pos_transactions where branch_id=c.branch_id and source_adapter='generic') as m
+       from pos_connections c where c.branch_id=$1`, [B2]));
+    check('backfill: last_invoice_at is derived from the real pos_transactions history', backfilledLast.rows[0].last_invoice_at.getTime() === backfilledLast.rows[0].m.getTime());
+    const rerun = execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, 'supabase-migration-pos-connections.sql')}'"`, { stdio: 'pipe' });
+    check('migration is idempotent: a second run succeeds with no error', rerun !== null);
+    const connCount2 = await admin(c => c.query(`select count(*)::int as n from pos_connections`));
+    check('migration is idempotent: a second run creates no duplicate connection rows', connCount2.rows[0].n === connCount.rows[0].n);
+  }
+
+  // =========================================================================
+  // 20) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
   //     grants EXECUTE to anon, period — not scoped to any specific function
   //     list. Catches exactly the kind of gap the per-function checks above
   //     missed: cancel_appointment() had anon granted BY NAME and nobody

@@ -30,9 +30,12 @@ transaction() الموجودة أصلاً (لا نقطة دخول ثانية ل�
 - **pos_connections** (جديد): سطر واحد لكل (branch_id, provider) — **لا سرّ فيه إطلاقاً**، للعرض في
   لوحة التاجر فقط: provider (مثال 'generic'، 'foodics')، kind ('token_issued' أو 'oauth')، status
   ('connected'/'disconnected'/'expired'/'error')، external_branch_id (معرّف فرع المزوّد عند النوع ب،
-  نص عادي لا سرّ)، last_invoice_at، last_error، connected_at/disconnected_at. RLS بنفس نمط
-  branch_settings (قراءة لمالك وموظف، تعديل حالة الاتصال نفسه — فصل/ربط — للمالك فقط، فرق جديد عن
-  branch_settings العادية لأن هذا تحكّم في مصدر بيانات حسّاس لا إعداد عرض).
+  نص عادي لا سرّ)، last_invoice_at، last_error، connected_at/disconnected_at. **مبنية (المرحلة صفر)**
+  — RLS: قراءة لمالك وموظف (نفس نمط branch_settings)، و**لا أي grant/سياسة كتابة لأي عميل، حتى المالك**:
+  كل الكتابة عبر record_pos_connection_event() وحدها (SECURITY DEFINER داخلية، مقفلة على كل الأدوار
+  بما فيها service_role، لا تُستدعى إلا من دوال SECURITY DEFINER أخرى). فصل/ربط المالك لاحقاً = RPC
+  جديدة owner-only، لا تعديل مباشر على الجدول (تعديل عمّا ورد أول مرة هنا: "تعديل للمالك فقط" عبر
+  RLS) — أنسب لقاعدة أن كل كتابة حسّاسة في المشروع تمر عبر دالة.
 - **pos_provider_credentials** (جديد، النوع ب فقط): access_token/refresh_token **مُشفَّرة** (لا hash
   — يجب فك تشفيرها فعلياً لاستدعاء API الفرع)، token_expires_at، external_merchant_id/
   external_branch_id، scopes. RLS مفعّل بلا أي سياسة ولا أي grant — نفس قفل branch_pos_credentials/
@@ -200,12 +203,33 @@ Foodics"/"فصل" (النوع ب). **owner فقط للنوعين معاً** — 
 أدناه فعلياً.
 
 ### خطة المراحل
-- **المرحلة صفر (الآن، بلا أي اعتماد على Foodics، قابلة للبناء والاختبار كاملة اليوم)**: pos_
-  connections + التحديثان الإضافيان على issue_branch_pos_token/merchant_issue_pos_token/
-  intake_pos_transaction + invoices.branch_id/refunded_amount + توسعة enum النقاط/الفواتير
-  (بلا استخدام فعلي بعد) + عرض الحالة في لوحة التاجر. اختبار الارتداد: كل db-tests (207) وrun_
-  lockdown_tests (15) وmerchant-tests (76) وkiosk-tests (44) الحالية تبقى ناجحة بلا تغيير، زائداً
-  اختبارات جديدة لكل إضافة.
+- **المرحلة صفر — مبنية (supabase-migration-pos-connections.sql)، بلا أي اعتماد على Foodics**:
+  pos_connections + record_pos_connection_event() + invoices.branch_id/refunded_amount + عرض الحالة
+  (قراءة فقط) في قسم توكن POS بلوحة التاجر. **ما بُني فعلاً وما اختلف عن الخطة**:
+  - issue_branch_pos_token(): سطر الاتصال يُكتَب **فيها وحدها** — merchant_issue_pos_token تستدعيها
+    فتغطيها تلقائياً (دالة واحدة معدَّلة لا اثنتان؛ merchant_issue_pos_token لم تُمَس).
+  - intake_pos_transaction(): last_invoice_at يتحدّث **فقط عند إدراج صف جديد فعلاً** (v_row.
+    received_at = now() — ثابت داخل معاملة النداء الواحد)، لا عند إعادة إرسال نفس external_ref
+    (ليست فاتورة جديدة).
+  - كتابتا حالة الاتصال (عند الإصدار وعند الاستقبال) **best-effort عمداً**: داخل معاملة فرعية تُحوِّل
+    أي فشل إلى WARNING، فلا يمكن لمرآة الحالة أن تُفشل إصدار توكن ولا — الأهم — استقبال فاتورة حقيقية.
+    الحالة راحة للوحة التاجر؛ مسار الفاتورة لا يعتمد عليها (اختبار db يفرض فشلها فعلاً ويثبت نجاح الاستقبال).
+  - kiosk_claim_pos_transaction(): يكتب invoices.branch_id في **المسارين** (مسجَّل/غير مسجَّل)، جسم
+    الدالة مطابق حرفياً عدا ذلك. claim_unclaimed_invoices لم تحتج تعديلاً (تنقل الصف كما هو بفرعه).
+    kiosk_earn_points (demo، لا تُستدعى من الكشك) **لم تُعدَّل** عمداً: فواتيرها source='demo' تبقى
+    branch_id NULL (العمود nullable).
+  - backfill idempotent داخل الملف نفسه: فواتير POS من pos_transactions.invoice_id (الفرع الدقيق)، وغيرها
+    لتاجر بفرع واحد فقط؛ تاجر متعدد الفروع يبقى NULL بدل التخمين. وصفوف pos_connections تُنشأ لكل فرع
+    يملك توكناً أصلاً (connected_at من created_at، last_invoice_at من تاريخ pos_transactions الفعلي).
+  - invoices.refunded_amount: nullable + CHECK (0..amount)، لا يقرؤه أي كود بعد.
+  - **أُرجئت إلى مرحلة الإرجاع عمداً**: توسعة enum point_transactions ('refund_adjustment') — لا مستهلك لها
+    الآن وتعني إعادة كتابة قيدي CHECK على سجل النقاط (type + sign)، فتُشحَن مع ما يستخدمها ويختبرها.
+  - حدّ معروف: provider في pos_connections يُؤخذ من source_adapter عند الاستقبال؛ لو ظهر مستقبلاً محوّل
+    نوع أ بوسم X-POS-Vendor مختلف عن generic لنفس توكن الفرع، سيُنشئ صفاً ثانياً (فرع، vendor) — يُراجَع
+    عند بناء أول محوّل كهذا.
+  اختبار الارتداد: db-tests 244 (207 + 37)، lockdown 15، regression_check 6، merchant-tests 85 (76 + 9)،
+  kiosk-tests 44 — كلها ناجحة؛ وتحقَّق بطفرة (mutation) أن اختبار "إعادة الإرسال لا تحرّك last_invoice_at"
+  يفشل فعلاً لو حُدِّث الطابع دوماً.
 - **المرحلة الأولى (الإرجاع + النقاط المعلّقة، لا تزال بلا اعتماد على Foodics — النوع أ يمكنه إرسال
   إرجاع اليوم فعلياً عبر المحاكي/كاشير حقيقي)**: merchants.points_hold_days + عمودا status/release_at
   على point_transactions + الدالة الداخلية المشتركة لمنطق الكسب (حدّ موحّد يستدعيه kiosk_claim_pos_
