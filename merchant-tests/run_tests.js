@@ -10,6 +10,7 @@ const REPO_ROOT = path.join(__dirname, '..');
 const MERCHANT_URL = 'file://' + path.join(REPO_ROOT, 'merchant.html');
 const CHROMIUM_PATH = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const FAKE_SB_PATH = path.join(__dirname, 'fake-supabase.js');
+const FAKE_TURNSTILE_PATH = path.join(__dirname, 'fake-turnstile.js');
 
 // نفس القيمة الحرفية في merchant.html (MERCHANT_STORAGE_KEY) وfake-supabase.js
 // (MERCHANT_STORAGE_KEY) — الاختبار "0) storageKey" أدناه يتحقق أن الثلاثة
@@ -62,6 +63,9 @@ async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp }) {
     await page.addInitScript((ms) => { window.__NOJ_IDLE_MS__ = ms; }, idleMs);
   }
   await page.addInitScript({ path: FAKE_SB_PATH });
+  // fake-turnstile.js يقرأ window.__NOJ_SCENARIO__ عند التنفيذ أيضاً — مُسجَّل
+  // بعد تعيين السيناريو أعلاه، نفس شرط fake-supabase.js تماماً.
+  await page.addInitScript({ path: FAKE_TURNSTILE_PATH });
 
   await page.goto(MERCHANT_URL);
   await page.waitForSelector('#ph', { timeout: 5000 });
@@ -291,6 +295,77 @@ async function loginFlow(page, phone, otp) {
     await page.reload();
     await page.waitForSelector('.topbar', { timeout: 3000 }).catch(() => {});
     check('11) إعادة تحميل الصفحة بجلسة محفوظة: دخول تلقائي بلا رمز', await page.$('.topbar') !== null);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 12) اختبار ارتداد لعطل السباق الحقيقي: ودجت Turnstile يُنجز تحققه قبل أي
+  //     تفاعل (turnstileVerifyMs طويل عمداً، 5000)، ثم يُضغط "إرسال رمز
+  //     التحقق" — إن عاد renderAuth() التدميري (bug الأصلي) لأي سبب، سيُعاد
+  //     إنشاء الودجت ويُفقَد الرمز الجاهز فعلياً، فتتجاوز getRenderCount()
+  //     الواحد ولن يكتمل الانتقال خلال مهلة freshTurnstileToken (2500ms) —
+  //     هذا بالضبط العطل الحي المُصلَح (CLAUDE.md).
+  // =========================================================================
+  {
+    const scenario = baseScenario({ captchaEnabled: true, turnstileVerifyMs: 5000 });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await page.waitForTimeout(5300); // الودجت الأول ينجز تحققه فعلاً قبل أي تفاعل
+    await page.fill('#ph', '512345678');
+    const startedAt = Date.now();
+    await page.click('#send');
+    await page.waitForSelector('[data-otp="0"]', { timeout: 3000 }).catch(() => {});
+    const elapsedMs = Date.now() - startedAt;
+    check('12) ينتقل فعلاً لشاشة الرمز (استُخدم الرمز الجاهز، لا رفض captcha لانتهاء المهلة)', await page.$('[data-otp="0"]') !== null);
+    check('12) الانتقال يحدث بسرعة (إعادة استخدام الرمز الجاهز فعلاً، لا انتظار 5 ثوانٍ جديدة)', elapsedMs < 3000);
+    // renderCount=2 متوقَّع فعلاً (الإقلاع + انتقال شاشة الرمز الشرعي)؛ عودة
+    // العطل القديم تعني renderAuth() تدميرية إضافية أثناء sendOtp() نفسها
+    // (3 عمليات رندر، وبلا وصول لشاشة الرمز أصلاً — الفحص السابق يغطيها فعلاً).
+    const renderCount = await page.evaluate(() => window.__TEST_TURNSTILE__.getRenderCount());
+    check('12) ودجت Turnstile رُسم مرتين فقط (الإقلاع + انتقال الشاشة)، بلا renderAuth() تدميري أثناء الإرسال', renderCount === 2);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 13) إعادة الإرسال من شاشة الرمز (resendOtp، بتجاوز العد التنازلي عبر نداء
+  //     مباشر — لا حاجة لـ hook جديد لهذا الاختبار وحده) تحصل على رمز
+  //     Turnstile ثانٍ مختلف فعلياً عن رمز الإرسال الأول، وتنجح مع CAPTCHA
+  //     مفعّلة — ارتداد لعطل غياب #turnstile-container في شاشة الرمز (كان
+  //     يعني captchaToken فارغاً دائماً هناك، راجع CLAUDE.md).
+  // =========================================================================
+  {
+    const scenario = baseScenario({ captchaEnabled: true });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await page.fill('#ph', '512345678');
+    await page.click('#send');
+    await page.waitForSelector('[data-otp="0"]', { timeout: 3000 });
+    await page.evaluate(() => resendOtp());
+    await page.waitForFunction(() => window.__TEST__.getUsedCaptchaTokens().length >= 2, { timeout: 3000 }).catch(() => {});
+    const used = await page.evaluate(() => window.__TEST__.getUsedCaptchaTokens());
+    check('13) resendOtp() من شاشة الرمز يحصل على رمز Turnstile ثانٍ مختلف عن رمز الإرسال الأول', used.length === 2 && used[0] !== used[1]);
+    const toastText = await page.textContent('#toast-text').catch(() => '');
+    check('13) إعادة الإرسال تنجح فعلياً (لا رفض captcha) رغم تفعيل CAPTCHA', /تم إرسال الرمز مرة أخرى/.test(toastText));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 14) تحقق من بنية الاختبار نفسها (fake-supabase.js): استهلاك رمز Turnstile
+  //     مرة واحدة فعلياً — أول استخدام ينجح، إعادة استخدام نفس الرمز تُرفض،
+  //     ورمز مفقود كلياً يُرفض أيضاً عند captchaEnabled. بلا هذا، اختبارا 12
+  //     و13 قد ينجحان لسبب خاطئ لو كانت محاكاة الاستهلاك نفسها معطوبة.
+  // =========================================================================
+  {
+    const scenario = baseScenario({ captchaEnabled: true });
+    const { context, page } = await openMerchant(browser, { scenario });
+    const results = await page.evaluate(async () => {
+      var sb = window.__NOJ_SUPABASE_CLIENT__;
+      var r1 = await sb.auth.signInWithOtp({ phone: '+966512345678', options: { captchaToken: 'dup-token' } });
+      var r2 = await sb.auth.signInWithOtp({ phone: '+966512345678', options: { captchaToken: 'dup-token' } });
+      var r3 = await sb.auth.signInWithOtp({ phone: '+966512345678', options: {} });
+      return { e1: r1.error, e2: r2.error, e3: r3.error };
+    });
+    check('14) أول استخدام لرمز Turnstile ينجح', !results.e1);
+    check('14) إعادة استخدام نفس الرمز تُرفض (محاكاة استهلاك مرة واحدة فعلياً)', !!results.e2 && /captcha/i.test(results.e2.message));
+    check('14) رمز مفقود كلياً يُرفض أيضاً عند تفعيل CAPTCHA', !!results.e3 && /captcha/i.test(results.e3.message));
     await context.close();
   }
 

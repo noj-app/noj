@@ -17,7 +17,7 @@
 
   function buildFakeSupabase(scenario) {
     var storageKey = scenario.storageKey || MERCHANT_STORAGE_KEY;
-    var state = { lastApproveCall: null, lastUpdateCall: null };
+    var state = { lastApproveCall: null, lastUpdateCall: null, usedCaptchaTokens: [] };
 
     function readSession() {
       try {
@@ -112,6 +112,21 @@
         getSession: function () { return Promise.resolve({ data: { session: readSession() } }); },
         signInWithOtp: function (args) {
           if (scenario.otpSendShouldFail) return Promise.resolve({ error: { message: 'send failed' } });
+          // محاكاة واقعية لرفض CAPTCHA من Supabase — فقط حين captchaEnabled
+          // (سيناريوهات لا تحتاج هذا التفصيل تبقى كما كانت، بلا أي تحقق).
+          // رمز Turnstile يُستهلَك مرة واحدة فعلياً لدى Cloudflare/Supabase
+          // (راجع CLAUDE.md) — usedCaptchaTokens هنا يحاكي ذلك: نفس الرمز
+          // المُرسَل مرتين يُرفض في المرة الثانية، تماماً كالحي.
+          if (scenario.captchaEnabled) {
+            var token = args.options && args.options.captchaToken;
+            if (!token) {
+              return Promise.resolve({ error: { message: 'captcha verification process failed' } });
+            }
+            if (state.usedCaptchaTokens.indexOf(token) !== -1) {
+              return Promise.resolve({ error: { message: 'captcha verification process failed' } });
+            }
+            state.usedCaptchaTokens.push(token);
+          }
           scenario.__pendingPhone = args.phone;
           return Promise.resolve({ data: {}, error: null });
         },
@@ -133,6 +148,7 @@
       getLastApproveCall: function () { return state.lastApproveCall; },
       getLastUpdateCall: function () { return state.lastUpdateCall; },
       getDevices: function () { return scenario.devices || []; },
+      getUsedCaptchaTokens: function () { return state.usedCaptchaTokens.slice(); },
     };
     return client;
   }
