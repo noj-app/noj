@@ -40,6 +40,9 @@ function baseScenario(overrides) {
     devices: [
       { id: 'device-1', branch_id: 'branch-1', label: 'تابلت الكاشير', is_active: true, revoked_at: null, last_seen_at: '2026-01-10T08:00:00Z', created_at: '2026-01-10T08:00:00Z' },
     ],
+    branchSettings: [
+      { branch_id: 'branch-1', sector_code: 'medical', biz_name: 'مركز النور', biz_branch: 'فرع الملقا', biz_slogan: 'رعايتك أولويتنا', biz_logo: '', pos_mode: 'demo' },
+    ],
   }, overrides);
 }
 
@@ -158,7 +161,9 @@ async function loginFlow(page, phone, otp) {
   }
 
   // =========================================================================
-  // 5) شاشة الأجهزة: الفرع، الحالة، آخر نشاط.
+  // 5) شاشة الأجهزة: الفرع، الحالة، تاريخ الاعتماد. التسمية "تاريخ
+  //    الاعتماد" (لا "آخر نشاط") لأن last_seen_at يُكتَب مرة واحدة فقط عند
+  //    الاعتماد ولا يتحدَّث بنشاط حي لاحق — راجع CLAUDE.md.
   // =========================================================================
   {
     const scenario = baseScenario({});
@@ -168,7 +173,8 @@ async function loginFlow(page, phone, otp) {
     const rowText = await page.textContent('.dev-row');
     check('5) اسم الفرع يظهر في صف الجهاز', /فرع الملقا/.test(rowText));
     check('5) حالة "فعّال" تظهر لجهاز نشط', /فعّال/.test(rowText));
-    check('5) وقت آخر نشاط يظهر (من last_seen_at)', /2026-01-10/.test(rowText));
+    check('5) التسمية الصادقة "تاريخ الاعتماد" تظهر (لا "آخر نشاط")', /تاريخ الاعتماد/.test(rowText) && !/آخر نشاط/.test(rowText));
+    check('5) تاريخ الاعتماد الفعلي يظهر (من last_seen_at)', /2026-01-10/.test(rowText));
     await context.close();
   }
 
@@ -366,6 +372,236 @@ async function loginFlow(page, phone, otp) {
     check('14) أول استخدام لرمز Turnstile ينجح', !results.e1);
     check('14) إعادة استخدام نفس الرمز تُرفض (محاكاة استهلاك مرة واحدة فعلياً)', !!results.e2 && /captcha/i.test(results.e2.message));
     check('14) رمز مفقود كلياً يُرفض أيضاً عند تفعيل CAPTCHA', !!results.e3 && /captcha/i.test(results.e3.message));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 15) إعدادات الفرع: تعرض القيم الحقيقية الحالية للفرع المختار (اسم،
+  //     فرع نصي، شعار فرعي، قطاع، وضع) من branch_settings — لا قيم فارغة
+  //     أو افتراضية رغم وجود بيانات محفوظة فعلاً.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#fBizName', { timeout: 3000 });
+    check('15) حقل الاسم يعرض القيمة المحفوظة فعلياً', await page.inputValue('#fBizName') === 'مركز النور');
+    check('15) حقل الفرع النصي يعرض القيمة المحفوظة فعلياً', await page.inputValue('#fBizBranch') === 'فرع الملقا');
+    check('15) حقل الشعار الفرعي يعرض القيمة المحفوظة فعلياً', await page.inputValue('#fBizSlogan') === 'رعايتك أولويتنا');
+    check('15) زر القطاع الصحيح (طبي) مُحدَّد', await page.$eval('#sectorSw button[data-sector="medical"]', (b) => b.classList.contains('on')));
+    check('15) زر الوضع الصحيح (تجريبي) مُحدَّد', await page.$eval('#modeSw button[data-mode="demo"]', (b) => b.classList.contains('on')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 16) حفظ إعدادات الفرع: يكتب كل الحقول الصحيحة فعلياً إلى branch_settings
+  //     (سطر واحد، لا افتراضاً) — تغيير الاسم والقطاع ثم الحفظ.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#fBizName', { timeout: 3000 });
+    await page.fill('#fBizName', 'مركز النور الطبي الجديد');
+    await page.click('#sectorSw button[data-sector="cafe"]');
+    await page.click('#settingsSaveBtn');
+    await page.waitForFunction(() => window.__TEST__.getLastBranchSettingsUpdate() !== null, { timeout: 3000 }).catch(() => {});
+    const update = await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate());
+    check('16) الحفظ يستهدف الفرع الصحيح فعلياً', update && update.filters.some((f) => f.col === 'branch_id' && f.val === 'branch-1'));
+    check('16) الحفظ يكتب الاسم الجديد فعلياً', update && update.payload.biz_name === 'مركز النور الطبي الجديد');
+    check('16) الحفظ يكتب القطاع الجديد فعلياً', update && update.payload.sector_code === 'cafe');
+    check('16) الحفظ يكتب pos_mode (لم يتغيّر هنا، لا يزال تجريبي)', update && update.payload.pos_mode === 'demo');
+    await context.close();
+  }
+
+  // =========================================================================
+  // 17) تحويل الوضع: الضغط على "مباشر" يفتح تنبيه تأكيد أولاً — لا يتغيّر
+  //     الوضع المختار فعلياً إلا بعد التأكيد الصريح. التراجع يبقيه كما كان.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#modeSw', { timeout: 3000 });
+    await page.click('#modeSw button[data-mode="live"]');
+    await page.waitForSelector('#modeConfirmOv', { timeout: 2000 });
+    check('17) الضغط على وضع مختلف يفتح تنبيه تأكيد', await page.$('#modeConfirmOv') !== null);
+    check('17) الوضع المختار في DRAFT لم يتغيّر بعد قبل التأكيد', await page.$eval('#modeSw button[data-mode="demo"]', (b) => b.classList.contains('on')));
+
+    await page.click('#modeConfirmCancel');
+    check('17) التراجع يغلق التنبيه بلا أي تغيير', await page.$('#modeConfirmOv') === null);
+    check('17) الوضع يبقى تجريبياً بعد التراجع', await page.$eval('#modeSw button[data-mode="demo"]', (b) => b.classList.contains('on')));
+
+    await page.click('#modeSw button[data-mode="live"]');
+    await page.waitForSelector('#modeConfirmOv', { timeout: 2000 });
+    await page.click('#modeConfirmOk');
+    check('17) التأكيد يطبّق الوضع الجديد فعلياً في DRAFT', await page.$eval('#modeSw button[data-mode="live"]', (b) => b.classList.contains('on')));
+
+    await page.click('#settingsSaveBtn');
+    await page.waitForFunction(() => {
+      var u = window.__TEST__.getLastBranchSettingsUpdate();
+      return u && u.payload.pos_mode === 'live';
+    }, { timeout: 3000 }).catch(() => {});
+    const update = await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate());
+    check('17) الحفظ بعد التأكيد يكتب pos_mode=live فعلياً', update && update.payload.pos_mode === 'live');
+    await context.close();
+  }
+
+  // =========================================================================
+  // 18) رفع الشعار: نفس قيود kiosk.html بالضبط (صيغة صورة فقط، 500 كيلوبايت
+  //     كحد أقصى) — صورة صالحة تُقبل، ملف غير صورة يُرفض، صورة كبيرة تُرفض.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    // #fBizLogo مخفي عمداً (style="display:none"، زر "اختيار صورة" يفتحه) —
+    // state:'attached' لا 'visible' الافتراضية، فPlaywright يرفض الانتظار
+    // على عنصر مخفي بصرياً رغم أن setInputFiles يعمل عليه دون أي مشكلة.
+    await page.waitForSelector('#fBizLogo', { state: 'attached', timeout: 3000 });
+
+    const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+    await page.setInputFiles('#fBizLogo', { name: 'logo.png', mimeType: 'image/png', buffer: tinyPng });
+    await page.waitForSelector('#logoPreview img', { timeout: 2000 }).catch(() => {});
+    check('18) صورة صالحة وصغيرة: المعاينة تُحدَّث بصورة فعلية', await page.$('#logoPreview img') !== null);
+    check('18) لا رسالة تحذير لصورة صالحة', (await page.textContent('#logoWarn')) === '');
+
+    const notAnImage = Buffer.from('hello world');
+    await page.setInputFiles('#fBizLogo', { name: 'notes.txt', mimeType: 'text/plain', buffer: notAnImage });
+    check('18) ملف ليس صورة: رسالة رفض واضحة', /الرجاء اختيار ملف صورة صحيح/.test(await page.textContent('#logoWarn')));
+
+    const oversized = Buffer.alloc(600 * 1024, 1);
+    await page.setInputFiles('#fBizLogo', { name: 'big.png', mimeType: 'image/png', buffer: oversized });
+    check('18) صورة أكبر من 500 كيلوبايت: رسالة رفض واضحة', /الحد الأقصى 500 كيلوبايت/.test(await page.textContent('#logoWarn')));
+    // الصورة الصالحة السابقة تبقى محفوظة في DRAFT — الرفض لا يمسحها.
+    check('18) الرفض لا يمسح الصورة الصالحة المُحمَّلة سابقاً', await page.$('#logoPreview img') !== null);
+
+    await context.close();
+  }
+
+  // =========================================================================
+  // 19) رمز إعدادات الكشك وتوكن ربط الكاشير: قسمان للمالك فقط — غائبان
+  //     كلياً عن واجهة موظف (staff)، رغم أن نفس الفرع والتاجر.
+  // =========================================================================
+  {
+    const scenario = baseScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#fBizName', { timeout: 3000 });
+    check('19) قسم رمز إعدادات الكشك غائب كلياً عن واجهة الموظف', await page.$('#pinInput') === null);
+    check('19) قسم توكن ربط الكاشير غائب كلياً عن واجهة الموظف', await page.$('#posTokenIssueBtn') === null);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 20) رمز إعدادات الكشك (مالك): حفظ رمز صحيح يستدعي الدالة بالفرع والرمز
+  //     الصحيحين، يمسح الحقل فوراً (لا يُعرض الرمز أبداً بعد الحفظ)، ويعرض
+  //     رسالة نجاح. رمز غير صحيح الصيغة يُرفض قبل أي نداء للخادم إطلاقاً.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#pinInput', { timeout: 3000 });
+
+    await page.fill('#pinInput', '12');
+    await page.click('#pinSaveBtn');
+    // '#pinInput ~ .form-warn' لا '.card .form-warn' عمداً — قسم الشعار في
+    // بطاقة إعدادات الفرع يحمل #logoWarn.form-warn فارغاً دوماً (مُحدَّث
+    // مباشرة من JS لا عبر renderApp())، فهو أول .form-warn في ترتيب DOM
+    // وكان يُطابَق خطأً بدل تحذير رمز PIN الفعلي.
+    check('20) رمز من رقمين فقط: رسالة رفض واضحة', /4 أرقام بالضبط/.test(await page.textContent('#pinInput ~ .form-warn')));
+    check('20) لا نداء للخادم عند رفض الصيغة محلياً', await page.evaluate(() => window.__TEST__.getLastSetPinCall()) === null);
+
+    await page.fill('#pinInput', '9876');
+    await page.click('#pinSaveBtn');
+    await page.waitForFunction(() => window.__TEST__.getLastSetPinCall() !== null, { timeout: 3000 });
+    const call = await page.evaluate(() => window.__TEST__.getLastSetPinCall());
+    check('20) الحفظ يستدعي merchant_set_admin_pin بالفرع والرمز الصحيحين', call && call.p_branch_id === 'branch-1' && call.p_pin === '9876');
+    check('20) الحقل يُمسَح فوراً بعد الحفظ — لا يُعرض الرمز أبداً', await page.inputValue('#pinInput') === '');
+    check('20) رسالة نجاح تظهر', /تم حفظ الرمز بنجاح/.test(await page.textContent('body')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 21) توكن ربط الكاشير (مالك): يتطلب تأكيداً قبل الإصدار — التراجع لا
+  //     يستدعي الخادم إطلاقاً. التأكيد يُصدر التوكن ويعرضه مرة واحدة، وزر
+  //     النسخ موجود.
+  // =========================================================================
+  {
+    const scenario = baseScenario({});
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#posTokenIssueBtn', { timeout: 3000 });
+
+    await page.click('#posTokenIssueBtn');
+    await page.waitForSelector('#posTokenConfirmOv', { timeout: 2000 });
+    await page.click('#posTokenConfirmCancel');
+    check('21) التراجع يغلق التنبيه بلا أي نداء للخادم', await page.evaluate(() => window.__TEST__.getIssuedPosTokenCount()) === 0);
+    check('21) لا توكن معروض بعد التراجع', await page.$('#posTokenValue') === null);
+
+    await page.click('#posTokenIssueBtn');
+    await page.waitForSelector('#posTokenConfirmOv', { timeout: 2000 });
+    await page.click('#posTokenConfirmOk');
+    await page.waitForSelector('#posTokenValue', { timeout: 3000 });
+    const shown = await page.textContent('#posTokenValue');
+    const issued = await page.evaluate(() => window.__TEST__.getLastIssuedPosToken());
+    check('21) التوكن المعروض يطابق التوكن الصادر فعلياً من الخادم', shown === issued);
+    check('21) زر النسخ ظاهر مع التوكن', await page.$('#posTokenCopyBtn') !== null);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 22) دفاع في العمق: دالتا merchant_set_admin_pin/merchant_issue_pos_token
+  //     ترفضان الموظف حتى عند استدعائهما مباشرة (تجاوز الواجهة كلياً عبر
+  //     page.evaluate) — لا تكفي إخفاء الأقسام في الواجهة وحده.
+  // =========================================================================
+  {
+    const scenario = baseScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#fBizName', { timeout: 3000 });
+    const results = await page.evaluate(async () => {
+      var sb = window.__NOJ_SUPABASE_CLIENT__;
+      var r1 = await sb.rpc('merchant_set_admin_pin', { p_branch_id: 'branch-1', p_pin: '1234' });
+      var r2 = await sb.rpc('merchant_issue_pos_token', { p_branch_id: 'branch-1' });
+      return { e1: r1.error, e2: r2.error };
+    });
+    check('22) merchant_set_admin_pin ترفض موظفاً حتى عند النداء المباشر', !!results.e1 && /لا تملك صلاحية/.test(results.e1.message));
+    check('22) merchant_issue_pos_token ترفض موظفاً حتى عند النداء المباشر', !!results.e2 && /لا تملك صلاحية/.test(results.e2.message));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 23) تبديل فرع الإعدادات (تاجر بأكثر من فرع): يحمِّل إعدادات الفرع الجديد
+  //     فعلياً، ويُسقط أي رمز توكن POS معروض من الفرع السابق فوراً — لا يبقى
+  //     توكن فرع آخر ظاهراً وهماً أنه يخص الفرع المختار حديثاً.
+  // =========================================================================
+  {
+    const scenario = baseScenario({
+      branches: [
+        { id: 'branch-1', merchant_id: 'merchant-1', name: 'فرع الملقا' },
+        { id: 'branch-2', merchant_id: 'merchant-1', name: 'فرع العليا' },
+      ],
+      branchSettings: [
+        { branch_id: 'branch-1', sector_code: 'medical', biz_name: 'مركز النور', biz_branch: 'فرع الملقا', biz_slogan: '', biz_logo: '', pos_mode: 'demo' },
+        { branch_id: 'branch-2', sector_code: 'cafe', biz_name: 'مركز النور', biz_branch: 'فرع العليا', biz_slogan: '', biz_logo: '', pos_mode: 'live' },
+      ],
+    });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#posTokenIssueBtn', { timeout: 3000 });
+
+    await page.click('#posTokenIssueBtn');
+    await page.click('#posTokenConfirmOk');
+    await page.waitForSelector('#posTokenValue', { timeout: 3000 });
+    check('23) توكن الفرع الأول ظاهر قبل التبديل', await page.$('#posTokenValue') !== null);
+
+    await page.selectOption('#settingsBranchSelect', 'branch-2');
+    await page.waitForFunction(() => document.getElementById('fBizBranch') && document.getElementById('fBizBranch').value === 'فرع العليا', { timeout: 3000 });
+    check('23) حقل الفرع النصي يعكس بيانات الفرع الثاني فعلياً', await page.inputValue('#fBizBranch') === 'فرع العليا');
+    check('23) زر الوضع الصحيح للفرع الثاني (مباشر) مُحدَّد', await page.$eval('#modeSw button[data-mode="live"]', (b) => b.classList.contains('on')));
+    check('23) توكن الفرع الأول لم يعد معروضاً بعد التبديل للفرع الثاني', await page.$('#posTokenValue') === null);
     await context.close();
   }
 

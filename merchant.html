@@ -115,6 +115,23 @@
   .toast div{background:var(--navy);color:#fff;font-size:13px;font-weight:600;padding:11px 20px;border-radius:99px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
 
   .loading-row{text-align:center;padding:40px 0;color:var(--muted);font-size:13px}
+
+  /* ================= إعدادات الفرع / الرمز / توكن POS ================= */
+  .adm-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .logo-preview{width:56px;height:56px;border-radius:16px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#fff;border:1.5px solid var(--line);flex-shrink:0}
+  .logo-preview img{width:100%;height:100%;object-fit:cover}
+  .logo-preview svg{opacity:.3}
+  .btn-outline{padding:9px 14px;border-radius:10px;border:1.5px solid var(--line);font-size:12.5px;font-weight:700;color:var(--navy);background:var(--card)}
+  .logo-remove{font-size:12px;font-weight:700;color:var(--red);padding:8px 10px}
+  .sw{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .sw button{padding:9px 14px;border-radius:10px;background:var(--bg);border:1.5px solid var(--line);font-size:12.5px;font-weight:700;color:var(--muted)}
+  .sw button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .pin-input{width:100%;max-width:160px;text-align:center;letter-spacing:10px;font-size:20px;font-weight:800;border:1.5px solid var(--line);border-radius:12px;padding:12px 10px 12px 2px;background:var(--bg);color:var(--text)}
+  .pin-input:focus{outline:none;border-color:var(--navy)}
+  .token-box{background:var(--bg);border:1.5px dashed var(--navy-2);border-radius:12px;padding:14px;margin-top:14px;word-break:break-all;font-size:12.5px;direction:ltr;text-align:left;font-family:monospace;color:var(--text)}
+  .token-warn{font-size:12.5px;color:var(--orange);font-weight:700;margin-top:10px}
+  .ok-msg{font-size:12.5px;color:var(--green);margin-top:8px;font-weight:600}
+  .owner-only-note{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 </style>
 </head>
 <body>
@@ -459,7 +476,16 @@ async function doVerify(){
    المُدخَل، ولا بأي معامل آخر. صف غير موجود = لا صلاحية، نقطة واحدة،
    بلا أي استثناء. لا إنشاء profile ولا صف merchant_members من هنا أبداً
    تحت أي ظرف — هذه الصفحة تقرأ فقط، لا تُسجِّل أحداً. */
-var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null};
+var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
+  settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
+  pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
+  posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:''};
+
+/* القطاعات نفسها معروضة بالاسم العربي هنا فقط للعرض — لا علاقة لها ببيانات
+   T{} الكاملة في kiosk.html (قوالب عرض تفصيلية لا تخص لوحة التاجر إطلاقاً)،
+   فقط تسمية مختصرة لكل sector_code الثابت المخزَّن في branch_settings. */
+var SECTOR_LABELS={medical:'طبي',cafe:'مقهى',restaurant:'مطعم',grocery:'بقالة'};
+var SECTOR_KEYS=Object.keys(SECTOR_LABELS);
 
 async function checkAccess(){
   var sb=await getSb();
@@ -534,12 +560,58 @@ async function loadDashboardData(){
   }
 
   M.loading=false;
+  // تبديل التاجر/إعادة التحميل: فرع الإعدادات النشط يعود دوماً لأول فرع —
+  // لا معنى لإبقاء معرّف فرع تاجر سابق، ولا لأي حالة PIN/توكن معلَّقة من
+  // جلسة عرض سابقة (رمز لم يُحفَظ، توكن ظاهر من إصدار سابق...).
+  M.settingsBranchId=M.branches.length?M.branches[0].id:null;
+  M.settingsDraft=null;M.settingsSaveErr='';M.pendingMode=null;
+  M.pinInput='';M.pinMsg='';M.pinErr='';
+  M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';
+  renderApp();
+  if(M.settingsBranchId)await loadBranchSettings(M.settingsBranchId);
+}
+
+/* يحمِّل صف branch_settings الحقيقي للفرع المختار في قسم "إعدادات الفرع" —
+   مصدر واحد للقراءة، نفس الجدول الذي يقرأه/يكتبه kiosk.html تماماً، عبر
+   سياسة RLS الموجودة أصلاً ("merchant staff can select/update their branch
+   settings") بلا أي دالة جديدة لهذا الجزء. */
+async function loadBranchSettings(branchId){
+  // رمز PIN/توكن POS معروضان مرتبطان بفرع بعينه — تبديل الفرع (حتى بلا
+  // تبديل تاجر) يُسقطهما فوراً، فلا يبقى توكن ظاهر لفرع سابق معروضاً وهماً
+  // أنه لا يزال يخص الفرع الجديد المختار.
+  M.pinInput='';M.pinMsg='';M.pinErr='';
+  M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';
+  M.settingsLoading=true;M.settingsSaveErr='';renderApp();
+  var sb=await getSb();
+  if(!sb){M.settingsLoading=false;renderApp();return}
+  var res=await sb.from('branch_settings').select('*').eq('branch_id',branchId).single();
+  M.settingsLoading=false;
+  if(res.error||!res.data){
+    M.settingsDraft=null;
+    renderApp();return;
+  }
+  var row=res.data;
+  M.settingsDraft={
+    sector:SECTOR_KEYS.indexOf(row.sector_code)!==-1?row.sector_code:SECTOR_KEYS[0],
+    bizName:row.biz_name||'',bizBranch:row.biz_branch||'',bizSlogan:row.biz_slogan||'',bizLogo:row.biz_logo||'',
+    mode:row.pos_mode||'demo'
+  };
+  M.pendingMode=null;
   renderApp();
 }
 
 function branchName(id){
   var b=M.branches.find(function(x){return x.id===id});
   return b?b.name:'—';
+}
+
+/* دور المستخدم في التاجر النشط حالياً — من نفس M.merchants التي قرأها
+   checkAccess() أصلاً من merchant_members (merchant_id,role)، بلا أي
+   استعلام إضافي. 'owner' فقط يرى قسمي رمز الإعدادات وتوكن POS (التحقق
+   الحقيقي من الصلاحية في الخادم عبر الدالتين أنفسهما — هذا للعرض فقط). */
+function activeRole(){
+  var m=M.merchants.find(function(x){return x.merchant_id===M.activeMerchantId});
+  return m?m.role:null;
 }
 
 function fmtDateTime(s){
@@ -558,7 +630,7 @@ function devicesListHtml(){
     return '<div class="dev-row">'+
       '<div class="dev-info">'+
         '<b>'+escAttr(d.label||'تابلت')+' — '+escAttr(branchName(d.branch_id))+'</b>'+
-        '<small>'+(lastSeen?'آخر نشاط: '+lastSeen:'لا نشاط مسجَّل')+'</small>'+
+        '<small>'+(lastSeen?'تاريخ الاعتماد: '+lastSeen:'لا تاريخ اعتماد مسجَّل')+'</small>'+
       '</div>'+
       '<div class="dev-actions">'+
         '<span class="badge '+(active?'active':'revoked')+'">'+(active?'فعّال':'مُلغى')+'</span>'+
@@ -610,6 +682,111 @@ function confirmRevokeHtml(){
   '</div></div>';
 }
 
+/* ================= إعدادات الفرع =================
+   تقرأ/تكتب branch_settings مباشرة — نفس الجدول والسياسة اللذين يستخدمهما
+   kiosk.html تماماً ("merchant staff can select/update their branch
+   settings")، بلا أي دالة RPC جديدة. متاحة للمالك والموظف معاً (لا تمييز
+   دور في سياسة RLS نفسها). فرع الإعدادات النشط (M.settingsBranchId) يحكم
+   أيضاً قسمي رمز PIN وتوكن POS أسفله. */
+function branchSettingsHtml(){
+  if(!M.branches.length){
+    return '<div class="card"><div class="empty">لا فروع لهذا التاجر بعد.</div></div>';
+  }
+  if(M.settingsLoading||!M.settingsDraft){
+    return '<div class="card"><div class="loading-row">جارٍ التحميل...</div></div>';
+  }
+  var d=M.settingsDraft;
+  return '<div class="card">'+
+    '<label class="form-f"><label>الفرع</label><select id="settingsBranchSelect">'+
+      M.branches.map(function(b){return '<option value="'+b.id+'"'+(b.id===M.settingsBranchId?' selected':'')+'>'+escAttr(b.name)+'</option>'}).join('')+
+    '</select></label>'+
+    '<label class="form-f"><label>شعار المحل (اختياري)</label>'+
+      '<div class="adm-row">'+
+        '<div class="logo-preview" id="logoPreview">'+(d.bizLogo?'<img src="'+escAttr(d.bizLogo)+'" alt="">':'<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A93AD" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>')+'</div>'+
+        '<button type="button" class="btn-outline" id="pickLogoBtn">اختيار صورة</button>'+
+        '<button type="button" class="logo-remove" id="removeLogoBtn" style="'+(d.bizLogo?'':'display:none')+'">إزالة</button>'+
+        '<input type="file" accept="image/*" id="fBizLogo" style="display:none">'+
+      '</div>'+
+      '<div class="form-warn" id="logoWarn"></div>'+
+    '</label>'+
+    '<label class="form-f"><label>الاسم</label><input type="text" id="fBizName" value="'+escAttr(d.bizName)+'" placeholder="اسم المنشأة"></label>'+
+    '<label class="form-f"><label>الفرع (نص وصفي)</label><input type="text" id="fBizBranch" value="'+escAttr(d.bizBranch)+'" placeholder="مثال: فرع العليا"></label>'+
+    '<label class="form-f"><label>الشعار الفرعي</label><input type="text" id="fBizSlogan" value="'+escAttr(d.bizSlogan)+'" placeholder="جملة قصيرة تظهر تحت الاسم"></label>'+
+    '<label class="form-f"><label>القطاع</label><div class="sw" id="sectorSw">'+
+      SECTOR_KEYS.map(function(k){return '<button type="button" data-sector="'+k+'" class="'+(d.sector===k?'on':'')+'">'+SECTOR_LABELS[k]+'</button>'}).join('')+
+    '</div></label>'+
+    '<label class="form-f"><label>الوضع</label><div class="sw" id="modeSw">'+
+      '<button type="button" data-mode="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
+      '<button type="button" data-mode="live" class="'+(d.mode==='live'?'on':'')+'">مباشر</button>'+
+    '</div></label>'+
+    '<button class="approve-btn" id="settingsSaveBtn">'+(M.settingsSaving?'<span class="spinner"></span> جارٍ الحفظ...':'حفظ الإعدادات')+'</button>'+
+    (M.settingsSaveErr?'<div class="form-warn">'+escAttr(M.settingsSaveErr)+'</div>':'')+
+  '</div>';
+}
+
+/* تنبيه قبل تفعيل تحويل الوضع فعلياً في DRAFT (لا الحفظ نفسه بعد) — التحويل
+   يُغيّر سلوك كل أكشاك الفرع فور الحفظ، فلا يُطبَّق بضغطة واحدة بلا تأكيد. */
+function modeConfirmHtml(){
+  if(!M.pendingMode)return '';
+  var toLive=M.pendingMode==='live';
+  return '<div class="ov" id="modeConfirmOv"><div class="confirm-box">'+
+    '<h3>'+(toLive?'التحويل للوضع المباشر؟':'التحويل للوضع التجريبي؟')+'</h3>'+
+    '<p>'+(toLive?
+      'سيبدأ كل أكشاك هذا الفرع بالتقاط فواتير حقيقية من الكاشير فور الحفظ، بدل بيانات العرض التجريبي.':
+      'ستعود كل أكشاك هذا الفرع لعرض بيانات تجريبية ثابتة بدل التقاط فواتير حقيقية، فور الحفظ.')+'</p>'+
+    '<div class="confirm-row">'+
+      '<button class="confirm-cancel" id="modeConfirmCancel">تراجع</button>'+
+      '<button class="confirm-ok" id="modeConfirmOk" style="background:var(--navy)">تأكيد</button>'+
+    '</div>'+
+  '</div></div>';
+}
+
+/* ================= رمز إعدادات الكشك (PIN) — المالك فقط =================
+   merchant_set_admin_pin() جديدة (supabase-migration-merchant-admin-
+   controls.sql): تتحقق من دور owner داخلياً بصرف النظر عما تعرضه هذه
+   الواجهة، ولا تُعيد قيمة الرمز أبداً. */
+function adminPinHtml(){
+  if(activeRole()!=='owner'||!M.branches.length)return '';
+  return '<div class="sec-h"><h2>رمز إعدادات الكشك</h2></div><div class="card">'+
+    '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.7">رمز من 4 أرقام يفتح شاشة إعدادات الكشك على جهاز فرع "'+escAttr(branchName(M.settingsBranchId))+'". لا تُعرض القيمة الحالية أبداً بعد الحفظ.</p>'+
+    '<input type="tel" inputmode="numeric" maxlength="4" class="pin-input" id="pinInput" value="'+escAttr(M.pinInput)+'" placeholder="••••">'+
+    '<div><button class="approve-btn" id="pinSaveBtn" style="max-width:220px;margin-top:14px">'+(M.pinSaving?'<span class="spinner"></span> جارٍ الحفظ...':'حفظ الرمز')+'</button></div>'+
+    (M.pinErr?'<div class="form-warn">'+escAttr(M.pinErr)+'</div>':'')+
+    (M.pinMsg?'<div class="ok-msg">'+escAttr(M.pinMsg)+'</div>':'')+
+  '</div>';
+}
+
+/* ================= توكن ربط الكاشير (POS) — المالك فقط =================
+   merchant_issue_pos_token() جديدة، بالاعتماد الداخلي على issue_branch_
+   pos_token() الأصلية غير المُعدَّلة (راجع الملف). التوكن الخام يظهر مرة
+   واحدة فقط هنا، ولا يُحفَظ في M بعد مغادرة الشاشة (يُصفَّر عند أي
+   loadDashboardData لاحقة). */
+function posTokenHtml(){
+  if(activeRole()!=='owner'||!M.branches.length)return '';
+  return '<div class="sec-h"><h2>توكن ربط الكاشير</h2></div><div class="card">'+
+    '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.7">التوكن الذي يستخدمه نظام الكاشير في فرع "'+escAttr(branchName(M.settingsBranchId))+'" لإرسال الفواتير لنوج. إصدار توكن جديد يُبطل القديم فوراً.</p>'+
+    '<button type="button" class="btn-outline" id="posTokenIssueBtn">'+(M.posTokenIssuing?'<span class="spinner"></span> جارٍ الإصدار...':'إصدار توكن جديد')+'</button>'+
+    (M.posTokenErr?'<div class="form-warn">'+escAttr(M.posTokenErr)+'</div>':'')+
+    (M.posToken?
+      '<div class="token-box" id="posTokenValue">'+escAttr(M.posToken)+'</div>'+
+      '<div class="token-warn">انسخه الآن — لن يظهر مرة أخرى بعد مغادرة هذه الشاشة.</div>'+
+      '<button type="button" class="btn-outline" id="posTokenCopyBtn" style="margin-top:10px">نسخ</button>'
+    :'')+
+  '</div>';
+}
+
+function posTokenConfirmHtml(){
+  if(!M.posTokenConfirm)return '';
+  return '<div class="ov" id="posTokenConfirmOv"><div class="confirm-box">'+
+    '<h3>إصدار توكن جديد؟</h3>'+
+    '<p>سيتوقف الكاشير المرتبط بالتوكن الحالي فوراً عن إرسال الفواتير لفرع "'+escAttr(branchName(M.settingsBranchId))+'" حتى يُحدَّث بالتوكن الجديد.</p>'+
+    '<div class="confirm-row">'+
+      '<button class="confirm-cancel" id="posTokenConfirmCancel">تراجع</button>'+
+      '<button class="confirm-ok" id="posTokenConfirmOk">إصدار الآن</button>'+
+    '</div>'+
+  '</div></div>';
+}
+
 function renderApp(){
   var el=document.getElementById('app');
   el.innerHTML=
@@ -623,7 +800,11 @@ function renderApp(){
     '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
     '<div class="sec-h"><h2>اعتماد كشك جديد</h2></div>'+
     approveFormHtml()+
-  confirmRevokeHtml();
+    '<div class="sec-h"><h2>إعدادات الفرع</h2></div>'+
+    branchSettingsHtml()+
+    adminPinHtml()+
+    posTokenHtml()+
+  confirmRevokeHtml()+modeConfirmHtml()+posTokenConfirmHtml();
   bindApp();
 }
 
@@ -683,13 +864,150 @@ function bindApp(){
     await loadDashboardData();
     toast('تم إلغاء الجهاز');
   };
+
+  var settingsBranchSelect=document.getElementById('settingsBranchSelect');
+  if(settingsBranchSelect)settingsBranchSelect.onchange=async function(){
+    M.settingsBranchId=settingsBranchSelect.value;
+    await loadBranchSettings(M.settingsBranchId);
+  };
+
+  var pickLogoBtn=document.getElementById('pickLogoBtn');
+  var fBizLogo=document.getElementById('fBizLogo');
+  if(pickLogoBtn&&fBizLogo)pickLogoBtn.onclick=function(){fBizLogo.click()};
+  if(fBizLogo)fBizLogo.onchange=function(){
+    var file=fBizLogo.files&&fBizLogo.files[0];
+    fBizLogo.value='';
+    if(!file)return;
+    var w=document.getElementById('logoWarn');
+    if(!file.type||file.type.indexOf('image/')!==0){
+      if(w)w.textContent='الرجاء اختيار ملف صورة صحيح';
+      return;
+    }
+    if(file.size>500*1024){
+      if(w)w.textContent='حجم الصورة كبير جداً (الحد الأقصى 500 كيلوبايت)';
+      return;
+    }
+    if(w)w.textContent='';
+    var reader=new FileReader();
+    reader.onload=function(){
+      M.settingsDraft.bizLogo=reader.result;
+      renderApp();
+    };
+    reader.readAsDataURL(file);
+  };
+  var removeLogoBtn=document.getElementById('removeLogoBtn');
+  if(removeLogoBtn)removeLogoBtn.onclick=function(){M.settingsDraft.bizLogo='';renderApp()};
+
+  var fName=document.getElementById('fBizName');
+  if(fName)fName.oninput=function(){M.settingsDraft.bizName=fName.value};
+  var fBranch=document.getElementById('fBizBranch');
+  if(fBranch)fBranch.oninput=function(){M.settingsDraft.bizBranch=fBranch.value};
+  var fSlogan=document.getElementById('fBizSlogan');
+  if(fSlogan)fSlogan.oninput=function(){M.settingsDraft.bizSlogan=fSlogan.value};
+
+  [].forEach.call(document.querySelectorAll('#sectorSw button'),function(b){
+    b.onclick=function(){M.settingsDraft.sector=b.getAttribute('data-sector');renderApp()};
+  });
+
+  // التحويل الفعلي للوضع في DRAFT لا يحدث هنا مباشرة — فقط يفتح تنبيه
+  // التأكيد (modeConfirmHtml)، تماشياً مع "تنبيه واضح قبل التحويل".
+  [].forEach.call(document.querySelectorAll('#modeSw button'),function(b){
+    b.onclick=function(){
+      var m=b.getAttribute('data-mode');
+      if(m===M.settingsDraft.mode)return;
+      M.pendingMode=m;renderApp();
+    };
+  });
+
+  var modeConfirmCancel=document.getElementById('modeConfirmCancel');
+  if(modeConfirmCancel)modeConfirmCancel.onclick=function(){M.pendingMode=null;renderApp()};
+  var modeConfirmOk=document.getElementById('modeConfirmOk');
+  if(modeConfirmOk)modeConfirmOk.onclick=function(){
+    M.settingsDraft.mode=M.pendingMode;M.pendingMode=null;renderApp();
+  };
+
+  var settingsSaveBtn=document.getElementById('settingsSaveBtn');
+  if(settingsSaveBtn)settingsSaveBtn.onclick=async function(){
+    M.settingsSaving=true;M.settingsSaveErr='';renderApp();
+    var sb=await getSb();
+    var d=M.settingsDraft;
+    var res=await sb.from('branch_settings').update({
+      sector_code:d.sector,
+      biz_name:d.bizName||null,
+      biz_branch:d.bizBranch||null,
+      biz_slogan:d.bizSlogan||null,
+      biz_logo:d.bizLogo||null,
+      pos_mode:d.mode
+    }).eq('branch_id',M.settingsBranchId);
+    M.settingsSaving=false;
+    if(res.error){
+      M.settingsSaveErr='تعذّر حفظ الإعدادات، تحقق من اتصالك وحاول مرة أخرى';
+      renderApp();return;
+    }
+    renderApp();
+    toast('تم حفظ الإعدادات بنجاح');
+  };
+
+  var pinInput=document.getElementById('pinInput');
+  if(pinInput)pinInput.oninput=function(){
+    this.value=this.value.replace(/\D/g,'').slice(0,4);
+    M.pinInput=this.value;
+  };
+  var pinSaveBtn=document.getElementById('pinSaveBtn');
+  if(pinSaveBtn)pinSaveBtn.onclick=async function(){
+    M.pinMsg='';
+    if(!/^\d{4}$/.test(M.pinInput)){
+      M.pinErr='أدخل رمزاً من 4 أرقام بالضبط.';renderApp();return;
+    }
+    M.pinSaving=true;M.pinErr='';renderApp();
+    var sb=await getSb();
+    var res=await sb.rpc('merchant_set_admin_pin',{p_branch_id:M.settingsBranchId,p_pin:M.pinInput});
+    M.pinSaving=false;
+    // الرمز لا يُعاد عرضه أبداً بعد الحفظ — نجاحاً كان أو فشلاً.
+    M.pinInput='';
+    if(res.error){
+      M.pinErr=/لا تملك صلاحية/.test(res.error.message||'')?'لا تملك صلاحية على هذا الفرع.':'تعذّر حفظ الرمز، حاول مرة أخرى.';
+      renderApp();return;
+    }
+    M.pinMsg='تم حفظ الرمز بنجاح.';
+    renderApp();
+  };
+
+  var posTokenIssueBtn=document.getElementById('posTokenIssueBtn');
+  if(posTokenIssueBtn)posTokenIssueBtn.onclick=function(){M.posTokenConfirm=true;renderApp()};
+
+  var posTokenConfirmCancel=document.getElementById('posTokenConfirmCancel');
+  if(posTokenConfirmCancel)posTokenConfirmCancel.onclick=function(){M.posTokenConfirm=false;renderApp()};
+  var posTokenConfirmOk=document.getElementById('posTokenConfirmOk');
+  if(posTokenConfirmOk)posTokenConfirmOk.onclick=async function(){
+    M.posTokenConfirm=false;M.posTokenIssuing=true;M.posTokenErr='';renderApp();
+    var sb=await getSb();
+    var res=await sb.rpc('merchant_issue_pos_token',{p_branch_id:M.settingsBranchId});
+    M.posTokenIssuing=false;
+    if(res.error){
+      M.posTokenErr=/لا تملك صلاحية/.test(res.error.message||'')?'لا تملك صلاحية على هذا الفرع.':'تعذّر إصدار التوكن، حاول مرة أخرى.';
+      renderApp();return;
+    }
+    M.posToken=res.data;
+    renderApp();
+  };
+
+  var posTokenCopyBtn=document.getElementById('posTokenCopyBtn');
+  if(posTokenCopyBtn)posTokenCopyBtn.onclick=function(){
+    try{
+      navigator.clipboard.writeText(M.posToken).then(function(){toast('تم نسخ التوكن')},function(){toast('تعذّر النسخ، انسخه يدوياً')});
+    }catch(e){toast('تعذّر النسخ، انسخه يدوياً')}
+  };
 }
 
 async function doLogout(){
   var sb=await getSb();
   if(sb)await sb.auth.signOut();
   stopIdleTimer();
-  M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null};
+  M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
+    settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
+    pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
+    posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:''};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';

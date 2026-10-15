@@ -17,7 +17,10 @@
 
   function buildFakeSupabase(scenario) {
     var storageKey = scenario.storageKey || MERCHANT_STORAGE_KEY;
-    var state = { lastApproveCall: null, lastUpdateCall: null, usedCaptchaTokens: [] };
+    var state = {
+      lastApproveCall: null, lastUpdateCall: null, usedCaptchaTokens: [],
+      lastBranchSettingsUpdate: null, lastSetPinCall: null, lastIssuedPosToken: null, issuedPosTokenCount: 0
+    };
 
     function readSession() {
       try {
@@ -42,7 +45,7 @@
     }
 
     function makeBuilder(table) {
-      var filters = [], updatePayload = null;
+      var filters = [], updatePayload = null, singleRequested = false;
       function resolveList() {
         if (updatePayload) {
           if (table === 'devices') {
@@ -50,6 +53,12 @@
               if (matchesFilters(d, filters)) Object.assign(d, updatePayload);
             });
             state.lastUpdateCall = { table: table, payload: updatePayload, filters: filters.slice() };
+          }
+          if (table === 'branch_settings') {
+            (scenario.branchSettings || []).forEach(function (s) {
+              if (matchesFilters(s, filters)) Object.assign(s, updatePayload);
+            });
+            state.lastBranchSettingsUpdate = { payload: updatePayload, filters: filters.slice() };
           }
           return Promise.resolve({ data: null, error: null });
         }
@@ -69,6 +78,10 @@
           var drows = (scenario.devices || []).filter(function (r) { return matchesFilters(r, filters); });
           return Promise.resolve({ data: drows, error: null });
         }
+        if (table === 'branch_settings') {
+          var srows = (scenario.branchSettings || []).filter(function (r) { return matchesFilters(r, filters); });
+          return Promise.resolve({ data: srows, error: null });
+        }
         return Promise.resolve({ data: [], error: null });
       }
       var builder = {
@@ -77,12 +90,49 @@
         in: function (col, vals) { filters.push({ op: 'in', col: col, vals: vals }); return builder; },
         order: function () { return builder; },
         update: function (payload) { updatePayload = payload; return builder; },
-        then: function (resolve, reject) { return resolveList().then(resolve, reject); },
+        single: function () { singleRequested = true; return builder; },
+        then: function (resolve, reject) {
+          return resolveList().then(function (res) {
+            if (singleRequested && Array.isArray(res.data)) res = { data: res.data[0] || null, error: res.error };
+            return res;
+          }).then(resolve, reject);
+        },
       };
       return builder;
     }
 
+    // يحاكي التحقق الحقيقي داخل merchant_set_admin_pin()/merchant_issue_
+    // pos_token() (supabase-migration-merchant-admin-controls.sql): يشتق
+    // عضوية التاجر لفرع p_branch_id من scenario.merchantMembers/branches
+    // نفسها التي يقرأها checkAccess()، لا افتراضاً منفصلاً — صف owner
+    // فعلي مطلوب، لا يكفي أي عضو.
+    function callerIsOwnerOfBranch(branchId) {
+      var branch = (scenario.branches || []).find(function (b) { return b.id === branchId; });
+      if (!branch) return false;
+      var member = (scenario.merchantMembers || []).find(function (m) { return m.merchant_id === branch.merchant_id; });
+      return !!member && member.role === 'owner';
+    }
+
     function rpc(name, args) {
+      if (name === 'merchant_set_admin_pin') {
+        if (!/^\d{4}$/.test(args.p_pin || '')) {
+          return Promise.resolve({ data: null, error: { message: 'الرمز يجب أن يكون 4 أرقام بالضبط' } });
+        }
+        if (!callerIsOwnerOfBranch(args.p_branch_id)) {
+          return Promise.resolve({ data: null, error: { message: 'لا تملك صلاحية على هذا الفرع' } });
+        }
+        state.lastSetPinCall = args;
+        return Promise.resolve({ data: null, error: null });
+      }
+      if (name === 'merchant_issue_pos_token') {
+        if (!callerIsOwnerOfBranch(args.p_branch_id)) {
+          return Promise.resolve({ data: null, error: { message: 'لا تملك صلاحية على هذا الفرع' } });
+        }
+        state.issuedPosTokenCount++;
+        var token = 'fake-pos-token-' + state.issuedPosTokenCount;
+        state.lastIssuedPosToken = token;
+        return Promise.resolve({ data: token, error: null });
+      }
       if (name === 'approve_device_pairing') {
         state.lastApproveCall = args;
         if (args.p_pairing_code !== (scenario.validPairingCode || '123456')) {
@@ -149,6 +199,11 @@
       getLastUpdateCall: function () { return state.lastUpdateCall; },
       getDevices: function () { return scenario.devices || []; },
       getUsedCaptchaTokens: function () { return state.usedCaptchaTokens.slice(); },
+      getLastBranchSettingsUpdate: function () { return state.lastBranchSettingsUpdate; },
+      getBranchSettings: function (branchId) { return (scenario.branchSettings || []).find(function (s) { return s.branch_id === branchId; }) || null; },
+      getLastSetPinCall: function () { return state.lastSetPinCall; },
+      getLastIssuedPosToken: function () { return state.lastIssuedPosToken; },
+      getIssuedPosTokenCount: function () { return state.issuedPosTokenCount; },
     };
     return client;
   }
