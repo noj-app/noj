@@ -131,6 +131,7 @@
   .token-box{background:var(--bg);border:1.5px dashed var(--navy-2);border-radius:12px;padding:14px;margin-top:14px;word-break:break-all;font-size:12.5px;direction:ltr;text-align:left;font-family:monospace;color:var(--text)}
   .token-warn{font-size:12.5px;color:var(--orange);font-weight:700;margin-top:10px}
   .ok-msg{font-size:12.5px;color:var(--green);margin-top:8px;font-weight:600}
+  .conn-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px;color:var(--muted)}
   .owner-only-note{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 </style>
 </head>
@@ -479,7 +480,7 @@ async function doVerify(){
 var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
   settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
-  posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:''};
+  posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null};
 
 /* القطاعات نفسها معروضة بالاسم العربي هنا فقط للعرض — لا علاقة لها ببيانات
    T{} الكاملة في kiosk.html (قوالب عرض تفصيلية لا تخص لوحة التاجر إطلاقاً)،
@@ -566,7 +567,7 @@ async function loadDashboardData(){
   M.settingsBranchId=M.branches.length?M.branches[0].id:null;
   M.settingsDraft=null;M.settingsSaveErr='';M.pendingMode=null;
   M.pinInput='';M.pinMsg='';M.pinErr='';
-  M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';
+  M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';M.posConnections=null;
   renderApp();
   if(M.settingsBranchId)await loadBranchSettings(M.settingsBranchId);
 }
@@ -575,12 +576,21 @@ async function loadDashboardData(){
    مصدر واحد للقراءة، نفس الجدول الذي يقرأه/يكتبه kiosk.html تماماً، عبر
    سياسة RLS الموجودة أصلاً ("merchant staff can select/update their branch
    settings") بلا أي دالة جديدة لهذا الجزء. */
+/* حالة اتصال الكاشير للفرع — قراءة فقط من pos_connections (سياسة RLS تسمح
+   للمالك والموظف). فشل القراءة لا يعطّل أي قسم آخر: تبقى null فلا يُعرض شيء. */
+async function loadPosConnections(branchId){
+  var sb=await getSb();
+  if(!sb){M.posConnections=null;return}
+  var r=await sb.from('pos_connections').select('*').eq('branch_id',branchId);
+  M.posConnections=r.error?null:(r.data||[]);
+}
+
 async function loadBranchSettings(branchId){
   // رمز PIN/توكن POS معروضان مرتبطان بفرع بعينه — تبديل الفرع (حتى بلا
   // تبديل تاجر) يُسقطهما فوراً، فلا يبقى توكن ظاهر لفرع سابق معروضاً وهماً
   // أنه لا يزال يخص الفرع الجديد المختار.
   M.pinInput='';M.pinMsg='';M.pinErr='';
-  M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';
+  M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';M.posConnections=null;
   M.settingsLoading=true;M.settingsSaveErr='';renderApp();
   var sb=await getSb();
   if(!sb){M.settingsLoading=false;renderApp();return}
@@ -597,6 +607,7 @@ async function loadBranchSettings(branchId){
     mode:row.pos_mode||'demo'
   };
   M.pendingMode=null;
+  await loadPosConnections(branchId);
   renderApp();
 }
 
@@ -761,10 +772,24 @@ function adminPinHtml(){
    pos_token() الأصلية غير المُعدَّلة (راجع الملف). التوكن الخام يظهر مرة
    واحدة فقط هنا، ولا يُحفَظ في M بعد مغادرة الشاشة (يُصفَّر عند أي
    loadDashboardData لاحقة). */
+var CONN_STATUS_LABELS={connected:'متصل',disconnected:'منقطع',expired:'منتهي الصلاحية',error:'خطأ'};
+function posConnectionStatusHtml(){
+  if(M.posConnections===null)return '';
+  var c=M.posConnections.find(function(x){return x.provider==='generic'})||M.posConnections[0];
+  if(!c)return '<div class="conn-status" id="posConnStatus"><span class="badge revoked">غير متصل بعد</span></div>';
+  var last=fmtDateTime(c.last_invoice_at);
+  return '<div class="conn-status" id="posConnStatus">'+
+    '<span class="badge '+(c.status==='connected'?'active':'revoked')+'">'+escAttr(CONN_STATUS_LABELS[c.status]||c.status)+'</span>'+
+    '<span>'+(last?'آخر فاتورة وصلت: '+last:'لم تصل أي فاتورة بعد')+'</span>'+
+    (c.last_error?'<span class="form-warn">'+escAttr(c.last_error)+'</span>':'')+
+  '</div>';
+}
+
 function posTokenHtml(){
   if(activeRole()!=='owner'||!M.branches.length)return '';
   return '<div class="sec-h"><h2>توكن ربط الكاشير</h2></div><div class="card">'+
     '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.7">التوكن الذي يستخدمه نظام الكاشير في فرع "'+escAttr(branchName(M.settingsBranchId))+'" لإرسال الفواتير لنوج. إصدار توكن جديد يُبطل القديم فوراً.</p>'+
+    posConnectionStatusHtml()+
     '<button type="button" class="btn-outline" id="posTokenIssueBtn">'+(M.posTokenIssuing?'<span class="spinner"></span> جارٍ الإصدار...':'إصدار توكن جديد')+'</button>'+
     (M.posTokenErr?'<div class="form-warn">'+escAttr(M.posTokenErr)+'</div>':'')+
     (M.posToken?
@@ -989,6 +1014,7 @@ function bindApp(){
       renderApp();return;
     }
     M.posToken=res.data;
+    await loadPosConnections(M.settingsBranchId);
     renderApp();
   };
 
@@ -1007,7 +1033,7 @@ async function doLogout(){
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
     settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
-    posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:''};
+    posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';

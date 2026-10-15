@@ -78,6 +78,11 @@
           var drows = (scenario.devices || []).filter(function (r) { return matchesFilters(r, filters); });
           return Promise.resolve({ data: drows, error: null });
         }
+        if (table === 'pos_connections') {
+          if (scenario.posConnectionsError) return Promise.resolve({ data: null, error: { message: scenario.posConnectionsError } });
+          var prows = (scenario.posConnections || []).filter(function (r) { return matchesFilters(r, filters); });
+          return Promise.resolve({ data: prows, error: null });
+        }
         if (table === 'branch_settings') {
           var srows = (scenario.branchSettings || []).filter(function (r) { return matchesFilters(r, filters); });
           return Promise.resolve({ data: srows, error: null });
@@ -129,6 +134,12 @@
           return Promise.resolve({ data: null, error: { message: 'لا تملك صلاحية على هذا الفرع' } });
         }
         state.issuedPosTokenCount++;
+        (function () {
+          var list = (scenario.posConnections = scenario.posConnections || []);
+          var existing = list.find(function (r) { return r.branch_id === args.p_branch_id && r.provider === 'generic'; });
+          if (existing) { existing.status = 'connected'; existing.last_error = null; }
+          else list.push({ branch_id: args.p_branch_id, provider: 'generic', kind: 'token_issued', status: 'connected', last_invoice_at: null, last_error: null });
+        })();
         var token = 'fake-pos-token-' + state.issuedPosTokenCount;
         state.lastIssuedPosToken = token;
         return Promise.resolve({ data: token, error: null });

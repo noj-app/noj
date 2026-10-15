@@ -605,6 +605,71 @@ async function loginFlow(page, phone, otp) {
     await context.close();
   }
 
+  // =========================================================================
+  // 24) حالة اتصال الكاشير (قراءة فقط من pos_connections) داخل قسم توكن POS:
+  //     بلا صف = "غير متصل بعد"؛ صف متصل بفاتورة = الحالة + وقت آخر فاتورة؛
+  //     حالة غير متصل (منتهي/خطأ) تُعرض بصدق؛ وفشل القراءة لا يعطّل القسم
+  //     (زر الإصدار يبقى يعمل) ولا يعرض حالة مختلَقة.
+  // =========================================================================
+  {
+    // بلا صف
+    const { context, page } = await openMerchant(browser, { scenario: baseScenario({}) });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#posConnStatus', { timeout: 3000 });
+    check('24) فرع بلا اتصال مسجَّل: "غير متصل بعد"', /غير متصل بعد/.test(await page.textContent('#posConnStatus')));
+    // إصدار التوكن ينتج صف اتصال، فتتحوّل الحالة إلى "متصل" فوراً
+    await page.click('#posTokenIssueBtn');
+    await page.click('#posTokenConfirmOk');
+    await page.waitForSelector('#posTokenValue', { timeout: 3000 });
+    const afterIssue = await page.textContent('#posConnStatus');
+    check('24) بعد إصدار التوكن: الحالة "متصل" (قراءة جديدة بعد الإصدار)', /متصل/.test(afterIssue) && !/غير متصل/.test(afterIssue));
+    check('24) لم تصل فاتورة بعد: عبارة صادقة لا وقت مختلَق', /لم تصل أي فاتورة بعد/.test(afterIssue));
+    await context.close();
+  }
+  {
+    const scenario = baseScenario({ posConnections: [
+      { branch_id: 'branch-1', provider: 'generic', kind: 'token_issued', status: 'connected', last_invoice_at: '2026-02-03T10:15:00Z', last_error: null },
+    ] });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#posConnStatus', { timeout: 3000 });
+    const t = await page.textContent('#posConnStatus');
+    check('24) صف متصل: الحالة "متصل" مع وقت آخر فاتورة فعلي', /متصل/.test(t) && /آخر فاتورة وصلت: 2026-02-03/.test(t));
+    await context.close();
+  }
+  {
+    const scenario = baseScenario({ posConnections: [
+      { branch_id: 'branch-1', provider: 'generic', kind: 'token_issued', status: 'expired', last_invoice_at: null, last_error: 'انتهت الصلاحية' },
+    ] });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#posConnStatus', { timeout: 3000 });
+    const t = await page.textContent('#posConnStatus');
+    check('24) حالة منتهية: تُعرض "منتهي الصلاحية" لا "متصل"', /منتهي الصلاحية/.test(t) && !/^متصل/.test(t.trim()));
+    check('24) آخر خطأ مسجَّل يظهر للمالك', /انتهت الصلاحية/.test(t));
+    await context.close();
+  }
+  {
+    const scenario = baseScenario({ posConnectionsError: 'boom' });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#posTokenIssueBtn', { timeout: 3000 });
+    check('24) فشل قراءة الاتصالات: لا حالة مختلَقة تُعرض', await page.$('#posConnStatus') === null);
+    check('24) وزر إصدار التوكن يبقى يعمل (القسم لم يتعطل)', await page.$('#posTokenIssueBtn') !== null);
+    await context.close();
+  }
+  {
+    // الموظف: القسم كله غائب (لا الحالة ولا الزر) — سلوك المرحلة الثانية لم يتغيّر
+    const scenario = baseScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }], posConnections: [
+      { branch_id: 'branch-1', provider: 'generic', kind: 'token_issued', status: 'connected', last_invoice_at: null, last_error: null },
+    ] });
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#fBizName', { timeout: 3000 });
+    check('24) الموظف لا يرى قسم التوكن ولا حالته إطلاقاً', await page.$('#posConnStatus') === null && await page.$('#posTokenIssueBtn') === null);
+    await context.close();
+  }
+
   await browser.close();
   console.log('\n=== MERCHANT E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));
