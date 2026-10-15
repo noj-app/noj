@@ -103,6 +103,7 @@ async function asServiceRole(fn) {
     'supabase-migration-pos-transactions.sql', 'supabase-migration-pos-transactions-realtime.sql',
     'supabase-migration-phone-otp-foundation.sql',
     'supabase-migration-pos-intake.sql',
+    'supabase-migration-merchant-admin-controls.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -1352,7 +1353,132 @@ async function asServiceRole(fn) {
   }
 
   // =========================================================================
-  // 18) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
+  // 18) MERCHANT DASHBOARD ADMIN CONTROLS (owner-only): merchant_set_admin_
+  //     pin() + merchant_issue_pos_token() (supabase-migration-merchant-
+  //     admin-controls.sql). Fresh fixtures in this block, independent of
+  //     section 9-17's closed scope above — branches.id === merchants.id
+  //     per the branches-devices auto-mirror backfill (confirmed in section
+  //     15 above), so BRANCH can just be MATAM directly, no extra query.
+  // =========================================================================
+  {
+    const sha256Hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+    const BRANCH = MATAM;
+    const OTHER_MERCHANT = '20000000-0000-0000-0000-000000000002'; // بنده
+
+    const ownerUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [ownerUid]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [MATAM, ownerUid]));
+
+    const staffUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [staffUid]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'staff')`, [MATAM, staffUid]));
+
+    const strangerOwnerUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [strangerOwnerUid]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [OTHER_MERCHANT, strangerOwnerUid]));
+
+    // a real paired device of BRANCH, to confirm merchant_set_admin_pin()'s
+    // write is actually usable through verify_admin_pin() the way a real
+    // kiosk would call it — not just that a row changed somewhere.
+    const pinKioskUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [pinKioskUid]));
+    await admin(c => c.query(`insert into devices (auth_user_id, branch_id, is_active) values ($1,$2,true)`, [pinKioskUid, BRANCH]));
+
+    // ---- merchant_set_admin_pin() ----
+    const staffPinAttempt = await asUser(staffUid, async c => {
+      try { await c.query('select merchant_set_admin_pin($1,$2)', [BRANCH, '1234']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('merchant_set_admin_pin: a STAFF member (not owner) of this branch\'s own merchant is rejected',
+      staffPinAttempt !== 'ok' && /لا تملك صلاحية/.test(staffPinAttempt));
+
+    const strangerPinAttempt = await asUser(strangerOwnerUid, async c => {
+      try { await c.query('select merchant_set_admin_pin($1,$2)', [BRANCH, '1234']); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('merchant_set_admin_pin: an OWNER of a DIFFERENT merchant is rejected',
+      strangerPinAttempt !== 'ok' && /لا تملك صلاحية/.test(strangerPinAttempt));
+
+    const badFormatAttempts = await Promise.all(['12', 'abcd', '12345', ''].map(bad =>
+      asUser(ownerUid, async c => {
+        try { await c.query('select merchant_set_admin_pin($1,$2)', [BRANCH, bad]); return 'ok'; }
+        catch (e) { return 'fail:' + e.message; }
+      })
+    ));
+    check('merchant_set_admin_pin: a non-4-digit PIN is rejected in every malformed shape tried',
+      badFormatAttempts.every(r => r !== 'ok'));
+
+    const ownerSetPin = await asUser(ownerUid, async c => {
+      try { const res = await c.query('select merchant_set_admin_pin($1,$2) as r', [BRANCH, '4321']); return { ok: true, value: res.rows[0].r }; }
+      catch (e) { return { ok: false, message: e.message }; }
+    });
+    check('merchant_set_admin_pin: the rightful OWNER sets a PIN successfully', ownerSetPin.ok === true);
+    // psql/node-pg represent a void return as an empty string, never the
+    // PIN itself — this is the actual observed shape (confirmed locally),
+    // not an assumption.
+    check('merchant_set_admin_pin: returns VOID — the PIN value never comes back in the result', ownerSetPin.value === '');
+
+    const verifyRight = await asUser(pinKioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, '4321']));
+    check('merchant_set_admin_pin: the PIN it set is immediately usable through the REAL verify_admin_pin() path', verifyRight.rows[0].ok === true);
+    const verifyWrong = await asUser(pinKioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, '0000']));
+    check('merchant_set_admin_pin: a different PIN does not verify', verifyWrong.rows[0].ok === false);
+
+    // seed a prior lockout, then confirm a fresh merchant_set_admin_pin()
+    // clears it — an owner who forgot a locked-out PIN isn't stuck waiting.
+    await admin(c => c.query(
+      `insert into admin_pin_attempts (branch_id, fail_count, window_started_at, locked_until) values ($1,5,now(),now() + interval '15 minutes')
+       on conflict (branch_id) do update set fail_count=5, window_started_at=now(), locked_until=now() + interval '15 minutes'`,
+      [BRANCH]
+    ));
+    await asUser(ownerUid, c => c.query('select merchant_set_admin_pin($1,$2)', [BRANCH, '7777']));
+    const attemptsAfterPinChange = await admin(c => c.query('select 1 from admin_pin_attempts where branch_id=$1', [BRANCH]));
+    check('merchant_set_admin_pin: setting a new PIN clears any prior lockout/attempts row for this branch', attemptsAfterPinChange.rows.length === 0);
+    const lockedPinNowWorks = await asUser(pinKioskUid, c => c.query('select verify_admin_pin($1,$2) as ok', [BRANCH, '7777']));
+    check('merchant_set_admin_pin: the branch is no longer locked out after the PIN change', lockedPinNowWorks.rows[0].ok === true);
+
+    // ---- merchant_issue_pos_token() ----
+    const staffTokenAttempt = await asUser(staffUid, async c => {
+      try { await c.query('select merchant_issue_pos_token($1)', [BRANCH]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('merchant_issue_pos_token: a STAFF member is rejected',
+      staffTokenAttempt !== 'ok' && /لا تملك صلاحية/.test(staffTokenAttempt));
+
+    const strangerTokenAttempt = await asUser(strangerOwnerUid, async c => {
+      try { await c.query('select merchant_issue_pos_token($1)', [BRANCH]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('merchant_issue_pos_token: an OWNER of a DIFFERENT merchant is rejected',
+      strangerTokenAttempt !== 'ok' && /لا تملك صلاحية/.test(strangerTokenAttempt));
+
+    const ownerToken1 = await asUser(ownerUid, c => c.query('select merchant_issue_pos_token($1) as t', [BRANCH]));
+    const rawMToken1 = ownerToken1.rows[0].t;
+    check('merchant_issue_pos_token: the rightful OWNER issues a non-trivial raw token', typeof rawMToken1 === 'string' && rawMToken1.length >= 32);
+    const mCred1 = await admin(c => c.query('select token_hash from branch_pos_credentials where branch_id=$1', [BRANCH]));
+    check('merchant_issue_pos_token: stores only the sha256 HASH, via the delegated issue_branch_pos_token()', mCred1.rows[0].token_hash === sha256Hex(rawMToken1));
+
+    const ownerToken2 = await asUser(ownerUid, c => c.query('select merchant_issue_pos_token($1) as t', [BRANCH]));
+    const rawMToken2 = ownerToken2.rows[0].t;
+    check('merchant_issue_pos_token: rotation (calling again) produces a DIFFERENT raw token', rawMToken2 !== rawMToken1);
+    const mCred2 = await admin(c => c.query('select token_hash from branch_pos_credentials where branch_id=$1', [BRANCH]));
+    check('merchant_issue_pos_token: rotation replaces the stored hash (old token no longer matches)',
+      mCred2.rows[0].token_hash === sha256Hex(rawMToken2) && mCred2.rows[0].token_hash !== sha256Hex(rawMToken1));
+    check('merchant_issue_pos_token: still exactly one row for this branch (upsert, not a second row)',
+      (await admin(c => c.query('select count(*) from branch_pos_credentials where branch_id=$1', [BRANCH]))).rows[0].count === '1');
+
+    // ---- general lockdown: neither function grants EXECUTE to anon ----
+    const anonCanSetPin = await admin(c => c.query(
+      `select has_function_privilege('anon', 'merchant_set_admin_pin(uuid,text)', 'EXECUTE') as can`
+    ));
+    check('merchant_set_admin_pin: anon is NOT granted EXECUTE at all', anonCanSetPin.rows[0].can === false);
+    const anonCanIssueToken = await admin(c => c.query(
+      `select has_function_privilege('anon', 'merchant_issue_pos_token(uuid)', 'EXECUTE') as can`
+    ));
+    check('merchant_issue_pos_token: anon is NOT granted EXECUTE at all', anonCanIssueToken.rows[0].can === false);
+  }
+
+  // =========================================================================
+  // 19) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
   //     grants EXECUTE to anon, period — not scoped to any specific function
   //     list. Catches exactly the kind of gap the per-function checks above
   //     missed: cancel_appointment() had anon granted BY NAME and nobody
