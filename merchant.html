@@ -132,6 +132,32 @@
   .token-warn{font-size:12.5px;color:var(--orange);font-weight:700;margin-top:10px}
   .ok-msg{font-size:12.5px;color:var(--green);margin-top:8px;font-weight:600}
   .conn-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px;color:var(--muted)}
+  .tabs{display:flex;gap:6px;margin:-6px 0 6px;padding:4px;background:var(--line);border-radius:14px}
+  .tabs button{flex:1;padding:10px 8px;border-radius:11px;font-size:13.5px;font-weight:800;color:var(--muted)}
+  .tabs button.on{background:var(--card);color:var(--navy);box-shadow:0 1px 4px rgba(18,35,92,.12)}
+  .inv-filters{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+  .inv-range{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .inv-range .form-f{margin:0;flex:1;min-width:130px}
+  .inv-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+  .inv-card{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:13px 14px}
+  .inv-card>span{display:block;font-size:12px;font-weight:700;color:var(--muted)}
+  .inv-card b{display:block;margin-top:6px;font-size:17px;font-weight:800;color:var(--text)}
+  .inv-card b small{font-size:11px;font-weight:700;color:var(--muted)}
+  .inv-card.net{grid-column:1/-1;background:var(--navy);border-color:var(--navy)}
+  .inv-card.net>span,.inv-card.net b small{color:rgba(255,255,255,.7)}
+  .inv-card.net b{color:#fff;font-size:21px}
+  .inv-row{padding:13px 0;border-bottom:1px solid var(--line)}
+  .inv-row:last-child{border-bottom:none}
+  .inv-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .inv-top b{font-size:13.5px}
+  .inv-sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .inv-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:10px}
+  .inv-nums div{font-size:11.5px;color:var(--muted)}
+  .inv-nums div b{display:block;margin-top:2px;font-size:13.5px;color:var(--text)}
+  .inv-nums div.ref b{color:var(--red)}
+  .num{direction:ltr;unicode-bidi:isolate;display:inline-block}
+  b.num{text-align:right}
+  .badge.warn{color:#B45309;background:rgba(245,158,11,.14)}
   .owner-only-note{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 </style>
 </head>
@@ -480,7 +506,8 @@ async function doVerify(){
 var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
   settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
-  posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null};
+  posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
+  view:'manage',inv:null};
 
 /* القطاعات نفسها معروضة بالاسم العربي هنا فقط للعرض — لا علاقة لها ببيانات
    T{} الكاملة في kiosk.html (قوالب عرض تفصيلية لا تخص لوحة التاجر إطلاقاً)،
@@ -812,6 +839,163 @@ function posTokenConfirmHtml(){
   '</div></div>';
 }
 
+/* ================= الفواتير =================
+   قراءة فقط عبر merchant_list_invoices() (supabase-migration-merchant-
+   invoices.sql): الدالة تتحقق من عضوية المستدعي بنفسها وتُرجع حالة العميل
+   (مسجَّل/غير مسجَّل) فقط — لا رقم جوال ولا معرّف عميل يصل المتصفح أصلاً. كل
+   تواريخ الفلترة بتوقيت الرياض (يُحسَب اليوم هنا بـIntl لا بتوقيت جهاز
+   التاجر، فقد يختلف). لا يُحمَّل شيء حتى يفتح المستخدم تبويب "الفواتير". */
+var INV_PAGE=25;
+function riyadhToday(){
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  var g={};parts.forEach(function(p){g[p.type]=p.value});
+  return g.year+'-'+g.month+'-'+g.day;
+}
+function addDaysIso(iso,n){
+  var p=iso.split('-');
+  return new Date(Date.UTC(+p[0],+p[1]-1,+p[2]+n)).toISOString().slice(0,10);
+}
+function invRange(preset){
+  var t=riyadhToday();
+  if(preset==='7d')return {from:addDaysIso(t,-6),to:t};
+  if(preset==='month')return {from:t.slice(0,8)+'01',to:t};
+  return {from:t,to:t};
+}
+function newInvState(){
+  var r=invRange('today');
+  return {preset:'today',from:r.from,to:r.to,branchId:'',loading:false,loadingMore:false,err:'',customErr:'',summary:null,rows:[],hasMore:false,req:0};
+}
+function fmtNum(n){return Number(n||0).toLocaleString('en-US')}
+function fmtMoneyHtml(n){
+  return '<span class="num">'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span> <small>ر.س</small>';
+}
+var INV_SOURCE_LABELS={pos:'كاشير',manual:'يدوي',demo:'تجريبي'};
+
+async function loadInvoices(append){
+  var S=M.inv;
+  if(!S||!M.activeMerchantId)return;
+  var myReq=++S.req;
+  if(append){S.loadingMore=true}else{S.loading=true;S.rows=[];S.summary=null;S.hasMore=false}
+  S.err='';
+  renderApp();
+  var sb=await getSb();
+  var res=sb?await sb.rpc('merchant_list_invoices',{
+    p_merchant_id:M.activeMerchantId,p_from:S.from,p_to:S.to,
+    p_branch_id:S.branchId||null,p_include_demo:false,
+    p_limit:INV_PAGE,p_offset:append?S.rows.length:0
+  }):{error:{message:'no-client'}};
+  // رد متأخر لطلب سبقه طلب أحدث (تبديل فلتر سريع) أو لحالة أُهملت: يُتجاهَل.
+  if(M.inv!==S||myReq!==S.req)return;
+  S.loading=false;S.loadingMore=false;
+  if(res.error||!res.data){
+    S.err='تعذّر تحميل الفواتير، حاول مرة أخرى.';
+    renderApp();return;
+  }
+  if(!append)S.summary=res.data.summary;
+  S.rows=S.rows.concat(res.data.rows||[]);
+  S.hasMore=!!res.data.has_more;
+  renderApp();
+}
+
+function invoiceRowHtml(r){
+  var reg=r.customer_status==='registered';
+  var refunded=Number(r.refunded_amount||0);
+  return '<div class="inv-row">'+
+    '<div class="inv-top"><b class="num">'+escAttr(r.created_at_riyadh)+'</b>'+
+      '<span class="badge '+(reg?'active':'warn')+'">'+(reg?'مسجَّل':'غير مسجَّل بعد')+'</span></div>'+
+    '<div class="inv-sub">'+escAttr(r.branch_name||'غير محدد')+' · '+escAttr(INV_SOURCE_LABELS[r.source]||'—')+
+      (r.status==='refunded'?' · مُرجَعة':'')+'</div>'+
+    '<div class="inv-nums">'+
+      '<div>المبلغ<b>'+fmtMoneyHtml(r.amount)+'</b></div>'+
+      '<div>الضريبة<b>'+fmtMoneyHtml(r.vat)+'</b></div>'+
+      '<div>النقاط<b class="num">'+fmtNum(r.points_earned)+'</b></div>'+
+      (refunded>0?'<div class="ref">المسترد<b>'+fmtMoneyHtml(refunded)+'</b></div>':'')+
+    '</div>'+
+  '</div>';
+}
+
+function invoicesViewHtml(){
+  var S=M.inv;
+  if(!S)return '';
+  var presets=[['today','اليوم'],['7d','آخر 7 أيام'],['month','الشهر الحالي'],['custom','فترة مخصصة']];
+  var html='<div class="sec-h"><h2>الفواتير</h2></div><div class="inv-filters">'+
+    '<div class="sw" id="invPresets">'+presets.map(function(p){
+      return '<button type="button" data-preset="'+p[0]+'" class="'+(S.preset===p[0]?'on':'')+'">'+p[1]+'</button>';
+    }).join('')+'</div>'+
+    (S.preset==='custom'?
+      '<div class="inv-range">'+
+        '<label class="form-f"><label>من</label><input type="date" id="invFrom" value="'+escAttr(S.from)+'"></label>'+
+        '<label class="form-f"><label>إلى</label><input type="date" id="invTo" value="'+escAttr(S.to)+'"></label>'+
+        '<button type="button" class="btn-outline" id="invApply">تطبيق</button>'+
+      '</div>'+(S.customErr?'<div class="form-warn">'+escAttr(S.customErr)+'</div>':''):'')+
+    '<label class="form-f" style="margin:0"><label>الفرع</label><select id="invBranch">'+
+      '<option value="">كل الفروع</option>'+
+      M.branches.map(function(b){return '<option value="'+b.id+'"'+(b.id===S.branchId?' selected':'')+'>'+escAttr(b.name)+'</option>'}).join('')+
+    '</select></label>'+
+  '</div>';
+  if(S.loading)return html+'<div class="loading-row" id="invLoading">جارٍ التحميل...</div>';
+  if(S.err&&!S.summary){
+    return html+'<div class="card"><div class="form-warn" id="invErr">'+escAttr(S.err)+'</div>'+
+      '<button type="button" class="btn-outline" id="invRetry" style="margin-top:10px">إعادة المحاولة</button></div>';
+  }
+  if(!S.summary)return html;
+  var sm=S.summary;
+  html+='<div class="inv-cards" id="invCards">'+
+    '<div class="inv-card"><span>عدد الفواتير</span><b class="num" id="invCount">'+fmtNum(sm.count)+'</b></div>'+
+    '<div class="inv-card"><span>إجمالي المبيعات</span><b>'+fmtMoneyHtml(sm.sales)+'</b></div>'+
+    '<div class="inv-card"><span>الضريبة</span><b>'+fmtMoneyHtml(sm.vat)+'</b></div>'+
+    '<div class="inv-card"><span>المسترد</span><b>'+fmtMoneyHtml(sm.refunded)+'</b></div>'+
+    '<div class="inv-card net"><span>الصافي</span><b>'+fmtMoneyHtml(sm.net)+'</b></div>'+
+  '</div>';
+  if(!S.rows.length){
+    return html+'<div class="card"><div class="empty" id="invEmpty">لا فواتير في هذه الفترة.</div></div>';
+  }
+  html+='<div class="card" id="invList">'+S.rows.map(invoiceRowHtml).join('')+'</div>';
+  if(S.err)html+='<div class="form-warn" id="invErr" style="margin-top:10px">'+escAttr(S.err)+'</div>';
+  if(S.hasMore){
+    html+='<button type="button" class="btn-outline" id="invMore" style="width:100%;margin-top:12px">'+
+      (S.loadingMore?'<span class="spinner" style="border-color:rgba(18,35,92,.25);border-top-color:var(--navy)"></span> جارٍ التحميل...':'تحميل المزيد')+'</button>';
+  }
+  return html;
+}
+
+function bindInvoices(){
+  var S=M.inv;
+  [].forEach.call(document.querySelectorAll('#viewTabs button'),function(b){
+    b.onclick=function(){
+      var v=b.getAttribute('data-view');
+      if(v===M.view)return;
+      M.view=v;
+      if(v==='invoices'&&!M.inv){M.inv=newInvState();renderApp();loadInvoices(false);return}
+      renderApp();
+    };
+  });
+  if(!S||M.view!=='invoices')return;
+  [].forEach.call(document.querySelectorAll('#invPresets button'),function(b){
+    b.onclick=function(){
+      var p=b.getAttribute('data-preset');
+      S.preset=p;S.customErr='';
+      if(p==='custom'){renderApp();return}
+      var r=invRange(p);S.from=r.from;S.to=r.to;
+      loadInvoices(false);
+    };
+  });
+  var br=document.getElementById('invBranch');
+  if(br)br.onchange=function(){S.branchId=br.value;loadInvoices(false)};
+  var ap=document.getElementById('invApply');
+  if(ap)ap.onclick=function(){
+    var f=(document.getElementById('invFrom')||{}).value,t=(document.getElementById('invTo')||{}).value;
+    if(!f||!t){S.customErr='اختر تاريخ البداية والنهاية.';renderApp();return}
+    if(t<f){S.customErr='تاريخ النهاية قبل تاريخ البداية.';renderApp();return}
+    S.from=f;S.to=t;S.customErr='';
+    loadInvoices(false);
+  };
+  var more=document.getElementById('invMore');
+  if(more)more.onclick=function(){if(!S.loadingMore)loadInvoices(true)};
+  var retry=document.getElementById('invRetry');
+  if(retry)retry.onclick=function(){loadInvoices(false)};
+}
+
 function renderApp(){
   var el=document.getElementById('app');
   el.innerHTML=
@@ -821,6 +1005,11 @@ function renderApp(){
         '<button class="logout-btn" id="logoutBtn">خروج</button>'+
       '</div>'+
     '</div>'+
+    '<div class="tabs" id="viewTabs">'+
+      '<button type="button" data-view="manage" class="'+(M.view==='manage'?'on':'')+'">الإدارة</button>'+
+      '<button type="button" data-view="invoices" class="'+(M.view==='invoices'?'on':'')+'">الفواتير</button>'+
+    '</div>'+
+    (M.view==='invoices'?invoicesViewHtml():
     '<div class="sec-h"><h2>الأجهزة</h2></div>'+
     '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
     '<div class="sec-h"><h2>اعتماد كشك جديد</h2></div>'+
@@ -828,7 +1017,7 @@ function renderApp(){
     '<div class="sec-h"><h2>إعدادات الفرع</h2></div>'+
     branchSettingsHtml()+
     adminPinHtml()+
-    posTokenHtml()+
+    posTokenHtml())+
   confirmRevokeHtml()+modeConfirmHtml()+posTokenConfirmHtml();
   bindApp();
 }
@@ -837,8 +1026,12 @@ function bindApp(){
   var ms=document.getElementById('merchantSelect');
   if(ms)ms.onchange=async function(){
     M.activeMerchantId=ms.value;
+    M.inv=null;
     await loadDashboardData();
+    if(M.view==='invoices'){M.inv=newInvState();loadInvoices(false)}
   };
+
+  bindInvoices();
 
   var logout=document.getElementById('logoutBtn');
   if(logout)logout.onclick=doLogout;
@@ -1033,7 +1226,8 @@ async function doLogout(){
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
     settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
-    posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null};
+    posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
+    view:'manage',inv:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';

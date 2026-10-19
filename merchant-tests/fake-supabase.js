@@ -19,6 +19,7 @@
     var storageKey = scenario.storageKey || MERCHANT_STORAGE_KEY;
     var state = {
       lastApproveCall: null, lastUpdateCall: null, usedCaptchaTokens: [],
+      invoiceCalls: [], invoicesErrored: false,
       lastBranchSettingsUpdate: null, lastSetPinCall: null, lastIssuedPosToken: null, issuedPosTokenCount: 0
     };
 
@@ -119,6 +120,31 @@
     }
 
     function rpc(name, args) {
+      if (name === 'merchant_list_invoices') {
+        state.invoiceCalls.push(args);
+        var delay = (scenario.invoicesDelays || [])[state.invoiceCalls.length - 1] || 0;
+        var finish = function (v) {
+          return delay ? new Promise(function (res) { setTimeout(function () { res(v); }, delay); }) : Promise.resolve(v);
+        };
+        if (scenario.invoicesError || (scenario.invoicesErrorOnce && !state.invoicesErrored)) {
+          state.invoicesErrored = true;
+          return finish({ data: null, error: { message: 'boom' } });
+        }
+        var member = (scenario.merchantMembers || []).some(function (m) { return m.merchant_id === args.p_merchant_id; });
+        if (!member) return finish({ data: null, error: { message: 'لا تملك صلاحية على هذا التاجر' } });
+        var all = (scenario.invoices || []).filter(function (r) {
+          var day = r.created_at_riyadh.slice(0, 10);
+          return day >= args.p_from && day <= args.p_to &&
+            (!args.p_branch_id || r.branch_id === args.p_branch_id) &&
+            (args.p_include_demo || r.source !== 'demo');
+        }).sort(function (x, y) { return x.created_at_riyadh < y.created_at_riyadh ? 1 : -1; });
+        var sum = function (k) { return all.reduce(function (t, r) { return t + Number(r[k] || 0); }, 0); };
+        var off = args.p_offset || 0, lim = args.p_limit || 25;
+        return finish({ data: {
+          summary: { count: all.length, sales: sum('amount'), vat: sum('vat'), refunded: sum('refunded_amount'), net: sum('amount') - sum('refunded_amount') },
+          rows: all.slice(off, off + lim), limit: lim, offset: off, has_more: off + lim < all.length
+        }, error: null });
+      }
       if (name === 'merchant_set_admin_pin') {
         if (!/^\d{4}$/.test(args.p_pin || '')) {
           return Promise.resolve({ data: null, error: { message: 'الرمز يجب أن يكون 4 أرقام بالضبط' } });
@@ -210,6 +236,7 @@
       getLastUpdateCall: function () { return state.lastUpdateCall; },
       getDevices: function () { return scenario.devices || []; },
       getUsedCaptchaTokens: function () { return state.usedCaptchaTokens.slice(); },
+      getInvoiceCalls: function () { return state.invoiceCalls.slice(); },
       getLastBranchSettingsUpdate: function () { return state.lastBranchSettingsUpdate; },
       getBranchSettings: function (branchId) { return (scenario.branchSettings || []).find(function (s) { return s.branch_id === branchId; }) || null; },
       getLastSetPinCall: function () { return state.lastSetPinCall; },

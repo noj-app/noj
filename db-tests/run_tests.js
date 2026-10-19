@@ -105,6 +105,7 @@ async function asServiceRole(fn) {
     'supabase-migration-pos-intake.sql',
     'supabase-migration-merchant-admin-controls.sql',
     'supabase-migration-pos-connections.sql',
+    'supabase-migration-merchant-invoices.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -1665,7 +1666,152 @@ async function asServiceRole(fn) {
   }
 
   // =========================================================================
-  // 20) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
+  // 20) merchant_list_invoices() (supabase-migration-merchant-invoices.sql):
+  //     the merchant dashboard's read-only invoices report. Fresh merchants
+  //     so every total is deterministic (the seeded merchants already carry
+  //     invoices of their own).
+  // =========================================================================
+  {
+    const newMerchant = async (name) => (await admin(c => c.query(
+      `insert into merchants (name, type, logo_color) values ($1,'x','#000000') returning id`, [name]
+    ))).rows[0].id;
+    const M1 = await newMerchant('تاجر فواتير');
+    const M2 = await newMerchant('تاجر آخر للفواتير');
+    const BA = M1; // auto-mirrored branch (branches.id === merchants.id)
+    const BB = (await admin(c => c.query(`insert into branches (merchant_id, name) values ($1,'فرع ب') returning id`, [M1]))).rows[0].id;
+    const B_OTHER = M2;
+
+    const mkUser = async (merchantId, role) => {
+      const uid = crypto.randomUUID();
+      await admin(c => c.query('insert into auth.users (id) values ($1)', [uid]));
+      if (merchantId) await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,$3)`, [merchantId, uid, role]));
+      return uid;
+    };
+    const ownerU = await mkUser(M1, 'owner');
+    const staffU = await mkUser(M1, 'staff');
+    const otherOwnerU = await mkUser(M2, 'owner');
+    const customerU = await mkUser(null);
+
+    const UNREG = '569990001';
+    await admin(c => c.query('insert into unclaimed_customers (phone) values ($1) on conflict do nothing', [UNREG]));
+    const inv = (merchant, branch, ts, amount, vat, pts, source, opts = {}) => admin(c => c.query(
+      `insert into invoices (user_id, pending_phone, merchant_id, branch_id, amount, vat, category, points_earned, status, source, refunded_amount, created_at)
+       values ($1,$2,$3,$4,$5,$6,'x',$7,$8,$9,$10,$11)`,
+      [opts.unreg ? null : DEMO_PROFILE, opts.unreg ? UNREG : null, merchant, branch, amount, vat, pts, opts.status || 'paid', source, opts.refunded ?? null, ts]
+    ));
+    // Riyadh is UTC+3 all year (no DST)
+    await inv(M1, BA, '2026-03-10T06:00:00Z', 100, 15, 10, 'pos');                    // 09:00 Riyadh, Mar 10, registered
+    await inv(M1, BA, '2026-03-10T20:30:00Z', 50, 7.5, 5, 'pos', { unreg: true });     // 23:30 Riyadh, Mar 10, unregistered
+    await inv(M1, BB, '2026-03-10T21:30:00Z', 200, 30, 20, 'pos', { refunded: 40 });   // 00:30 Riyadh, MAR 11 (still Mar 10 in UTC)
+    await inv(M1, null, '2026-03-09T09:00:00Z', 80, 12, 8, 'manual');                  // legacy, branch NULL
+    await inv(M1, BA, '2026-03-10T07:00:00Z', 999, 0, 99, 'demo');                     // demo
+    await inv(M1, BA, '2026-03-12T09:00:00Z', 60, 9, 6, 'pos', { status: 'refunded' }); // refunded status, refunded_amount NULL
+    await inv(M2, B_OTHER, '2026-03-10T06:00:00Z', 5000, 750, 500, 'pos');             // another merchant
+
+    const call = (uid, args) => asUser(uid, async c => {
+      try {
+        const r = await c.query('select merchant_list_invoices($1,$2::date,$3::date,$4::uuid,$5::boolean,$6::integer,$7::integer) as r',
+          [args.m, args.from, args.to, args.b ?? null, args.demo ?? false, args.limit ?? 25, args.offset ?? 0]);
+        return { ok: true, r: r.rows[0].r };
+      } catch (e) { return { ok: false, msg: e.message }; }
+    });
+    const num = (x) => Number(x);
+
+    // ---- authorization ----
+    const asStaff = await call(staffU, { m: M1, from: '2026-03-09', to: '2026-03-12' });
+    check('merchant_list_invoices: a STAFF member can read their own merchant\'s invoices', asStaff.ok === true);
+    const asOwner = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12' });
+    check('merchant_list_invoices: the OWNER can too', asOwner.ok === true);
+    const crossMerchant = await call(ownerU, { m: M2, from: '2026-03-09', to: '2026-03-12' });
+    check('merchant_list_invoices: an owner naming ANOTHER merchant is rejected (never trusts the parameter)', crossMerchant.ok === false && /لا تملك صلاحية/.test(crossMerchant.msg));
+    const otherOwn = await call(otherOwnerU, { m: M2, from: '2026-03-10', to: '2026-03-10' });
+    check('merchant_list_invoices: the other merchant sees only its own invoice (isolation)', otherOwn.ok && otherOwn.r.summary.count === 1 && num(otherOwn.r.summary.sales) === 5000);
+    const asCustomer = await call(customerU, { m: M1, from: '2026-03-09', to: '2026-03-12' });
+    check('merchant_list_invoices: a session with NO membership is rejected', asCustomer.ok === false && /لا تملك صلاحية/.test(asCustomer.msg));
+    const foreignBranch = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', b: B_OTHER });
+    check('merchant_list_invoices: a branch of ANOTHER merchant is rejected, not silently empty', foreignBranch.ok === false && /لا تملك صلاحية/.test(foreignBranch.msg));
+    const nullMerchant = await call(ownerU, { m: null, from: '2026-03-09', to: '2026-03-12' });
+    check('merchant_list_invoices: a NULL merchant is rejected', nullMerchant.ok === false);
+    const priv = await admin(c => c.query(
+      `select has_function_privilege('anon', 'merchant_list_invoices(uuid,date,date,uuid,boolean,integer,integer)', 'EXECUTE') as anon_can,
+              has_function_privilege('authenticated', 'merchant_list_invoices(uuid,date,date,uuid,boolean,integer,integer)', 'EXECUTE') as auth_can`));
+    check('merchant_list_invoices: anon is NOT granted EXECUTE, authenticated is', priv.rows[0].anon_can === false && priv.rows[0].auth_can === true);
+
+    // ---- date window in Riyadh time ----
+    const mar10 = await call(ownerU, { m: M1, from: '2026-03-10', to: '2026-03-10' });
+    check('Riyadh day window: Mar 10 holds exactly the two invoices made on the 10th Riyadh time (not the 00:30 Mar 11 one that is still Mar 10 in UTC)',
+      mar10.ok && mar10.r.summary.count === 2 && num(mar10.r.summary.sales) === 150);
+    check('Riyadh day window: totals — vat 22.5, refunded 0, net 150', num(mar10.r.summary.vat) === 22.5 && num(mar10.r.summary.refunded) === 0 && num(mar10.r.summary.net) === 150);
+    const mar11 = await call(ownerU, { m: M1, from: '2026-03-11', to: '2026-03-11' });
+    check('Riyadh day window: the 00:30 Riyadh invoice belongs to Mar 11 with its refund (200 − 40 = 160)',
+      mar11.ok && mar11.r.summary.count === 1 && num(mar11.r.summary.sales) === 200 && num(mar11.r.summary.refunded) === 40 && num(mar11.r.summary.net) === 160);
+    check('created_at_riyadh is formatted in Riyadh time', mar11.r.rows[0].created_at_riyadh === '2026-03-11 00:30');
+
+    // ---- full range: totals, legacy NULL branch, demo, refunded status ----
+    const all = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12' });
+    check('totals: count = 5 (demo excluded by default; the NULL-branch legacy invoice INCLUDED)', all.r.summary.count === 5);
+    check('totals: sales 490, vat 73.5', num(all.r.summary.sales) === 490 && num(all.r.summary.vat) === 73.5);
+    check('totals: refunded 100 (a 40 partial + a status=refunded invoice with NULL refunded_amount counted as fully refunded), net 390',
+      num(all.r.summary.refunded) === 100 && num(all.r.summary.net) === 390);
+    const legacyRow = all.r.rows.find(r => r.branch_id === null);
+    check('legacy invoice with branch_id NULL is returned with branch_id/branch_name null (the UI labels it غير محدد)', !!legacyRow && legacyRow.branch_name === null && num(legacyRow.amount) === 80);
+    const demoOn = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', demo: true });
+    check('p_include_demo=true adds the demo invoice (count 6, sales 1489)', demoOn.r.summary.count === 6 && num(demoOn.r.summary.sales) === 1489);
+    check('demo invoices are absent from rows by default', !all.r.rows.some(r => r.source === 'demo'));
+
+    // ---- branch filter ----
+    const onlyBA = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', b: BA });
+    check('branch filter: one branch counts only its invoices (3) and DROPS the NULL-branch legacy one', onlyBA.r.summary.count === 3 && num(onlyBA.r.summary.sales) === 210 && !onlyBA.r.rows.some(r => r.branch_id === null));
+    const onlyBB = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', b: BB });
+    check('branch filter: the other branch has its own single invoice, with its branch name', onlyBB.r.summary.count === 1 && onlyBB.r.rows[0].branch_name === 'فرع ب');
+
+    // ---- privacy of the payload ----
+    const keys = new Set(all.r.rows.flatMap(r => Object.keys(r)));
+    const forbidden = ['user_id', 'pending_phone', 'phone', 'profile_id', 'customer_id', 'external_ref', 'items'];
+    check('payload carries NO customer identifier or phone key at all', forbidden.every(k => !keys.has(k)));
+    check('payload carries exactly the documented keys',
+      JSON.stringify([...keys].sort()) === JSON.stringify(['amount','branch_id','branch_name','created_at_riyadh','customer_status','id','points_earned','refunded_amount','source','status','vat']));
+    check('customer_status distinguishes registered / unregistered and nothing else',
+      all.r.rows.every(r => ['registered', 'unregistered'].includes(r.customer_status)) && all.r.rows.some(r => r.customer_status === 'unregistered') && all.r.rows.some(r => r.customer_status === 'registered'));
+    check('the unregistered customer\'s phone never appears anywhere in the JSON', !JSON.stringify(all.r).includes(UNREG));
+
+    // ---- pagination ----
+    const p1 = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', limit: 2, offset: 0 });
+    const p2 = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', limit: 2, offset: 2 });
+    const p3 = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', limit: 2, offset: 4 });
+    check('pagination: totals describe the WHOLE period, not the page (count 5 on every page)', [p1, p2, p3].every(p => p.r.summary.count === 5 && num(p.r.summary.sales) === 490));
+    check('pagination: 2 + 2 + 1 rows, has_more true/true/false', p1.r.rows.length === 2 && p2.r.rows.length === 2 && p3.r.rows.length === 1 && p1.r.has_more === true && p2.r.has_more === true && p3.r.has_more === false);
+    const ids = [...p1.r.rows, ...p2.r.rows, ...p3.r.rows].map(r => r.id);
+    check('pagination: pages are disjoint and together equal the unpaged list, newest first',
+      new Set(ids).size === 5 && JSON.stringify(ids) === JSON.stringify(all.r.rows.map(r => r.id)));
+    const stamps = all.r.rows.map(r => r.created_at_riyadh);
+    check('rows are ordered newest first', JSON.stringify(stamps) === JSON.stringify([...stamps].sort().reverse()));
+    const clampedLow = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', limit: 0 });
+    check('p_limit below 1 is clamped to 1', clampedLow.r.limit === 1 && clampedLow.r.rows.length === 1);
+    const clampedHigh = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', limit: 100000 });
+    check('p_limit above 100 is clamped to 100', clampedHigh.r.limit === 100);
+    const negOffset = await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12', offset: -5 });
+    check('a negative offset is treated as 0', negOffset.r.offset === 0 && negOffset.r.rows.length === 5);
+
+    // ---- empty period / bad input ----
+    const empty = await call(ownerU, { m: M1, from: '2026-01-01', to: '2026-01-02' });
+    check('an empty period returns zero totals and no rows (not an error)', empty.ok && empty.r.summary.count === 0 && num(empty.r.summary.sales) === 0 && num(empty.r.summary.net) === 0 && empty.r.rows.length === 0 && empty.r.has_more === false);
+    const badRange = await call(ownerU, { m: M1, from: '2026-03-12', to: '2026-03-09' });
+    check('to < from is rejected', badRange.ok === false);
+    const nullFrom = await call(ownerU, { m: M1, from: null, to: '2026-03-09' });
+    check('a NULL date is rejected', nullFrom.ok === false);
+
+    // ---- read-only: nothing the function does changes data ----
+    const before = await admin(c => c.query('select count(*)::int as n, coalesce(sum(amount),0) as s from invoices where merchant_id=$1', [M1]));
+    await call(ownerU, { m: M1, from: '2026-03-09', to: '2026-03-12' });
+    const after = await admin(c => c.query('select count(*)::int as n, coalesce(sum(amount),0) as s from invoices where merchant_id=$1', [M1]));
+    check('the function is read-only (invoices unchanged)', before.rows[0].n === after.rows[0].n && before.rows[0].s === after.rows[0].s);
+    const idx = await admin(c => c.query(`select 1 from pg_indexes where indexname='invoices_merchant_created_idx'`));
+    check('the (merchant_id, created_at desc) index exists', idx.rows.length === 1);
+  }
+
+  // =========================================================================
+  // 21) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
   //     grants EXECUTE to anon, period — not scoped to any specific function
   //     list. Catches exactly the kind of gap the per-function checks above
   //     missed: cancel_appointment() had anon granted BY NAME and nobody

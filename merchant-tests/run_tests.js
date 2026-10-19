@@ -670,6 +670,210 @@ async function loginFlow(page, phone, otp) {
     await context.close();
   }
 
+  // =========================================================================
+  // 25-33) شاشة الفواتير (قراءة فقط عبر merchant_list_invoices)
+  // =========================================================================
+  const riyadhToday = () => {
+    const g = {};
+    new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date()).forEach((p) => { g[p.type] = p.value; });
+    return g.year + '-' + g.month + '-' + g.day;
+  };
+  const addDays = (iso, n) => { const p = iso.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); };
+  const TODAY = riyadhToday();
+  const inv = (id, day, time, branchId, branchName, amount, vat, pts, source, extra) => Object.assign({
+    id, created_at_riyadh: day + ' ' + time, branch_id: branchId, branch_name: branchName, amount, vat,
+    points_earned: pts, source, status: 'paid', refunded_amount: 0, customer_status: 'registered',
+  }, extra || {});
+  const invScenario = (rows, over) => baseScenario(Object.assign({
+    branches: [
+      { id: 'branch-1', merchant_id: 'merchant-1', name: 'فرع الملقا' },
+      { id: 'branch-2', merchant_id: 'merchant-1', name: 'فرع العليا' },
+    ],
+    invoices: rows,
+  }, over || {}));
+  const openInvoices = async (scenario) => {
+    const o = await openMerchant(browser, { scenario });
+    await loginFlow(o.page, '512345678', '123456');
+    await o.page.waitForSelector('#viewTabs', { timeout: 3000 });
+    return o;
+  };
+  const calls = (page) => page.evaluate(() => window.__TEST__.getInvoiceCalls());
+
+  // 25) التبويب: الواجهة الحالية بلا تغيير (الإدارة افتراضياً، بلا نداء فواتير)؛ فتح الفواتير يطلب اليوم فقط.
+  {
+    const { context, page } = await openInvoices(invScenario([
+      inv('a', TODAY, '10:15', 'branch-1', 'فرع الملقا', 1234.5, 185.18, 123, 'pos'),
+    ]));
+    check('25) الافتراضي بعد الدخول: شاشة الإدارة كما كانت (الأجهزة ظاهرة، لا فواتير)', await page.$('.dev-row') !== null && await page.$('#invPresets') === null);
+    check('25) لا نداء merchant_list_invoices قبل فتح التبويب', (await calls(page)).length === 0);
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    const c = await calls(page);
+    check('25) فتح الفواتير: نداء واحد، التاجر الصحيح، اليوم بتوقيت الرياض للطرفين',
+      c.length === 1 && c[0].p_merchant_id === 'merchant-1' && c[0].p_from === TODAY && c[0].p_to === TODAY);
+    check('25) كل الفروع (p_branch_id=null)، بلا فواتير تجريبية، صفحة 25 من الإزاحة 0',
+      c[0].p_branch_id === null && c[0].p_include_demo === false && c[0].p_limit === 25 && c[0].p_offset === 0);
+    check('25) اختصار "اليوم" هو المحدَّد', await page.$eval('#invPresets [data-preset="today"]', (b) => b.classList.contains('on')));
+    await page.click('#viewTabs [data-view="manage"]');
+    check('25) الرجوع للإدارة: الأجهزة وإعدادات الفرع كما كانت', await page.$('.dev-row') !== null && await page.$('#settingsSaveBtn') !== null);
+    await context.close();
+  }
+
+  // 26) البطاقات والقائمة: أرقام إنجليزية، ريال بخانتين، "غير محدد" للفرع الفارغ، حالة العميل بلا أي هوية.
+  {
+    const rows = [
+      inv('a', TODAY, '10:15', 'branch-1', 'فرع الملقا', 1234.5, 185.18, 123, 'pos'),
+      inv('b', TODAY, '09:00', null, null, 80, 12, 8, 'manual', { customer_status: 'unregistered' }),
+      inv('c', TODAY, '08:00', 'branch-2', 'فرع العليا', 200, 30, 20, 'pos', { refunded_amount: 40 }),
+    ];
+    const { context, page } = await openInvoices(invScenario(rows));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    const cards = await page.textContent('#invCards');
+    check('26) بطاقة العدد = 3 (الفاتورة بلا فرع محسوبة)', (await page.textContent('#invCount')).trim() === '3');
+    check('26) إجمالي المبيعات 1,514.50 ر.س بخانتين وأرقام إنجليزية', /1,514\.50/.test(cards));
+    check('26) الضريبة 227.18، المسترد 40.00، الصافي 1,474.50', /227\.18/.test(cards) && /40\.00/.test(cards) && /1,474\.50/.test(cards));
+    check('26) لا أرقام عربية-هندية في الشاشة', !/[٠-٩]/.test(await page.textContent('#app')));
+    const list = await page.textContent('#invList');
+    check('26) الفاتورة بلا فرع تظهر تحت "غير محدد" ولا تسقط', /غير محدد/.test(list));
+    check('26) اسم الفرع والمصدر يظهران ("كاشير"/"يدوي")', /فرع الملقا/.test(list) && /كاشير/.test(list) && /يدوي/.test(list));
+    check('26) حالة العميل: "مسجَّل" و"غير مسجَّل بعد"', /مسجَّل/.test(list) && /غير مسجَّل بعد/.test(list));
+    check('26) المسترد يظهر على الفاتورة المُرجَعة فقط', (await page.$$('#invList .inv-nums .ref')).length === 1);
+    check('26) الأحدث أولاً (10:15 قبل 09:00 قبل 08:00)', list.indexOf('10:15') < list.indexOf('09:00') && list.indexOf('09:00') < list.indexOf('08:00'));
+    await context.close();
+  }
+
+  // 27) الاختصارات: آخر 7 أيام، الشهر الحالي، فترة مخصصة (مع تحقق من المدخلات).
+  {
+    const { context, page } = await openInvoices(invScenario([inv('a', TODAY, '10:00', 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos')]));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    await page.click('#invPresets [data-preset="7d"]');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 2);
+    let c = await calls(page);
+    check('27) آخر 7 أيام: من اليوم−6 إلى اليوم', c[1].p_from === addDays(TODAY, -6) && c[1].p_to === TODAY);
+    await page.waitForSelector('#invCards');
+    await page.click('#invPresets [data-preset="month"]');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 3);
+    c = await calls(page);
+    check('27) الشهر الحالي: من أول الشهر إلى اليوم', c[2].p_from === TODAY.slice(0, 8) + '01' && c[2].p_to === TODAY);
+    await page.waitForSelector('#invCards');
+    await page.click('#invPresets [data-preset="custom"]');
+    await page.waitForSelector('#invFrom');
+    check('27) الفترة المخصصة: لا نداء جديد قبل "تطبيق"', (await calls(page)).length === 3);
+    await page.fill('#invFrom', '2026-02-10');
+    await page.fill('#invTo', '2026-02-01');
+    await page.click('#invApply');
+    check('27) نهاية قبل البداية: رسالة واضحة بلا نداء', /قبل تاريخ البداية/.test(await page.textContent('#app')) && (await calls(page)).length === 3);
+    await page.fill('#invFrom', '2026-02-01');
+    await page.fill('#invTo', '2026-02-10');
+    await page.click('#invApply');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 4);
+    c = await calls(page);
+    check('27) تطبيق فترة مخصصة صحيحة: التاريخان المُدخلان يُرسَلان كما هما', c[3].p_from === '2026-02-01' && c[3].p_to === '2026-02-10');
+    await context.close();
+  }
+
+  // 28) فلتر الفرع: الفرع المحدد يُرسَل، "كل الفروع" ترسل null، والفاتورة بلا فرع تظهر مع الكل فقط.
+  {
+    const rows = [
+      inv('a', TODAY, '10:00', 'branch-1', 'فرع الملقا', 100, 15, 10, 'pos'),
+      inv('b', TODAY, '09:00', 'branch-2', 'فرع العليا', 50, 7.5, 5, 'pos'),
+      inv('c', TODAY, '08:00', null, null, 80, 12, 8, 'manual'),
+    ];
+    const { context, page } = await openInvoices(invScenario(rows));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invCards');
+    check('28) كل الفروع: 3 فواتير بينها غير المحدد', (await page.textContent('#invCount')).trim() === '3' && /غير محدد/.test(await page.textContent('#invList')));
+    await page.selectOption('#invBranch', 'branch-2');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 2);
+    await page.waitForFunction(() => document.getElementById('invCount') && document.getElementById('invCount').textContent.trim() === '1');
+    const c = await calls(page);
+    check('28) اختيار فرع: p_branch_id = معرّفه', c[1].p_branch_id === 'branch-2');
+    check('28) فرع محدد: لا تظهر الفاتورة بلا فرع', !/غير محدد/.test(await page.textContent('#invList')) && /فرع العليا/.test(await page.textContent('#invList')));
+    await page.selectOption('#invBranch', '');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 3);
+    check('28) الرجوع لكل الفروع: p_branch_id = null', (await calls(page))[2].p_branch_id === null);
+    await context.close();
+  }
+
+  // 29) الحالة الفارغة.
+  {
+    const { context, page } = await openInvoices(invScenario([]));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invEmpty', { timeout: 3000 });
+    check('29) لا فواتير: رسالة "لا فواتير في هذه الفترة"', /لا فواتير في هذه الفترة/.test(await page.textContent('#invEmpty')));
+    check('29) المجاميع تظهر أصفاراً بخانتين (لا تختفي)', (await page.textContent('#invCount')).trim() === '0' && /0\.00/.test(await page.textContent('#invCards')));
+    await context.close();
+  }
+
+  // 30) الترقيم: 25 أولاً ثم "تحميل المزيد" يلحق الباقي بلا تكرار، والمجاميع تبقى لكل الفترة.
+  {
+    const rows = [];
+    for (let i = 0; i < 30; i++) rows.push(inv('r' + i, TODAY, '10:' + String(59 - i).padStart(2, '0'), 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos'));
+    const { context, page } = await openInvoices(invScenario(rows));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invMore', { timeout: 3000 });
+    check('30) الصفحة الأولى 25 فاتورة والعدد الكلي 30', (await page.$$('#invList .inv-row')).length === 25 && (await page.textContent('#invCount')).trim() === '30');
+    await page.click('#invMore');
+    await page.waitForFunction(() => document.querySelectorAll('#invList .inv-row').length === 30);
+    const c = await calls(page);
+    check('30) "تحميل المزيد" يطلب الإزاحة 25 بنفس الفلاتر', c.length === 2 && c[1].p_offset === 25 && c[1].p_from === TODAY);
+    check('30) بعد التحميل 30 صفاً بلا تكرار، والزر يختفي', (await page.$('#invMore')) === null && new Set(await page.$$eval('#invList .inv-top b', (els) => els.map((e) => e.textContent))).size === 30);
+    check('30) المجاميع لم تتغيّر بعد تحميل المزيد (كل الفترة)', (await page.textContent('#invCount')).trim() === '30' && /300\.00/.test(await page.textContent('#invCards')));
+    await context.close();
+  }
+
+  // 31) الخطأ: رسالة + إعادة محاولة تعمل؛ ولا بيانات مختلَقة.
+  {
+    const { context, page } = await openInvoices(invScenario([inv('a', TODAY, '10:00', 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos')], { invoicesErrorOnce: true }));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invErr', { timeout: 3000 });
+    check('31) فشل التحميل: رسالة واضحة بلا مجاميع مختلَقة', /تعذّر تحميل الفواتير/.test(await page.textContent('#invErr')) && await page.$('#invCards') === null);
+    await page.click('#invRetry');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    check('31) إعادة المحاولة تنجح وتعرض المجاميع', (await page.textContent('#invCount')).trim() === '1');
+    await context.close();
+  }
+
+  // 32) رد متأخر لطلب أقدم لا يطغى على الأحدث (تبديل اختصار سريع).
+  {
+    const rows = [
+      inv('t', TODAY, '10:00', 'branch-1', 'فرع الملقا', 100, 15, 10, 'pos'),
+      inv('w', addDays(TODAY, -3), '10:00', 'branch-1', 'فرع الملقا', 7, 1, 1, 'pos'),
+    ];
+    const { context, page } = await openInvoices(invScenario(rows, { invoicesDelays: [600, 0] }));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invLoading');
+    await page.click('#invPresets [data-preset="7d"]');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    await page.waitForTimeout(900);
+    check('32) بعد وصول الرد القديم المتأخر تبقى نتيجة "آخر 7 أيام" (فاتورتان) لا "اليوم" (واحدة)', (await page.textContent('#invCount')).trim() === '2');
+    await context.close();
+  }
+
+  // 33) الموظف والمالك كلاهما يريان الفواتير؛ وتبديل التاجر يعيد التحميل لتاجره.
+  {
+    const staff = await openInvoices(invScenario([inv('a', TODAY, '10:00', 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos')], { merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    await staff.page.click('#viewTabs [data-view="invoices"]');
+    await staff.page.waitForSelector('#invCards', { timeout: 3000 });
+    check('33) الموظف يرى شاشة الفواتير كاملة', (await staff.page.textContent('#invCount')).trim() === '1');
+    await staff.context.close();
+
+    const two = invScenario([inv('a', TODAY, '10:00', 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos')], {
+      merchantMembers: [{ merchant_id: 'merchant-1', role: 'owner' }, { merchant_id: 'merchant-2', role: 'owner' }],
+      merchants: [{ id: 'merchant-1', name: 'مركز النور الطبي' }, { id: 'merchant-2', name: 'تاجر ثانٍ' }],
+    });
+    const { context, page } = await openInvoices(two);
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    await page.selectOption('#merchantSelect', 'merchant-2');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 2, null, { timeout: 4000 });
+    check('33) تبديل التاجر وهو على تبويب الفواتير: نداء جديد بمعرّف التاجر الجديد', (await calls(page))[1].p_merchant_id === 'merchant-2');
+    await context.close();
+  }
+
   await browser.close();
   console.log('\n=== MERCHANT E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));
