@@ -115,3 +115,21 @@ Deno.test('simulator payload: vat سالب يُرفَض قبل أي اتصال �
   }
   assertEquals(threw, true);
 });
+
+Deno.test('simulator payload: vat >= amount يُرفَض (القاعدة المحاسبية: الضريبة متضمَّنة داخل المبلغ)', () => {
+  for (const [amount, vat] of [['10', '10'], ['10', '11']]) {
+    let threw = false;
+    try {
+      buildPosInvoicePayload({ amount, vat, deviceId: '', ci: null });
+    } catch {
+      threw = true;
+    }
+    assertEquals(threw, true, `amount=${amount} vat=${vat}`);
+  }
+});
+
+Deno.test('simulator payload: 115 شاملاً 15 ضريبة يمرّ عبر pos-intake الحقيقي', async () => {
+  const payload = buildPosInvoicePayload({ amount: '115', vat: '15', deviceId: '', ci: null });
+  const result = await handlePosIntake(JSON.stringify(payload), headers(VALID_TOKEN), makeDeps());
+  assertEquals(result.status, 200);
+});

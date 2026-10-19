@@ -5,6 +5,11 @@
 // فعلياً عبر المحوّل والتحقق الحقيقيين في pos-intake). وحدة ES نقية — بلا
 // process/fetch/I.O — لتبقى قابلة للاستيراد من Node وDeno معاً بلا تحويل.
 //
+// القاعدة المحاسبية (قرار ثابت في CLAUDE.md): amount = إجمالي ما دفعه العميل
+// فعلاً **شاملاً الضريبة**، وvat = جزء الضريبة المتضمَّن داخل amount (لا فوقه)،
+// وتُحتسب النقاط على amount كاملاً. مثال بضريبة 15%: amount=115 → vat=15.
+// vat >= amount مرفوض (نفس تحقق pos-intake).
+//
 // يجب أن يطابق هذا الملف عقد supabase/functions/pos-intake/intake.ts
 // (genericAdapter) تماماً: external_ref إلزامي غير فارغ، amount/vat أرقام
 // JS حقيقية لا نصوصاً، device_id يُحذف كلياً من الحمولة إن كان فارغاً (لا
@@ -19,6 +24,9 @@ export function buildPosInvoicePayload({ amount, vat, deviceId, ci }) {
   const vatNum = Number(vat ?? '0');
   if (!Number.isFinite(vatNum) || vatNum < 0) {
     throw new Error('vat يجب أن يكون رقماً صفراً أو أكبر');
+  }
+  if (vatNum >= amountNum) {
+    throw new Error('vat يجب أن يكون أقل من amount (الضريبة جزء متضمَّن داخل المبلغ المدفوع لا فوقه)');
   }
 
   const externalRef = ci

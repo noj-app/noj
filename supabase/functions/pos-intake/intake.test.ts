@@ -108,6 +108,35 @@ Deno.test('handlePosIntake: negative vat is rejected', async () => {
   assertEquals(result.status, 400);
 });
 
+Deno.test('handlePosIntake: vat == amount is rejected (الضريبة متضمَّنة داخل المبلغ، لا تساويه)', async () => {
+  const body = JSON.stringify({ external_ref: 'INV-7a', amount: 50, vat: 50 });
+  const result = await handlePosIntake(body, headers(VALID_TOKEN), makeDeps());
+  assertEquals(result.status, 400);
+});
+
+Deno.test('handlePosIntake: vat > amount is rejected', async () => {
+  const body = JSON.stringify({ external_ref: 'INV-7b', amount: 50, vat: 57.5 });
+  const result = await handlePosIntake(body, headers(VALID_TOKEN), makeDeps());
+  assertEquals(result.status, 400);
+});
+
+Deno.test('handlePosIntake: vat inclusive in amount (115 / 15) and vat just under amount are accepted', async () => {
+  for (const [amount, vat] of [[115, 15], [50, 49.99], [10, 0]]) {
+    const body = JSON.stringify({ external_ref: `INV-ok-${amount}-${vat}`, amount, vat });
+    const result = await handlePosIntake(body, headers(VALID_TOKEN), makeDeps());
+    assertEquals(result.status, 200, `amount=${amount} vat=${vat}`);
+  }
+});
+
+Deno.test('handlePosIntake: DB-level NOJ_INVALID_VAT (defence in depth) maps to a clear 400, not 500', async () => {
+  const deps = makeDeps({
+    intakeTransaction: () => Promise.resolve({ ok: false, error: 'NOJ_INVALID_VAT' }),
+  });
+  const body = JSON.stringify({ external_ref: 'INV-7c', amount: 50, vat: 5 });
+  const result = await handlePosIntake(body, headers(VALID_TOKEN), deps);
+  assertEquals(result.status, 400);
+});
+
 Deno.test('handlePosIntake: malformed device_id (not a uuid) is rejected', async () => {
   const body = JSON.stringify({ external_ref: 'INV-8', amount: 50, device_id: 'not-a-uuid' });
   const result = await handlePosIntake(body, headers(VALID_TOKEN), makeDeps());
