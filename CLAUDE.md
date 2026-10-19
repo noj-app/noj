@@ -70,6 +70,7 @@ Function مجدولة (نفس نمط GitHub Actions workflow_dispatch+cron ال�
 pos_connections، لا في جدول الأسرار.
 
 ### 4. طبقة المحوّلات
+**شرط على محوّل Foodics (القاعدة المحاسبية الثابتة، راجع "قرارات ثابتة")**: amount = إجمالي الطلب المدفوع شاملاً الضريبة، vat = الضريبة المتضمَّنة فقط.
 النوع أ: نفس سجلّ ADAPTERS في pos-intake (X-POS-Vendor)، أي كاشير جديد يضيف محوّلاً يحوّل حمولته
 لصيغة intake_pos_transaction() الموحّدة ثم يناديها — لا تغيير معماري. النوع ب: محوّل Foodics يعيش في
 Edge Function منفصلة (foodics-webhook) لأن التوثيق/الشكل مختلفان تماماً عن حمولة pos-intake الموحّدة
@@ -251,6 +252,19 @@ Foodics"/"فصل" (النوع ب). **owner فقط للنوعين معاً** — 
   sandbox فعلياً.
 
 ## قرارات ثابتة
+- **القاعدة المحاسبية للمبلغ والضريبة (قرار ثابت، تُلزم كل محوّل وكل جلسة قادمة)**: `amount` في
+  pos_transactions وinvoices = **إجمالي ما دفعه العميل فعلاً، شاملاً الضريبة**. `vat` = **جزء الضريبة
+  المتضمَّن داخل amount، وليس فوقه** (مثال 15%: amount=115 ⇒ vat=15). النقاط تُحتسب على **amount كاملاً
+  (شاملاً الضريبة)** — وهذا ما يفعله الحساب الحالي (round(amount × points_rate) في kiosk_claim_pos_
+  transaction، لا يقرأ vat إطلاقاً) فلا يتغيّر. التحقق: 0 <= vat < amount، مفروض في **موضعين**:
+  pos-intake (intake.ts، genericAdapter، رد 400) **وداخل intake_pos_transaction()** نفسها
+  (NOJ_INVALID_VAT) — الثاني هو الضمان الفعلي لأن كل محوّل (ومنه foodics-webhook لاحقاً) ينتهي عندها
+  ولا يمر بـintake.ts. (أُضيف في supabase-migration-pos-vat-inclusive.sql؛ يُطبَّق فقط حين amount > 0 كي
+  يبقى رفض amount<=0 على قيد CHECK الأصلي كما كان.) **متطلب على محوّل Foodics (القسم 4 أعلاه)**: يجب أن
+  يمرِّر **إجمالي الطلب المدفوع** (شاملاً الضريبة) إلى amount — لا المجموع قبل الضريبة (subtotal)، ولا
+  subtotal + vat محسوبة مرتين — ويمرِّر الضريبة المتضمَّنة وحدها إلى vat؛ يُتحقَّق من أسماء حقولهم
+  (total/subtotal/tax) من توثيقهم الرسمي قبل البناء. مفاتيح `amount`/`vat` في المحاكاة
+  (workflow وscripts/pos-invoice-payload.mjs، مصدر الحقيقة الواحد) تتبع القاعدة نفسها وترفض vat >= amount.
 - البيانات تأتي من كاشير المتجر مباشرة. لا إدخال يدوي ولا جهاز إضافي للموظف.
 - الربط مع POS: نقطة استقبال موحّدة في نوج، ومحوّل لكل نظام كاشير. يُبنى المحوّل حين يُعرف نظام أول عميل.
   نقطة الاستقبال (مرحلة ٢، مبنية): Edge Function باسم pos-intake (supabase/functions/pos-intake/)،
@@ -258,7 +272,7 @@ Foodics"/"فصل" (النوع ب). **owner فقط للنوعين معاً** — 
   hash-ه فقط (SHA-256، لا bcrypt: توكن عالي العشوائية لا يحتاج KDF بطيئة) في branch_pos_credentials
   (RLS مفعّل بلا أي سياسة ولا أي grant، نفس قفل branch_admin_pins — لا طريق إليه إلا من عميل service
   role داخل pos-intake نفسها). الحمولة الموحّدة: external_ref (إلزامي، لمنع التكرار)، amount (>0)، vat
-  (>=0)، device_id (اختياري، يجب أن يتبع نفس الفرع)، metadata (اختياري ومحدود الحجم) — لا رقم جوال
+  (0 <= vat < amount، راجع القاعدة المحاسبية أدناه)، device_id (اختياري، يجب أن يتبع نفس الفرع)، metadata (اختياري ومحدود الحجم) — لا رقم جوال
   عميل في الحمولة أبداً، العميل يُدخله لاحقاً على الكشك. رأس X-POS-Vendor يوجّه لمحوّل من سجلّ
   ADAPTERS؛ الآن generic فقط. إعادة إرسال نفس external_ref لنفس الفرع (intake_pos_transaction()، عبر
   on conflict do update مصمَّم عمداً كلمسة بلا تأثير فعلي) تُرجع نفس pos_transactions.id دائماً بنجاح،

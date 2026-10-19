@@ -106,6 +106,7 @@ async function asServiceRole(fn) {
     'supabase-migration-merchant-admin-controls.sql',
     'supabase-migration-pos-connections.sql',
     'supabase-migration-merchant-invoices.sql',
+    'supabase-migration-pos-vat-inclusive.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -799,6 +800,16 @@ async function asServiceRole(fn) {
       catch (e) { return 'fail:' + e.message; }
     });
     check('kiosk_claim_pos_transaction: an already-applied transaction cannot be claimed again', reclaimAttempt !== 'ok' && /NOJ_TRANSACTION_NOT_PENDING/.test(reclaimAttempt));
+
+    // ---- accounting rule: points are computed on the WHOLE amount (VAT included), never on amount - vat ----
+    const vatInc = await admin(c => c.query(
+      `select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`, [BRANCH, null, 'POS-VAT-INCLUSIVE', '115.00', '15.00', 'generic', null]
+    ));
+    const vatIncClaim = await asUser(kioskUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [vatInc.rows[0].id, '512345678']));
+    check('accounting rule: points = round(115.00 × rate) — computed on the gross total, NOT on 100 (amount − vat)',
+      vatIncClaim.rows[0].added_points === Math.round(115 * RATE));
+    const vatIncInv = await admin(c => c.query('select amount, vat from invoices where id=$1', [vatIncClaim.rows[0].invoice_id]));
+    check('accounting rule: the invoice stores amount = 115.00 (gross) and vat = 15.00 (contained portion)', Number(vatIncInv.rows[0].amount) === 115 && Number(vatIncInv.rows[0].vat) === 15);
 
     // ---- unregistered customer path ----
     const UNREG_PHONE = '566677788';
@@ -1811,7 +1822,48 @@ async function asServiceRole(fn) {
   }
 
   // =========================================================================
-  // 21) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
+  // 21) VAT-INCLUSIVE ACCOUNTING RULE in intake_pos_transaction()
+  //     (supabase-migration-pos-vat-inclusive.sql): amount = total paid incl.
+  //     VAT, vat = the portion contained in it, 0 <= vat < amount.
+  // =========================================================================
+  {
+    const B3 = '20000000-0000-0000-0000-000000000002'; // any existing branch
+    // Section 19 re-ran pos-connections.sql (idempotency test), which redefines intake_pos_transaction() back to its
+    // older body — re-apply this migration (twice: also proves it is idempotent) so we test the real final state.
+    for (let i = 0; i < 2; i++) {
+      execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, 'supabase-migration-pos-vat-inclusive.sql')}'"`, { stdio: 'pipe' });
+    }
+    const run = (ref, amount, vat) => asServiceRole(async c => {
+      try { const r = await c.query('select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)', [B3, null, ref, amount, vat, 'generic', null]); return { ok: true, row: r.rows[0] }; }
+      catch (e) { return { ok: false, msg: e.message }; }
+    });
+    const vatOk = await run('VAT-OK', '115.00', '15.00');
+    check('VAT rule: amount=115 / vat=15 (15% contained in the total) is accepted and stored as given', vatOk.ok && Number(vatOk.row.amount) === 115 && Number(vatOk.row.vat) === 15);
+    check('VAT rule: vat = 0 is accepted', (await run('VAT-ZERO', '50.00', '0')).ok === true);
+    check('VAT rule: vat just below amount is accepted (49.99 of 50)', (await run('VAT-EDGE', '50.00', '49.99')).ok === true);
+    const eq = await run('VAT-EQ', '50.00', '50.00');
+    check('VAT rule: vat == amount is rejected with NOJ_INVALID_VAT', eq.ok === false && /NOJ_INVALID_VAT/.test(eq.msg));
+    const gt = await run('VAT-GT', '50.00', '57.50');
+    check('VAT rule: vat > amount (tax added on top by mistake) is rejected with NOJ_INVALID_VAT', gt.ok === false && /NOJ_INVALID_VAT/.test(gt.msg));
+    const neg = await run('VAT-NEG', '50.00', '-1');
+    check('VAT rule: a negative vat is rejected with NOJ_INVALID_VAT', neg.ok === false && /NOJ_INVALID_VAT/.test(neg.msg));
+    check('VAT rule: a rejected intake leaves NO row behind',
+      (await admin(c => c.query(`select count(*)::int as n from pos_transactions where external_ref in ('VAT-EQ','VAT-GT','VAT-NEG')`))).rows[0].n === 0);
+    const zeroAmt = await run('VAT-ZERO-AMT', '0', '0');
+    check('VAT rule: amount = 0 still fails on the ORIGINAL amount>0 CHECK, not on NOJ_INVALID_VAT (error unchanged for it)',
+      zeroAmt.ok === false && !/NOJ_INVALID_VAT/.test(zeroAmt.msg) && /check|amount/i.test(zeroAmt.msg));
+    // idempotent re-post of an already-stored ref still returns the original row (validation applies to the NEW values only)
+    const repost = await run('VAT-OK', '115.00', '15.00');
+    check('VAT rule: re-posting an existing external_ref still returns the same row (idempotency intact)', repost.ok && repost.row.id === vatOk.row.id);
+    const noAuthRole = await asUser(crypto.randomUUID(), async c => {
+      try { await c.query('select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)', [B3, null, 'VAT-CLIENT', '10', '1', 'generic', null]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('VAT rule: the function is still unreachable by a client role (grants unchanged)', noAuthRole !== 'ok' && /permission denied/.test(noAuthRole));
+  }
+
+  // =========================================================================
+  // 22) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
   //     grants EXECUTE to anon, period — not scoped to any specific function
   //     list. Catches exactly the kind of gap the per-function checks above
   //     missed: cancel_appointment() had anon granted BY NAME and nobody

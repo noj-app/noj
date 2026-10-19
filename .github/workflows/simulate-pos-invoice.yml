@@ -24,10 +24,10 @@ on:
   workflow_dispatch:
     inputs:
       amount:
-        description: 'المبلغ (مثال: 125.50)'
+        description: 'إجمالي ما دفعه العميل شاملاً الضريبة (مثال: 115)'
         required: true
       vat:
-        description: 'الضريبة (افتراضي 0)'
+        description: 'الضريبة المتضمَّنة داخل المبلغ لا فوقه، وأقل من المبلغ (مثال: 15 لمبلغ 115؛ افتراضي 0)'
         required: false
         default: '0'
       device_id:

@@ -12,14 +12,24 @@
 //     X-POS-Vendor: <name>                   (optional, default "generic")
 //   Body (JSON):
 //     { "external_ref": "<string, required>",
-//       "amount": <number > 0, required>,
-//       "vat": <number >= 0, optional, default 0>,
+//       "amount": <number > 0, required — the TOTAL the customer actually
+//                  paid, INCLUDING VAT>,
+//       "vat": <number, 0 <= vat < amount, optional, default 0 — the VAT
+//              portion already CONTAINED in amount, not added on top of it>,
 //       "device_id": "<uuid, optional>",
 //       "metadata": {<object, optional, size-capped>} }
 //   Response: {"ok": true, "transaction_id": "...", "status": "pending",
 //     "external_ref": "..."} on success, {"ok": false, "error": "..."} with
 //     a 4xx/5xx status otherwise. NEVER a customer phone number anywhere —
 //     none exists at intake time, the customer enters it later at the kiosk.
+//
+// ACCOUNTING RULE (fixed decision, CLAUDE.md): amount is the gross total
+// paid; vat is the part of that total that is VAT. Loyalty points are
+// computed on the whole amount (VAT included). A vendor adapter must map its
+// "total paid" figure to amount — never its pre-tax subtotal, and never
+// subtotal + vat summed a second time. vat >= amount is rejected: a tax
+// portion cannot be the whole payment or exceed it (also enforced inside
+// intake_pos_transaction(), the single choke point every adapter ends at).
 //
 // Re-posting the SAME external_ref for the SAME branch returns the ORIGINAL
 // transaction unchanged (idempotent) — never a duplicate row, never an
@@ -119,6 +129,9 @@ function genericAdapter(raw: unknown): NormalizedPayload {
     }
     vat = r.vat;
   }
+  if (vat >= r.amount) {
+    throw new Error('vat يجب أن يكون أقل من amount (الضريبة جزء متضمَّن داخل المبلغ المدفوع لا فوقه)');
+  }
 
   let deviceId: string | null = null;
   if (r.device_id !== undefined && r.device_id !== null) {
@@ -198,6 +211,9 @@ export async function handlePosIntake(
   if (!result.ok || !result.row) {
     if (result.error === 'NOJ_DEVICE_NOT_IN_BRANCH') {
       return errorResult(400, 'الجهاز المحدَّد لا يتبع هذا الفرع');
+    }
+    if (result.error === 'NOJ_INVALID_VAT') {
+      return errorResult(400, 'vat يجب أن يكون أقل من amount (الضريبة جزء متضمَّن داخل المبلغ المدفوع لا فوقه)');
     }
     console.error('pos-intake: insert failed for branch ending in', branchId.slice(-6), result.error);
     return errorResult(500, 'تعذّر تسجيل العملية، حاول مرة أخرى');
