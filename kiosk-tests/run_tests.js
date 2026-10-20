@@ -429,7 +429,95 @@ async function openAdminSettingsViaPin(page, pin) {
     await context.close();
   }
 
+  // =========================================================================
+  // 14-20) الأقسام الستة وجدول الميزات (CLAUDE.md "جدول ميزات الكشك")
+  // =========================================================================
+  const sectorScenario = (code, extra) => baseScenario(Object.assign({
+    branchSettingsRow: {
+      sector_code: code, biz_name: '', biz_branch: '', biz_slogan: '', biz_logo: '',
+      show_menu_btn: true, menu_images: [], card_toggles: {}, dark_mode: false,
+    },
+  }, extra || {}));
+  const demoMain = async (code) => {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario(code) });
+    const idleMenu = await page.$('#idleMenuBtn') ? await page.textContent('#idleMenuBtn') : null;
+    await page.click('#idleDevNext');
+    await waitForCheckout(page);
+    const info = await page.evaluate(() => ({
+      sector: S.t,
+      right: (document.querySelector('.col.right') || {}).textContent || '',
+      loyalty: !!document.getElementById('loyaltyCard'),
+      loyaltyText: (document.getElementById('loyaltyCard') || {}).textContent || '',
+      queue: !!document.getElementById('queueCard'),
+      toggles: sectorCardToggles(S.t).map((x) => x.id),
+    }));
+    await context.close();
+    return Object.assign(info, { idleMenu });
+  };
+
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario('restaurant') });
+    const keys = await page.evaluate(() => Object.keys(T));
+    check('14) قوالب الكشك = الأقسام الستة (الأربعة القديمة بترتيبها ثم التجزئة والخدمات)',
+      JSON.stringify(keys) === JSON.stringify(['medical', 'cafe', 'restaurant', 'grocery', 'retail', 'services']));
+    const same = await page.evaluate(() => {
+      const strip = (o) => { const c = Object.assign({}, o); ['key', 'switchLabel', 'category', 'biz', 'slogan'].forEach((k) => delete c[k]); return JSON.stringify(c); };
+      return strip(T.retail) === strip(T.grocery) && JSON.stringify(sectorCardToggles('retail')) === JSON.stringify(sectorCardToggles('grocery'));
+    });
+    check('14) التجزئة = قالب البقالة تماماً (كل الميزات والبطاقات والمفاتيح؛ يختلف الاسم ونصوص العرض فقط)', same);
+    await context.close();
+  }
+
+  const F = {};
+  for (const code of ['grocery', 'retail', 'cafe', 'restaurant', 'medical', 'services']) F[code] = await demoMain(code);
+  check('15) الكشك يُقلع بالقسم المحفوظ في branch_settings لكل الستة (retail/services مقبولان، لا رجوع للافتراضي)',
+    Object.entries(F).every(([code, f]) => f.sector === code));
+  check('15) "فاتورتك": لكل الأقسام', Object.values(F).every((f) => f.toggles[0] === 'invoiceArrived'));
+  check('16) نقاط الولاء: لكل الأقسام ما عدا الصحي (يبقى كما هو)',
+    ['grocery', 'retail', 'cafe', 'restaurant', 'services'].every((c) => F[c].loyalty && /نقاط مكتسبة/.test(F[c].loyaltyText) && F[c].toggles.includes('loyaltyPoints')) &&
+    !F.medical.toggles.includes('loyaltyPoints') && !/نقاط مكتسبة/.test(F.medical.loyaltyText));
+  check('17) "عروضنا": لكل الأقسام الستة (جديد للصحي)',
+    Object.values(F).every((f) => /عروضنا/.test(f.right) && f.toggles.includes('offers')));
+  check('17) الصحي يحتفظ ببطاقتي الموعد ونوع العيادة كما هما', /حجز موعدك القادم/.test(F.medical.right) && /نوع العيادة/.test(F.medical.loyaltyText) && F.medical.toggles.includes('nextAppt'));
+  check('18) زر القائمة: مقهى ومطعم "المنيو"، خدمات "خدماتنا"، وبلا زر للبقالة والتجزئة والصحي',
+    /المنيو/.test(F.cafe.idleMenu || '') && /المنيو/.test(F.restaurant.idleMenu || '') && /خدماتنا/.test(F.services.idleMenu || '') &&
+    /قائمة الخدمات والأسعار/.test(F.services.idleMenu || '') && F.grocery.idleMenu === null && F.retail.idleMenu === null && F.medical.idleMenu === null);
+  check('19) رقم الدور: مقهى "رقم طلبك"، مطعم "رقم طاولتك"، صحي "رقم دورك"؛ والبقالة والتجزئة والخدمات بلا رقم',
+    /رقم طلبك/.test(F.cafe.right) && /رقم طاولتك/.test(F.restaurant.right) && F.medical.queue && F.medical.toggles.includes('queueNumber') &&
+    ['grocery', 'retail', 'services'].every((c) => !F[c].queue && !/رقم طلبك|رقم طاولتك|رقم دورك/.test(F[c].right) && F[c].toggles.length === 3));
+  check('19) المواعيد والحجز ونوع العيادة للصحي فقط',
+    Object.entries(F).every(([c, f]) => c === 'medical' || (!f.toggles.includes('nextAppt') && !/موعد|نوع العيادة/.test(f.right + f.loyaltyText))));
+  check('19) المقهى والمطعم والبقالة بلا أي تغيير في مفاتيح بطاقاتها',
+    JSON.stringify(F.cafe.toggles) === JSON.stringify(['invoiceArrived', 'loyaltyPoints', 'offers', 'orderNumber']) &&
+    JSON.stringify(F.restaurant.toggles) === JSON.stringify(['invoiceArrived', 'loyaltyPoints', 'offers', 'orderNumber']) &&
+    JSON.stringify(F.grocery.toggles) === JSON.stringify(['invoiceArrived', 'loyaltyPoints', 'offers']) &&
+    JSON.stringify(F.medical.toggles) === JSON.stringify(['invoiceArrived', 'queueNumber', 'nextAppt', 'offers']));
+
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario('services', { adminPin: '1234' }) });
+    await page.click('#idleMenuBtn');
+    await page.waitForSelector('#menuOv', { timeout: 2000 }).catch(() => {});
+    const empty = await page.textContent('#menuOv').catch(() => '');
+    check('20) زر "خدماتنا" يفتح نفس عارض الصفحات (بلا ملف بعد: "لم تُرفَع قائمة الخدمات بعد")', /لم تُرفَع قائمة الخدمات بعد/.test(empty));
+    await page.click('#menuClose');
+    await openAdminSettingsViaPin(page, '1234');
+    const adm = await page.textContent('.adm-body');
+    check('20) إعدادات الجهاز لقسم الخدمات: "إظهار زر خدماتنا" و"ملف قائمة الخدمات والأسعار"', /إظهار زر خدماتنا/.test(adm) && /ملف قائمة الخدمات والأسعار/.test(adm));
+    const sw = await page.$$eval('#adminSw button', (bs) => bs.map((b) => b.getAttribute('data-t')));
+    check('20) مبدّل القطاع في إعدادات الجهاز يعرض الأقسام الستة', JSON.stringify(sw) === JSON.stringify(['medical', 'cafe', 'restaurant', 'grocery', 'retail', 'services']));
+    await context.close();
+  }
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario('cafe', { adminPin: '1234' }) });
+    await openAdminSettingsViaPin(page, '1234');
+    const adm = await page.textContent('.adm-body');
+    check('20) المقهى بلا تغيير: "إظهار زر المنيو" و"ملف المنيو"', /إظهار زر المنيو/.test(adm) && /ملف المنيو \(PDF أو صور\)/.test(adm));
+    await context.close();
+  }
+
+
   await browser.close();
+
   console.log('\n=== KIOSK E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));
   process.exit(fail > 0 ? 1 : 0);

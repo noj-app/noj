@@ -577,6 +577,9 @@ var T={
   topCard:{kind:'unit',label:'نوع العيادة',icon:'tooth',value:'أسنان',subLabel:'رقم العيادة',subValue:'3'},
   // right small cards
   small2:{id:'nextAppt',icon:'calchk',title:'حجز موعدك القادم',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
+  // بطاقة يمنى ثالثة اختيارية (القطاع الطبي فقط): "عروضنا" لكل الأقسام —
+  // small2 هنا مشغول أصلاً ببطاقة الموعد، فتأتي العروض بعدها.
+  small3:{id:'offers',icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
     {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
     {i:'bell',b:'تنبيهات المواعيد',s:'لا تفوّت موعدك'},
@@ -688,6 +691,40 @@ var T={
   pointsRate:1, doctorName:null
  }
 };
+/* التجزئة = قالب البقالة نفسه حرفياً (نفس الميزات والبطاقات) — نسخة منه لا
+   تعريف مستقل، فلا يمكن أن يختلفا؛ يتغيّر فقط الاسم الظاهر ونصوص العرض
+   التجريبي. الترتيب في T يبقى كما كان مع إضافة القسمين الجديدين بعده. */
+T.retail=Object.assign({},T.grocery,{key:'retail',switchLabel:'تجزئة',category:'تجزئة',biz:'متجر الحي',slogan:'كل ما تحتاجه في مكان واحد'});
+T.services={
+  key:'services',
+  switchLabel:'خدمات',
+  category:'خدمات',
+  ticketLabel:'رقم فاتورتك',
+  biz:'مركز الخدمات', slogan:'خدمة سريعة وأسعار واضحة',
+  logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('gear',46,'#64748B',2)+'</div>',
+  ticket:18, ahead:2, aheadWord:'عملاء', aheadSingular:'عميل واحد', aheadDual:'عميلان',
+  topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
+  small2:{id:'offers',icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
+  footer:[
+    {i:'receipt',b:'جميع خدماتك في تطبيق واحد',s:'بشكل آمن وسريع'},
+    {i:'bell',b:'تنبيهات وعروض حصرية',s:'خصيصًا لك'},
+    {i:'clock',b:'سجل مشترياتك',s:'اطّلع على كل مشترياتك'},
+    {i:'gift',b:'نقاط ولاء ومكافآت',s:'اجمع النقاط واستبدلها'},
+    {i:'shield',b:'أمان وموثوق',s:'بياناتك محمية بالكامل'}
+  ],
+  // لا رقم دور ولا مواعيد لقسم الخدمات (جدول الميزات في CLAUDE.md)
+  okItems:[
+    {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'}
+  ],
+  idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتحتسب نقاط ولائك وتصلك فاتورتك رقمياً',
+        en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
+  // زر "خدماتنا" يعرض نفس عارض الصفحات المرفوعة (قائمة الخدمات والأسعار)
+  idleMenuBtn:{label:'خدماتنا',sub:'قائمة الخدمات والأسعار',icon:'receipt',fileLabel:'قائمة الخدمات والأسعار',emptyTitle:'لم تُرفَع قائمة الخدمات بعد'},
+  hasPoints:true, hasQueue:false,
+  showInvoiceAmount:true, invoiceAmount:'45.00',
+  showCouponBtn:true, showDigitalInvoice:true,
+  pointsRate:1, doctorName:null
+};
 
 /* قائمة مفاتيح الإعدادات القابلة للتشغيل/الإطفاء لقطاع معيّن — تُشتق
    آلياً من بيانات العرض الفعلية لذلك القطاع في T (okItems/hasPoints/
@@ -710,6 +747,7 @@ function sectorCardToggles(key){
   var inOkItems=c.okItems.some(function(o){return c.small2&&o.id===c.small2.id});
   if(c.small2&&!inOkItems)list.push({id:c.small2.id,label:c.small2.title});
   c.okItems.slice(1).forEach(function(o){list.push({id:o.id,label:o.b})});
+  if(c.small3)list.push({id:c.small3.id,label:c.small3.title});
   return list;
 }
 /* عنصر okItems "الفائض" — أول عنصر بعد فاتورتك (index 0) وليس هو نفسه
@@ -1328,7 +1366,10 @@ function rightCol(){
   var extra=(extraItem&&cardOn(extraItem.id))?
    '<div class="rb"><div class="rb-i">'+ic(extraItem.i,26,extraItem.c)+'</div>'+
    '<b>'+extraItem.b+'</b><small>'+extraItem.s+'</small></div>':'';
-  var boxes=digitalInvoice+small2+extra;
+  var small3=(c.small3&&cardOn(c.small3.id))?
+   '<div class="rb"><div class="rb-i">'+ic(c.small3.icon,26,'#2D7BF4')+'</div>'+
+   '<b>'+c.small3.title+'</b><small>'+c.small3.note+'</small></div>':'';
+  var boxes=digitalInvoice+small2+extra+small3;
   return boxes?'<div class="col right">'+boxes+'</div>':'';
 }
 
@@ -1502,7 +1543,7 @@ function menuOverlay(){
   if(!imgs.length){
     return '<div class="ov menu-ov" id="menuOv">'+
      '<button class="close" id="menuClose">'+ic('close',16,'#8A93AD')+' إغلاق</button>'+
-     '<div class="menu-empty"><b>لم يُرفَع منيو بعد</b><small>يمكن للتاجر رفعه من إعدادات الجهاز</small></div>'+
+     '<div class="menu-empty"><b>'+(((T[SETTINGS.sector]||{}).idleMenuBtn||{}).emptyTitle||'لم يُرفَع منيو بعد')+'</b><small>يمكن للتاجر رفعه من إعدادات الجهاز</small></div>'+
     '</div>';
   }
   if(menuIdx>imgs.length-1)menuIdx=imgs.length-1;
@@ -2318,7 +2359,7 @@ function idleSectionAdminHtml(d){
   if(!cat||!cat.idleMenuBtn)return '';
   return '<div class="adm-sec"><h3>شاشة الخمول</h3>'+
    '<div class="card-tog-row">'+
-    '<span class="card-tog-label">إظهار زر المنيو</span>'+
+    '<span class="card-tog-label">إظهار زر '+cat.idleMenuBtn.label+'</span>'+
     '<div id="menuBtnToggleWrap">'+menuBtnToggleHtml(d)+'</div>'+
    '</div>'+
    '<div id="menuFileSectionWrap">'+menuFileSectionHtml(d)+'</div>'+
@@ -2330,7 +2371,8 @@ function idleSectionAdminHtml(d){
    inline-start على .menu-file-sub) توضّح بصرياً تبعيته للمفتاح فوقه. */
 function menuFileSectionHtml(d){
   if(!d.showMenuBtn)return '';
-  return '<label class="adm-f menu-file-sub">ملف المنيو (PDF أو صور)'+
+  var mb=T[d.sector]&&T[d.sector].idleMenuBtn;
+  return '<label class="adm-f menu-file-sub">ملف '+((mb&&mb.fileLabel)||'المنيو')+' (PDF أو صور)'+
    '<div class="adm-row" style="margin-top:6px">'+
     '<button type="button" class="adm-testbtn" id="pickMenuFileBtn">رفع ملف</button>'+
     '<input type="file" accept="application/pdf,image/*" multiple id="fMenuFile" style="display:none">'+
@@ -2551,7 +2593,7 @@ function updateModeButtons(){
 /* لا يُستدعى إطلاقاً إلا من idleSectionAdminHtml، الذي يتأكد مسبقاً من
    أن القطاع الحالي يملك menuBtn أصلاً — فلا حاجة هنا لأي فرع "غير مؤهَّل". */
 function menuBtnToggleHtml(d){
-  return '<button type="button" class="flip-sw'+(d.showMenuBtn?' on':'')+'" id="menuBtnToggle" role="switch" aria-checked="'+d.showMenuBtn+'" aria-label="إظهار زر المنيو"><span class="flip-knob"></span></button>';
+  return '<button type="button" class="flip-sw'+(d.showMenuBtn?' on':'')+'" id="menuBtnToggle" role="switch" aria-checked="'+d.showMenuBtn+'" aria-label="إظهار زر '+((T[d.sector]&&T[d.sector].idleMenuBtn&&T[d.sector].idleMenuBtn.label)||'المنيو')+'"><span class="flip-knob"></span></button>';
 }
 function renderMenuBtnToggle(){
   var wrap=document.getElementById('menuBtnToggleWrap');
