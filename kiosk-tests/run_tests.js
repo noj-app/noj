@@ -258,12 +258,13 @@ async function openAdminSettingsViaPin(page, pin) {
     check('6) الوضع التجريبي: الزر ينقل لشاشة الطلب كما كان', reached);
     const amountText = reached ? await page.textContent('.inv-chip b') : '';
     check('6) الوضع التجريبي: المبلغ المعروض هو قيمة القالب الثابتة (86.00 لمطعم مذاق)، لا أي قيمة عملية حقيقية', /86\.00/.test(amountText));
-    // الوضع التجريبي لم يتغيّر: بطاقات okItems الإضافية (رقم طاولتك) تبقى
+    // الوضع التجريبي لم يتغيّر: بطاقات okItems الإضافية (رقم طلبك — كان "رقم
+    // طاولتك" قبل أن يصير المطعم كالمقهى تماماً، قرار معتمد) تبقى
     // ظاهرة في شاشة النجاح كما كانت قبل إخفائها في الوضع المباشر فقط.
     await enterPhoneAndConfirm(page, '512345678');
     await page.waitForSelector('.ok-in', { timeout: 3000 }).catch(() => {});
     const gotText = await page.textContent('.got').catch(() => '');
-    check('6) الوضع التجريبي: بطاقة "رقم طاولتك" لا تزال ظاهرة في شاشة النجاح (لم تُخفَ، فقط الوضع المباشر)', /رقم طاولتك/.test(gotText));
+    check('6) الوضع التجريبي: بطاقة "رقم طلبك" لا تزال ظاهرة في شاشة النجاح (لم تُخفَ، فقط الوضع المباشر)', /رقم طلبك/.test(gotText) && !/رقم طاولتك/.test(gotText));
     await context.close();
   }
   {
@@ -482,8 +483,8 @@ async function openAdminSettingsViaPin(page, pin) {
   check('18) زر القائمة: مقهى ومطعم "المنيو"، خدمات "خدماتنا"، وبلا زر للبقالة والتجزئة والصحي',
     /المنيو/.test(F.cafe.idleMenu || '') && /المنيو/.test(F.restaurant.idleMenu || '') && /خدماتنا/.test(F.services.idleMenu || '') &&
     /قائمة الخدمات والأسعار/.test(F.services.idleMenu || '') && F.grocery.idleMenu === null && F.retail.idleMenu === null && F.medical.idleMenu === null);
-  check('19) رقم الدور: مقهى "رقم طلبك"، مطعم "رقم طاولتك"، صحي "رقم دورك"؛ والبقالة والتجزئة والخدمات بلا رقم',
-    /رقم طلبك/.test(F.cafe.right) && /رقم طاولتك/.test(F.restaurant.right) && F.medical.queue && F.medical.toggles.includes('queueNumber') &&
+  check('19) رقم الدور: مقهى ومطعم "رقم طلبك"، صحي "رقم دورك"؛ والبقالة والتجزئة والخدمات بلا رقم',
+    /رقم طلبك/.test(F.cafe.right) && /رقم طلبك/.test(F.restaurant.right) && !/رقم طاولتك/.test(F.restaurant.right) && F.medical.queue && F.medical.toggles.includes('queueNumber') &&
     ['grocery', 'retail', 'services'].every((c) => !F[c].queue && !/رقم طلبك|رقم طاولتك|رقم دورك/.test(F[c].right) && F[c].toggles.length === 3));
   check('19) المواعيد والحجز ونوع العيادة للصحي فقط',
     Object.entries(F).every(([c, f]) => c === 'medical' || (!f.toggles.includes('nextAppt') && !/موعد|نوع العيادة/.test(f.right + f.loyaltyText))));
@@ -503,8 +504,7 @@ async function openAdminSettingsViaPin(page, pin) {
     await openAdminSettingsViaPin(page, '1234');
     const adm = await page.textContent('.adm-body');
     check('20) إعدادات الجهاز لقسم الخدمات: "إظهار زر خدماتنا" و"ملف قائمة الخدمات والأسعار"', /إظهار زر خدماتنا/.test(adm) && /ملف قائمة الخدمات والأسعار/.test(adm));
-    const sw = await page.$$eval('#adminSw button', (bs) => bs.map((b) => b.getAttribute('data-t')));
-    check('20) مبدّل القطاع في إعدادات الجهاز يعرض الأقسام الستة', JSON.stringify(sw) === JSON.stringify(['medical', 'cafe', 'restaurant', 'grocery', 'retail', 'services']));
+    check('20) لا منتقي قسم في إعدادات شاشة نوج إطلاقاً (القسم من لوحة التاجر وللمالك فقط)', (await page.$('#adminSw')) === null && !/<h3>القطاع<\/h3>/.test(await page.innerHTML('.adm-body')));
     await context.close();
   }
   {
@@ -515,6 +515,34 @@ async function openAdminSettingsViaPin(page, pin) {
     await context.close();
   }
 
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario('restaurant') });
+    const same = await page.evaluate(() => ['ticketLabel', 'aheadWord', 'aheadSingular', 'aheadDual'].every((k) => T.restaurant[k] === T.cafe[k]) &&
+      JSON.stringify(T.restaurant.okItems.slice(1)) === JSON.stringify(T.cafe.okItems.slice(1)));
+    check('21) المطعم = المقهى تماماً في رقم الطلب (التسمية، صيغ "أمامك…"، وبطاقة شاشة النجاح)', same);
+    check('21) عنوان الصفحة "شاشة نوج"', (await page.title()) === 'NOJ — شاشة نوج');
+    await context.close();
+  }
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario('medical', { adminPin: '1234' }) });
+    await page.click('#idleDevNext');
+    await waitForCheckout(page);
+    const right = await page.textContent('.col.right');
+    check('22) "تطبيق نوج" بدل "التطبيق" في النصوص الظاهرة', /الإلكترونية بتطبيق نوج/.test(right) && !/بالتطبيق/.test(right) &&
+      await page.evaluate(() => T.medical.okItems.some((o) => o.s === 'احجزه من تطبيق نوج مباشرة')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sectorScenario('cafe', { adminPin: '1234' }) });
+    await openAdminSettingsViaPin(page, '1234');
+    await page.fill('#fBizName', 'اسم جديد');
+    await page.click('#adminSave');
+    await page.waitForFunction(() => window.__TEST__.getLastUpdate() !== null, null, { timeout: 3000 }).catch(() => {});
+    const upd = await page.evaluate(() => window.__TEST__.getLastUpdate());
+    check('23) حفظ إعدادات شاشة نوج يكتب بقية الحقول ولا يرسل sector_code إطلاقاً (يقرأ القسم ولا يكتبه)',
+      upd && upd.table === 'branch_settings' && upd.payload.biz_name === 'اسم جديد' && !('sector_code' in upd.payload));
+    await context.close();
+  }
 
   await browser.close();
 

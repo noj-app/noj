@@ -1,4 +1,4 @@
-# NOJ — تطبيق العميل
+# NOJ — تطبيق نوج
 
 **من الدفع تبدأ علاقتك المالية.**
 
@@ -10,7 +10,7 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 
 | الملف | الجهاز | الوصف |
 |---|---|---|
-| `index.html` | جوال العميل | تطبيق العميل: يجلب فواتيره ودوره ونقاطه ومكافآته من Supabase — تطبيق ويب تقدّمي (PWA) قابل للتثبيت |
+| `index.html` | جوال العميل | تطبيق نوج: يجلب فواتيره ودوره ونقاطه ومكافآته من Supabase — تطبيق ويب تقدّمي (PWA) قابل للتثبيت |
 | `kiosk.html` | تابلت عند المحاسب | شاشة تقف أمام العميل وقت الدفع، تربط جواله بالطلب الحالي — **ليست** PWA، بلا تثبيت. مربوطة بـ Supabase فعلياً: إقران الجهاز بفرعه، إعدادات الجهاز من `branch_settings`، ورصيد نقاط حقيقي عند التعرّف على العميل — راجع `supabase-migration-kiosk-device-auth.sql`/`supabase-migration-kiosk-balance-lookup.sql` |
 | `merchant.html` | جوال/حاسوب موظف التاجر | لوحة التاجر (المرحلتان ١-٢): دخول برقم الجوال (لا ترقية جلسة مجهولة) + شاشة الأجهزة (اعتماد كشك جديد عبر `approve_device_pairing()`، إلغاء جهاز) + إعدادات الفرع (مالك وموظف) + رمز PIN وتوكن POS (مالك فقط) — جلسة منعزلة تماماً عن `index.html`/`kiosk.html` في نفس المتصفح (`storageKey` مخصَّص). راجع "لوحة التاجر" أدناه و`supabase-merchant-dashboard-setup.md` |
 | `supabase-schema.sql` | — | كل جداول NOJ وسياسات RLS ودوال RPC وبيانات تجريبية (seed) — يُشغَّل مرة واحدة في مشروع Supabase |
@@ -41,6 +41,7 @@ NOJ منصة سعودية تربط العميل بالتاجر، وتحوّل ا
 | `supabase-migration-pending-points.sql` | — | ترقية إضافية (المرحلة الأولى من الإرجاع والنقاط المعلّقة — PR1، نموذج البيانات فقط): `merchants.points_hold_days` (7 للبقالة/التجزئة، 0 لغيرها، يُشتق من `merchants.type`)، و`point_transactions.status`/`release_at` (الصفوف القديمة `available` تلقائياً بلا backfill)، ودالة الكسب الداخلية المشتركة `apply_points_earn()` التي تستدعيها `kiosk_claim_pos_transaction`/`claim_unclaimed_invoices`/`kiosk_earn_points`، و`release_pending_points()` (مجدولة بـpg_cron كل 15 دقيقة)، وقراءة رصيد الكشك = متاح + معلّق. `redeem_reward` لا تُمَس. يأتي الإرجاع في PR لاحق |
 | `supabase-migration-pos-refunds.sql` | — | ترقية إضافية (المرحلة الأولى — PR2، الإرجاع للنوع أ): `intake_pos_refund()` (service_role فقط، تستدعيها `pos-intake` لحمولة `type:"refund"`)، وجدول `pos_refunds` (مقفل، لمنع تكرار نفس الإرجاع)، ونوع حركة `refund_adjustment` مع `intended_delta` لتسجيل الفرق غير المسترد. داخل فترة التعليق تُلغى/تُخفَّض النقاط المعلّقة، وبعدها تُخصم من المتاح حتى الصفر فقط. `claim_unclaimed_invoices` لا تمنح نقاطاً على الجزء المُرجَع. يتطلب `supabase-migration-pending-points.sql` |
 | `supabase-migration-unified-sectors.sql` | — | ترقية إضافية (توحيد الأقسام): الأقسام الستة (grocery/retail/cafe/restaurant/medical/services) بمصدر واحد `merchants.sector_code`؛ `merchants.type` و`branch_settings.sector_code` مشتقّان بمشغّلات لا يمكن أن يختلفا (كتابة قسم الفرع تمرّ للتاجر). ترحيل: صحة→medical، مقاهي→cafe، مطاعم→restaurant، بقالة→grocery، أخرى→services. مدة التعليق تتبع افتراض القسم الجديد إن لم تُعدَّل يدوياً، و`merchant_set_points_hold_days()` (مالك فقط). لا أثر على الفواتير والأرصدة. جدول ميزات الكشك في CLAUDE.md |
+| `supabase-migration-sector-owner-only.sql` | — | ترقية إضافية: القسم يُختار من لوحة التاجر وللمالك فقط عبر `merchant_set_sector()`؛ `branch_settings.sector_code` مرآة للقراءة فقط (قيمة مختلفة تُرفض بـ`NOJ_SECTOR_OWNER_ONLY`، إعادة إرسال الحالية مسموحة). شاشة نوج لا تكتب القسم. يحلّ محل الكتابة العابرة في `unified-sectors.sql` (الجسم متطابق في الملفين) |
 | `supabase-edge-functions-deploy.md` | — | توثيق فقط: نشر Edge Functions (`send-sms-hook`, `pos-intake`) بلا حاسوب عبر GitHub Actions (`.github/workflows/deploy-edge-functions.yml`، يدوي حصراً) — خطوات توكن Supabase وإضافته كسرّ مستودع، وتعليل تعطيل verify_jwt لكلتا الدالتين |
 | `supabase/config.toml` | — | إعداد Supabase CLI: `verify_jwt = false` لكلتا الدالتين `send-sms-hook`/`pos-intake` — كلتاهما تتوثّق بآليتها الخاصة داخل الطلب نفسه لا بـ JWT صادر من Supabase، راجع `supabase-edge-functions-deploy.md` |
 | `db-tests/` | — | اختبارات محلية (Postgres 16 + Node) لكل ملفات الهجرة أعلاه، بما فيها ملف القفل الأمني — راجع `db-tests/README.md` |
@@ -81,7 +82,7 @@ python3 -m http.server 8000
 ثم افتح `http://localhost:8000/index.html` أو `http://localhost:8000/kiosk.html`
 من المتصفح. (على `localhost` يُعامَل الاتصال كسياق آمن حتى بدون HTTPS.)
 
-بيانات الدخول التجريبية لتطبيق العميل:
+بيانات الدخول التجريبية لتطبيق نوج:
 - رقم جوال سعودي من 9 خانات يبدأ بـ `5` (مثال: `512345678`، بلا صفر بداية)
 - رمز التحقق: `1234`
 - سجّل الدخول تحديداً برقم `512345678` لرؤية البيانات التجريبية الكاملة
@@ -107,7 +108,7 @@ python3 -m http.server 8000
 - الضغط في أي مكان داخل دائرة "ضع جوالك هنا" يربط الجهاز فوراً (محاكاة NFC)
 - أو الدخول عبر "أدخل رقم جوالك": أي رقم يبدأ بـ `5` ويتكون من 9 خانات
 
-## تطبيق العميل (`index.html`)
+## تطبيق نوج (`index.html`)
 
 ### الشاشات
 
