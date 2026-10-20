@@ -2284,6 +2284,113 @@ async function asServiceRole(fn) {
   }
 
   // =========================================================================
+  // 21d) PARTIAL / FULL REFUND OF AN UNREGISTERED CUSTOMER'S INVOICE, THEN THEY
+  //      REGISTER (claim_unclaimed_invoices) — the exact live scenario: amount
+  //      115 (vat 15), refund 50. Points must be reduced by the refunded share,
+  //      and the total removed must equal the invoice's points EXACTLY.
+  // =========================================================================
+  {
+    const GROCER = '20000000-0000-0000-0000-000000000002';
+    const applyAll = (order) => {
+      for (const f of order) execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    };
+    // earlier sections re-ran older files; bring the DB to the real final state first
+    applyAll(['supabase-migration-pending-points.sql', 'supabase-migration-pos-refunds.sql']);
+    const origRate = (await admin(c => c.query('select points_rate from merchants where id=$1', [GROCER]))).rows[0].points_rate;
+
+    const ownerUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [ownerUid]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [GROCER, ownerUid]));
+    const kUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [kUid]));
+    const kReq = await asUser(kUid, c => c.query('select * from request_device_pairing()'));
+    await asUser(ownerUid, c => c.query('select * from approve_device_pairing($1,$2)', [kReq.rows[0].pairing_code, GROCER]));
+
+    let seq = 0;
+    const phone = () => '5446' + String(++seq).padStart(5, '0');
+    const newUnregInvoice = async (ph, amount, vat) => {
+      const ref = 'CL-' + (++seq);
+      const t = await admin(c => c.query(`insert into pos_transactions (branch_id, amount, vat, external_ref) values ($1,$2,$3,$4) returning id`, [GROCER, amount, vat, ref]));
+      const cl = (await asUser(kUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [t.rows[0].id, ph]))).rows[0];
+      return { ref, invoiceId: cl.invoice_id, points: cl.added_points };
+    };
+    const refund = (ref, amt) => asServiceRole(async c => {
+      const r = await c.query('select intake_pos_refund($1,$2,$3,$4,$5,$6) as r', [GROCER, ref, 'CLR-' + (++seq), amt, 'generic', null]);
+      return r.rows[0].r;
+    });
+    const register = async (ph) => {
+      const u = crypto.randomUUID();
+      await admin(c => c.query('insert into auth.users (id) values ($1)', [u]));
+      const p = await admin(c => c.query(`insert into profiles (phone, auth_user_id, phone_verified_at) values ($1,$2,now()) returning id`, [ph, u]));
+      await admin(c => c.query(`insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','kiosk')`, [p.rows[0].id]));
+      await asUser(u, c => c.query('select claim_unclaimed_invoices()'));
+      return { uid: u, id: p.rows[0].id };
+    };
+    const earnRows = async (invoiceId) => (await admin(c => c.query(`select * from point_transactions where invoice_id=$1 order by created_at`, [invoiceId]))).rows;
+
+    // ---- the live scenario, rate 1.0: 115 points earned, refund 50, register → 65 ----
+    await admin(c => c.query('update merchants set points_rate = 1.0 where id=$1', [GROCER]));
+    const p1 = phone();
+    const i1 = await newUnregInvoice(p1, '115.00', '15.00');
+    const r1 = await refund(i1.ref, '50.00');
+    const inv1 = (await admin(c => c.query('select points_earned, refunded_amount from invoices where id=$1', [i1.invoiceId]))).rows[0];
+    check('live scenario: 115 (vat 15) unregistered, refund 50 → unclaimed_marked, refunded_amount 50, points_earned still 115 (the original record is immutable)',
+      i1.points === 115 && r1.outcome === 'unclaimed_marked' && Number(inv1.refunded_amount) === 50 && inv1.points_earned === 115);
+    const reg1 = await register(p1);
+    const rows1 = await earnRows(i1.invoiceId);
+    check('live scenario: on registration the customer gets 65 points (not 115) — one earn row of 65, pending on the invoice-date hold',
+      rows1.length === 1 && rows1[0].points_delta === 65 && rows1[0].status === 'pending');
+    check('live scenario: displayed balance = 65, AVAILABLE = 0 until the hold ends',
+      (await admin(c => c.query(`select coalesce((select points from merchant_loyalty where user_id=$1 and merchant_id=$2),0) + coalesce((select sum(points_delta) from point_transactions where user_id=$1 and merchant_id=$2 and status='pending'),0) as n`, [reg1.id, GROCER]))).rows[0].n == 65);
+
+    // ---- full refund of an unregistered invoice → zero points ----
+    const p2 = phone();
+    const i2 = await newUnregInvoice(p2, '115.00', '15.00');
+    await refund(i2.ref, '115.00');
+    const reg2 = await register(p2);
+    check('full refund of an unregistered invoice, then registration → ZERO points (no ledger row), invoice moved and shown refunded',
+      (await earnRows(i2.invoiceId)).length === 0 &&
+      (await admin(c => c.query('select user_id, status from invoices where id=$1', [i2.invoiceId]))).rows[0].status === 'refunded' &&
+      (await admin(c => c.query('select user_id from invoices where id=$1', [i2.invoiceId]))).rows[0].user_id === reg2.id);
+
+    // ---- exactness with a rate that makes the shares non-integers (0.37 → 43 points on 115) ----
+    await admin(c => c.query('update merchants set points_rate = 0.37 where id=$1', [GROCER]));
+    const p3 = phone();
+    const i3 = await newUnregInvoice(p3, '115.00', '15.00');
+    check('setup: rate 0.37 on 115 earns 43 points', i3.points === 43);
+    await refund(i3.ref, '50.00');                       // before registration
+    const reg3 = await register(p3);                     // gets round(43 × 65/115) = 24
+    const claimedPts = (await earnRows(i3.invoiceId))[0].points_delta;
+    const removedBeforeClaim = i3.points - claimedPts;   // the part never awarded
+    const s2 = await refund(i3.ref, '30.00');            // after registration: pending row reduced
+    const s3 = await refund(i3.ref, '35.00');            // the rest → cancelled
+    const finalRow = (await earnRows(i3.invoiceId))[0];
+    check('exact division: awarded at registration = round(43 × 65/115) = 24', claimedPts === 24);
+    check('exact division: never-awarded (19) + cancelled after registration (11 + 13) == the invoice\'s 43 points EXACTLY',
+      removedBeforeClaim + s2.points_cancelled + s3.points_cancelled === i3.points && removedBeforeClaim === 19 && s2.points_cancelled === 11 && s3.points_cancelled === 13);
+    check('exact division: the ledger row ends cancelled; nothing was taken from the available balance (pending path only)',
+      finalRow.status === 'cancelled' && (await admin(c => c.query('select coalesce(points,0) as p from merchant_loyalty where user_id=$1 and merchant_id=$2', [reg3.id, GROCER]))).rows[0].p === 0);
+
+    // ---- the claim function must stay refund-aware whatever order the migration files are re-applied in ----
+    const defOf = async () => (await admin(c => c.query(`select prosrc from pg_proc where proname='claim_unclaimed_invoices'`))).rows[0].prosrc;
+    applyAll(['supabase-migration-pos-refunds.sql', 'supabase-migration-pending-points.sql']);
+    const defPendingLast = await defOf();
+    applyAll(['supabase-migration-pending-points.sql', 'supabase-migration-pos-refunds.sql']);
+    const defRefundsLast = await defOf();
+    check('claim_unclaimed_invoices has the IDENTICAL, refund-aware body whichever of the two files is applied last',
+      defPendingLast === defRefundsLast && /v_refunded/.test(defPendingLast));
+    applyAll(['supabase-migration-pos-refunds.sql', 'supabase-migration-pending-points.sql']);
+    const p4 = phone();
+    const i4 = await newUnregInvoice(p4, '115.00', '15.00');
+    await refund(i4.ref, '50.00');
+    await register(p4);
+    check('after re-applying pending-points.sql LAST, a partially refunded unregistered invoice still earns the reduced points (not the full ones)',
+      (await earnRows(i4.invoiceId))[0].points_delta === Math.round(43 * 65 / 115));
+
+    await admin(c => c.query('update merchants set points_rate = $2 where id=$1', [GROCER, origRate]));
+  }
+
+  // =========================================================================
   // 22) GENERAL LOCKDOWN INVARIANT: no SECURITY DEFINER function in `public`
   //     grants EXECUTE to anon, period — not scoped to any specific function
   //     list. Catches exactly the kind of gap the per-function checks above
