@@ -11,6 +11,9 @@
 //   NOJ_TEST_POS_TOKEN=<توكن الفرع> SUPABASE_PROJECT_ID=<معرّف المشروع> \
 //     node scripts/simulate-pos-invoice.js --amount 125.50 [--vat 0] [--device-id <uuid>]
 //
+// إرجاع فاتورة أُرسلت سابقاً (external_ref يُطبع عند إرسالها):
+//     node scripts/simulate-pos-invoice.js --refund-of <external_ref> --refund-amount 40
+//
 // يكتشف تلقائياً أنه يعمل داخل GitHub Actions (GITHUB_ACTIONS=true، تضبطها
 // منصة Actions نفسها لكل خطوة، لا حاجة لتمريرها يدوياً) ليضع external_ref
 // ومعرّفات التشغيل المناسبة بدل القيم الافتراضية لتشغيل مطوّر محلي.
@@ -18,12 +21,14 @@
 // لا يطبع التوكن أبداً تحت أي ظرف.
 
 function parseArgs(argv) {
-  const out = { amount: null, vat: '0', deviceId: '' };
+  const out = { amount: null, vat: '0', deviceId: '', refundOf: '', refundAmount: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--amount') out.amount = argv[++i];
     else if (a === '--vat') out.vat = argv[++i];
     else if (a === '--device-id') out.deviceId = argv[++i];
+    else if (a === '--refund-of') out.refundOf = argv[++i];
+    else if (a === '--refund-amount') out.refundAmount = argv[++i];
     else {
       console.error(`معامل غير معروف: ${a}`);
       process.exit(1);
@@ -37,7 +42,7 @@ async function main() {
   // "type": "module" في أي package.json) على أي إصدار Node 18+، بخلاف
   // import الثابت الذي يعتمد على اكتشاف صيغة ESM التلقائي (ميزة أحدث، غير
   // مضمونة على كل إصدار Node مثبَّت مسبقاً على عدّاد GitHub Actions).
-  const { buildPosInvoicePayload } = await import('./pos-invoice-payload.mjs');
+  const { buildPosInvoicePayload, buildPosRefundPayload } = await import('./pos-invoice-payload.mjs');
 
   const args = parseArgs(process.argv.slice(2));
 
@@ -52,8 +57,9 @@ async function main() {
     console.error('متغيّر البيئة SUPABASE_PROJECT_ID مطلوب.');
     process.exit(1);
   }
-  if (!args.amount) {
-    console.error('--amount مطلوب.');
+  const refundMode = Boolean((args.refundOf || '').trim());
+  if (!refundMode && !args.amount) {
+    console.error('--amount مطلوب (أو --refund-of مع --refund-amount لإرجاع فاتورة سابقة).');
     process.exit(1);
   }
 
@@ -63,7 +69,9 @@ async function main() {
 
   let body;
   try {
-    body = buildPosInvoicePayload({ amount: args.amount, vat: args.vat, deviceId: args.deviceId, ci });
+    body = refundMode
+      ? buildPosRefundPayload({ refundOf: args.refundOf, refundAmount: args.refundAmount, ci })
+      : buildPosInvoicePayload({ amount: args.amount, vat: args.vat, deviceId: args.deviceId, ci });
   } catch (err) {
     console.error(err.message || String(err));
     process.exit(1);
@@ -87,6 +95,12 @@ async function main() {
   if (json.transaction_id) console.log('معرّف العملية:', json.transaction_id);
   if (json.status) console.log('الحالة:', json.status);
   if (json.external_ref) console.log('external_ref:', json.external_ref);
+  if (json.refund) {
+    console.log('نتيجة الإرجاع:', json.refund.outcome);
+    console.log('إجمالي المُرجَع للفاتورة:', json.refund.refunded_total, '— حالة الفاتورة:', json.refund.invoice_status);
+    console.log('نقاط أُلغيت (معلّقة):', json.refund.points_cancelled, '| نقاط خُصمت:', json.refund.points_deducted, '| غير مستردة:', json.refund.points_unrecovered);
+    if (json.refund.replayed) console.log('(إعادة إرسال لنفس الإرجاع — لم يُطبَّق مرة ثانية)');
+  }
   if (json.ok === false && json.error) console.log('رسالة الخطأ:', json.error);
 
   if (!res.ok) process.exit(1);

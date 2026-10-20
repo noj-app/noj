@@ -264,6 +264,51 @@ Foodics"/"فصل" (النوع ب). **owner فقط للنوعين معاً** — 
     التنظيف القائمة)؛ idempotent. redeem_reward لم تُعَد تعريفها إطلاقاً.
   - اختبارات: db-tests 331 (292 + 39) تشمل طفرتين فاشلتين فعلاً (إسناد المدة لوقت المطالبة بدل الفاتورة؛
     تحرير غير المستحق)، lockdown 15، regression 6، merchant 120، kiosk 44.
+  **المرحلة الأولى — PR2 مبني (supabase-migration-pos-refunds.sql: الإرجاع للنوع أ؛ بلا واجهات بعد)**.
+  ما بُني فعلاً وما اختلف عن الخطة أعلاه:
+  - **الحمولة**: نفس نقطة pos-intake ونفس التوكن، جسم `{"type":"refund","external_ref":<الفاتورة
+    الأصلية>,"refund_ref":<معرّف عملية الإرجاع>,"refund_amount":<شامل الضريبة>}`. من دون type = فاتورة
+    كما كان حرفياً. refund_ref إلزامي لمنع التكرار (جدول pos_refunds، unique(branch_id, refund_ref)،
+    مقفل كبقية جداول الأسرار): إعادة إرسال نفس refund_ref تُعيد النتيجة المخزَّنة مع replayed=true
+    ولا تُطبَّق مرتين حتى لو تغيّر المبلغ. هذا هو "الخطأ البعيد" المتوقع من Foodics لاحقاً: webhook
+    يُعاد إرساله.
+  - **intake_pos_refund(branch, external_ref, refund_ref, amount, source_adapter, metadata) → jsonb**
+    (service_role فقط): تقفل صف pos_transactions الأصلي (تسلسل كل إرجاعات الفاتورة الواحدة وأي
+    إعادة إرسال متزامنة)، ثم الفاتورة. مجموع المُرجَع تراكمي ولا يتجاوز amount (NOJ_REFUND_EXCEEDS_
+    AMOUNT)؛ فاتورة status='refunded' وrefunded_amount فارغ (القديمة) تُعدّ مُرجَعة بالكامل.
+    invoices.status تصبح 'refunded' عند الإرجاع الكامل فقط، والجزئي يترك 'paid' + refunded_amount.
+  - **حصة النقاط** = النسبة المُرجَعة من invoices.points_earned (لا من السعر الحالي للتاجر، ولا
+    من points_rate_applied مباشرة كما ذُكر أعلاه): تساوي المعدل المحفوظ ضمن التقريب، لكنها تعمل
+    أيضاً لصفوف claim_unclaimed_invoices (لا تخزّن rate)، ومجموع المُلغى/المخصوم عبر عدة إرجاعات جزئية
+    ثم الباقي = points_earned تماماً بلا انحراف تقريب.
+  - **أثناء التعليق**: الصف pending نفسه يُعدَّل (points_delta = المتبقي، أو status='cancelled' للكامل) —
+    الاستثناء المقرَّر في 6-أ، لا يُنشأ refund_adjustment ولا يُمَس الرصيد المتاح.
+  - **بعد التعليق أو hold=0**: صف جديد type='refund_adjustment' (points_delta ≤ 0 = المُطبَّق فعلاً،
+    intended_delta = المقصود، قيد: intended ≤ applied)، وmerchant_loyalty.points تُخصم حتى الصفر
+    فقط. الفرق غير المسترد = sum(intended_delta − points_delta) من point_transactions وحدها (لا جدول
+    تقارير إضافي) — يُستهلك في PR4. توسعة قيدي CHECK (النوع والإشارة) على سجل النقاط أُعيدت كتابتها
+    كمجموعة شاملة لما كان، فكل الصفوف الموجودة تحقّقها بلا تغيير.
+  - **عميل غير مسجَّل** (فاتورة على pending_phone): تُعلَّم الفاتورة فقط. claim_unclaimed_invoices
+    **تنقل الفاتورة المُرجَعة كلياً لحساب العميل ولا تمنح عليها نقاطاً** (بدل تركها): الترك كان
+    سيجعل حذف صف unclaimed_customers بعد المطالبة يحذفها بالتتالي (FK)، فتختفي من سجل العميل —
+    وهذا ضد قاعدة "لا اختفاء صامت". الجزئي يمنح نقاطاً بنسبة المتبقي (بتاريخ الفاتورة الأصلي
+    لمدة التعليق). فاتورة بلا إرجاع تمر بنفس النداء السابق حرفياً.
+  - **قبل المطالبة** (لا فاتورة بعد): إرجاع كامل لعملية pending يُلغيها (status='failed'،
+    error_message='NOJ_REFUNDED') فلا تُطالَب؛ عملية منتهية/فاشلة تُسجَّل فقط (no_invoice)؛
+    **إرجاع جزئي لعملية ما زالت قابلة للمطالبة يُرفض (409 NOJ_REFUND_NOT_APPLICABLE)** — حدّ معروف:
+    الكاشير/المحوّل يعيد المحاولة بعد المطالبة. أخطاء أخرى: 404 الأصل غير موجود (مقيَّد بالفرع)، 400.
+  - **المحاكي**: workflow simulate-pos-invoice يقبل refund_of وrefund_amount (amount صار اختيارياً
+    في النموذج؛ السكربت يرفض غياب الاثنين معاً)، وبناء الحمولة في scripts/pos-invoice-payload.mjs
+    (buildPosRefundPayload) كمصدر وحيد كالفاتورة، ويُختبر عبر handlePosIntake الحقيقية.
+  - **النتيجة المعادة من pos-intake**: `{ok:true, refund:{outcome, invoice_id, refund_amount,
+    refunded_total, invoice_status, points_cancelled, points_deducted, points_unrecovered,
+    replayed}}`؛ outcome ∈ pending_points_cancelled / pending_points_reduced / points_deducted /
+    unclaimed_marked / cancelled_before_claim / no_invoice / no_points_to_reverse.
+  - **عمداً خارج هذا الـPR**: أي تغيير في index.html/kiosk.html/merchant.html (PR3/PR4)، وربط Foodics.
+  - اختبارات: db-tests 373 (331 + 42 جديد: القيود، الإرجاع داخل/بعد المدة، الصرف قبل الإرجاع، hold=0،
+    غير المسجَّل كلياً/جزئياً، التكرار والتجاوز وعدم الوجود، قبل المطالبة، التزامن، الإقفال، تقرير
+    الفواتير)، lockdown 15، regression 6، merchant 120، kiosk 44، Deno 40 (31 + 9). أربع طفرات فشلت كما
+    يجب: إزالة القصّ عند الصفر، تعطيل الاستجابة المخزَّنة، معاملة المعلّق كمتاح، إزالة أقفال الصفوف.
 - **المرحلة الثانية (خاصة بـFoodics، معلَّقة على الحصول على حساب sandbox)**: تأكيد كل بند "افتراض"
   أعلاه من التوثيق الرسمي أولاً، ثم pos_provider_credentials + Edge Function لتبادل/تجديد OAuth +
   foodics-webhook (توقيع أولاً، محوّل Foodics، استدعاء intake_pos_transaction/intake_pos_refund) +

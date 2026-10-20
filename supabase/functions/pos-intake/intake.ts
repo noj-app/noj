@@ -23,6 +23,24 @@
 //     a 4xx/5xx status otherwise. NEVER a customer phone number anywhere —
 //     none exists at intake time, the customer enters it later at the kiosk.
 //
+// REFUNDS (same endpoint, same token, same X-POS-Vendor): a body with
+// "type": "refund" is a refund of an invoice sent earlier, not a new invoice:
+//     { "type": "refund",
+//       "external_ref": "<the ORIGINAL invoice's external_ref, required>",
+//       "refund_ref": "<unique id of THIS refund event, required — a retried
+//                      webhook re-sends the same refund_ref and is never
+//                      applied twice>",
+//       "refund_amount": <number > 0, required — the amount handed back to the
+//                        customer, INCLUDING VAT; cumulative refunds can never
+//                        exceed the invoice amount>,
+//       "metadata": {<object, optional, size-capped>} }
+//   Response: {"ok": true, "refund": {outcome, invoice_id, refund_amount,
+//     refunded_total, invoice_status, points_cancelled, points_deducted,
+//     points_unrecovered, replayed}}. All logic lives in intake_pos_refund()
+//     (supabase-migration-pos-refunds.sql), the single refund entry point for
+//     every adapter. No "type" (or any other value) = an invoice, exactly as
+//     before.
+//
 // ACCOUNTING RULE (fixed decision, CLAUDE.md): amount is the gross total
 // paid; vat is the part of that total that is VAT. Loyalty points are
 // computed on the whole amount (VAT included). A vendor adapter must map its
@@ -80,6 +98,28 @@ export interface IntakeDeps {
     sourceAdapter: string;
     metadata: Record<string, unknown> | null;
   }) => Promise<IntakeResult>;
+  // optional so a deployment/test that only handles invoices stays valid
+  intakeRefund?: (args: {
+    branchId: string;
+    externalRef: string;
+    refundRef: string;
+    refundAmount: number;
+    sourceAdapter: string;
+    metadata: Record<string, unknown> | null;
+  }) => Promise<RefundResult>;
+}
+
+export interface NormalizedRefund {
+  externalRef: string;
+  refundRef: string;
+  refundAmount: number;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface RefundResult {
+  ok: boolean;
+  result?: Record<string, unknown>;
+  error?: string;
 }
 
 export interface HandlerResult {
@@ -156,8 +196,55 @@ function genericAdapter(raw: unknown): NormalizedPayload {
   return { externalRef: r.external_ref, amount: r.amount, vat, deviceId, metadata };
 }
 
+function genericRefundAdapter(raw: unknown): NormalizedRefund {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('حمولة غير صالحة');
+  }
+  const r = raw as Record<string, unknown>;
+
+  if (typeof r.external_ref !== 'string' || r.external_ref.length === 0) {
+    throw new Error('external_ref مطلوب (مرجع الفاتورة الأصلية)');
+  }
+  if (r.external_ref.length > MAX_EXTERNAL_REF_LENGTH) {
+    throw new Error('external_ref أطول من المسموح');
+  }
+  if (typeof r.refund_ref !== 'string' || r.refund_ref.length === 0) {
+    throw new Error('refund_ref مطلوب (معرّف عملية الإرجاع نفسها)');
+  }
+  if (r.refund_ref.length > MAX_EXTERNAL_REF_LENGTH) {
+    throw new Error('refund_ref أطول من المسموح');
+  }
+  if (typeof r.refund_amount !== 'number' || !Number.isFinite(r.refund_amount) || r.refund_amount <= 0) {
+    throw new Error('refund_amount يجب أن يكون رقماً أكبر من صفر');
+  }
+
+  let metadata: Record<string, unknown> | null = null;
+  if (r.metadata !== undefined && r.metadata !== null) {
+    if (typeof r.metadata !== 'object' || Array.isArray(r.metadata)) {
+      throw new Error('metadata يجب أن يكون كائناً');
+    }
+    if (JSON.stringify(r.metadata).length > MAX_METADATA_JSON_LENGTH) {
+      throw new Error('metadata أكبر من المسموح');
+    }
+    metadata = r.metadata as Record<string, unknown>;
+  }
+
+  return { externalRef: r.external_ref, refundRef: r.refund_ref, refundAmount: r.refund_amount, metadata };
+}
+
 const ADAPTERS: Record<string, (raw: unknown) => NormalizedPayload> = {
   generic: genericAdapter,
+};
+
+const REFUND_ADAPTERS: Record<string, (raw: unknown) => NormalizedRefund> = {
+  generic: genericRefundAdapter,
+};
+
+const REFUND_ERRORS: Record<string, [number, string]> = {
+  NOJ_REFUND_ORIGINAL_NOT_FOUND: [404, 'الفاتورة الأصلية غير موجودة لهذا الفرع'],
+  NOJ_REFUND_EXCEEDS_AMOUNT: [400, 'مجموع المبالغ المُرجَعة يتجاوز مبلغ الفاتورة'],
+  NOJ_REFUND_NOT_APPLICABLE: [409, 'إرجاع جزئي لعملية لم يُطالَب بها بعد — أعد المحاولة بعد أن يُدخل العميل رقمه'],
+  NOJ_INVALID_REFUND: [400, 'بيانات الإرجاع غير صالحة'],
 };
 
 export async function handlePosIntake(
@@ -190,9 +277,19 @@ export async function handlePosIntake(
     return errorResult(400, `مزوّد كاشير غير مدعوم: ${vendor}`);
   }
 
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch (e) {
+    return errorResult(400, e instanceof Error ? e.message : 'حمولة غير صالحة');
+  }
+
+  if (typeof parsed === 'object' && parsed !== null && (parsed as Record<string, unknown>).type === 'refund') {
+    return await handleRefund(parsed, branchId, vendor, deps);
+  }
+
   let payload: NormalizedPayload;
   try {
-    const parsed = JSON.parse(rawBody);
     payload = adapter(parsed);
   } catch (e) {
     return errorResult(400, e instanceof Error ? e.message : 'حمولة غير صالحة');
@@ -228,4 +325,45 @@ export async function handlePosIntake(
       external_ref: result.row.external_ref,
     }),
   };
+}
+
+async function handleRefund(
+  parsed: unknown,
+  branchId: string,
+  vendor: string,
+  deps: IntakeDeps,
+): Promise<HandlerResult> {
+  const refundAdapter = REFUND_ADAPTERS[vendor];
+  if (!refundAdapter) {
+    return errorResult(400, `مزوّد كاشير غير مدعوم للإرجاع: ${vendor}`);
+  }
+  if (!deps.intakeRefund) {
+    console.error('pos-intake: refund requested but intakeRefund is not wired');
+    return errorResult(500, 'الخدمة غير مُهيَّأة للإرجاع');
+  }
+
+  let refund: NormalizedRefund;
+  try {
+    refund = refundAdapter(parsed);
+  } catch (e) {
+    return errorResult(400, e instanceof Error ? e.message : 'حمولة غير صالحة');
+  }
+
+  const result = await deps.intakeRefund({
+    branchId,
+    externalRef: refund.externalRef,
+    refundRef: refund.refundRef,
+    refundAmount: refund.refundAmount,
+    sourceAdapter: vendor,
+    metadata: refund.metadata,
+  });
+
+  if (!result.ok || !result.result) {
+    const known = result.error ? REFUND_ERRORS[result.error] : undefined;
+    if (known) return errorResult(known[0], known[1]);
+    console.error('pos-intake: refund failed for branch ending in', branchId.slice(-6), result.error);
+    return errorResult(500, 'تعذّر تسجيل الإرجاع، حاول مرة أخرى');
+  }
+
+  return { status: 200, body: JSON.stringify({ ok: true, refund: result.result }) };
 }

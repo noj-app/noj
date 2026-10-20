@@ -44,3 +44,29 @@ export function buildPosInvoicePayload({ amount, vat, deviceId, ci }) {
 
   return body;
 }
+
+// إرجاع فاتورة سابقة (نفس نقطة pos-intake، type=refund — راجع عقد الإرجاع في
+// supabase/functions/pos-intake/intake.ts). refund_ref فريد تلقائياً لكل
+// تشغيل، فإعادة تشغيل الأداة تُنشئ إرجاعاً جديداً (لا تكرار لنفس الإرجاع)؛
+// المبلغ شامل الضريبة كما في الفاتورة، والمجاميع التراكمية لا تتجاوز مبلغ
+// الفاتورة (يرفضها الخادم).
+export function buildPosRefundPayload({ refundOf, refundAmount, ci }) {
+  const original = (refundOf || '').trim();
+  if (!original) {
+    throw new Error('refund_of (external_ref الفاتورة الأصلية) مطلوب');
+  }
+  const amountNum = Number(refundAmount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    throw new Error('refund_amount يجب أن يكون رقماً أكبر من صفر');
+  }
+
+  const refundRef = ci
+    ? `sim-refund-${ci.runNumber}-${Date.now()}`
+    : `sim-refund-cli-${Date.now()}`;
+
+  const metadata = ci
+    ? { source: 'github-actions-simulator', run_id: ci.runId, run_number: Number(ci.runNumber) }
+    : { source: 'cli-simulator' };
+
+  return { type: 'refund', external_ref: original, refund_ref: refundRef, refund_amount: amountNum, metadata };
+}

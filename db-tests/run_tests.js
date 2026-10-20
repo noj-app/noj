@@ -108,6 +108,7 @@ async function asServiceRole(fn) {
     'supabase-migration-merchant-invoices.sql',
     'supabase-migration-pos-vat-inclusive.sql',
     'supabase-migration-pending-points.sql',
+    'supabase-migration-pos-refunds.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -2037,6 +2038,249 @@ async function asServiceRole(fn) {
     check('hold=0 merchant (مطعم مذاق) really is 0 — its claims stay immediate (covered by sections 13/16 unchanged)', zeroHold.rows[0].points_hold_days === 0);
     const pendingAtZero = await admin(c => c.query(`select count(*)::int as n from point_transactions where status='pending' and merchant_id='20000000-0000-0000-0000-000000000001'`));
     check('no pending row exists anywhere for a hold=0 merchant', pendingAtZero.rows[0].n === 0);
+  }
+
+  // =========================================================================
+  // 21c) POS REFUNDS (supabase-migration-pos-refunds.sql, PR2):
+  //      intake_pos_refund(), refund_adjustment ledger type, pos_refunds,
+  //      claim_unclaimed_invoices() with refunded invoices.
+  // =========================================================================
+  {
+    const GROCER = '20000000-0000-0000-0000-000000000002';
+    for (const f of ['supabase-migration-pending-points.sql', 'supabase-migration-pos-refunds.sql', 'supabase-migration-pos-refunds.sql']) {
+      // earlier sections re-ran older migrations (idempotency tests) → re-apply to test the real final state;
+      // the refunds file is applied twice on purpose: it must be idempotent
+      execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    }
+    const GRATE = Number((await admin(c => c.query('select points_rate from merchants where id=$1', [GROCER]))).rows[0].points_rate);
+    await admin(c => c.query('update merchants set points_hold_days = 7 where id=$1', [GROCER]));
+
+    // ---- fixtures ----
+    const ownerUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [ownerUid]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [GROCER, ownerUid]));
+    const kUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [kUid]));
+    const kReq = await asUser(kUid, c => c.query('select * from request_device_pairing()'));
+    await asUser(ownerUid, c => c.query('select * from approve_device_pairing($1,$2)', [kReq.rows[0].pairing_code, GROCER]));
+
+    let phoneSeq = 0;
+    const nextPhone = () => '5445' + String(++phoneSeq).padStart(5, '0');
+    const makeCustomer = async (phone, verified = true) => {
+      const u = crypto.randomUUID();
+      await admin(c => c.query('insert into auth.users (id) values ($1)', [u]));
+      const p = await admin(c => c.query(`insert into profiles (phone, auth_user_id, phone_verified_at) values ($1,$2,$3) returning id`, [phone, u, verified ? new Date() : null]));
+      await admin(c => c.query(`insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','kiosk')`, [p.rows[0].id]));
+      return { uid: u, id: p.rows[0].id, phone };
+    };
+    let refSeq = 0;
+    const newInvoice = async (phone, amount) => {
+      const ref = 'RF-INV-' + (++refSeq);
+      const t = await admin(c => c.query(`insert into pos_transactions (branch_id, amount, vat, external_ref) values ($1,$2,0,$3) returning id`, [GROCER, amount, ref]));
+      const cl = (await asUser(kUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [t.rows[0].id, phone]))).rows[0];
+      return { ref, txnId: t.rows[0].id, invoiceId: cl.invoice_id, points: cl.added_points };
+    };
+    let rfSeq = 0;
+    const refund = async (ref, amount, refundRef) => asServiceRole(async c => {
+      try { const r = await c.query('select intake_pos_refund($1,$2,$3,$4,$5,$6) as r', [GROCER, ref, refundRef === undefined ? 'RFND-' + (++rfSeq) : refundRef, amount, 'generic', null]); return { ok: true, r: r.rows[0].r }; }
+      catch (e) { return { ok: false, msg: e.message }; }
+    });
+    const avail = async (u) => (await admin(c => c.query('select coalesce((select points from merchant_loyalty where user_id=$1 and merchant_id=$2),-1) as p', [u, GROCER]))).rows[0].p;
+    const inv = async (id) => (await admin(c => c.query('select status, refunded_amount, points_earned, user_id from invoices where id=$1', [id]))).rows[0];
+    const ledger = async (invoiceId) => (await admin(c => c.query('select * from point_transactions where invoice_id=$1 order by created_at, type desc', [invoiceId]))).rows;
+    const releaseNow = async (invoiceId) => {
+      await admin(c => c.query(`update point_transactions set release_at = now() - interval '1 minute' where invoice_id=$1 and status='pending'`, [invoiceId]));
+      await admin(c => c.query('select release_pending_points()'));
+    };
+    const lookup = async (kPhone) => Number((await asUser(kUid, c => c.query('select kiosk_lookup_customer_points($1) as p', [kPhone]))).rows[0].p);
+
+    // ---- schema / constraints ----
+    const refundRowInsert = (delta, intended) => admin(async c => {
+      const cust = (await c.query('select id from profiles limit 1')).rows[0].id;
+      try {
+        await c.query(`insert into point_transactions (user_id, merchant_id, type, points_delta, intended_delta, source) values ($1,$2,'refund_adjustment',$3,$4,'pos')`, [cust, GROCER, delta, intended]);
+        return 'ok';
+      } catch (e) { return 'fail:' + e.message; }
+    });
+    check('ledger: refund_adjustment with a POSITIVE points_delta is rejected', (await refundRowInsert(5, 5)) !== 'ok');
+    check('ledger: refund_adjustment WITHOUT intended_delta is rejected', (await refundRowInsert(-5, null)) !== 'ok');
+    check('ledger: refund_adjustment whose applied deduction exceeds the intended one is rejected', (await refundRowInsert(-5, -3)) !== 'ok');
+    check('ledger: a valid refund_adjustment (applied -3 of intended -5) is accepted', (await refundRowInsert(-3, -5)) === 'ok');
+    await admin(c => c.query(`delete from point_transactions where type='refund_adjustment' and source='pos' and invoice_id is null`));
+    const oldTypes = await admin(async c => {
+      try { await c.query(`insert into point_transactions (user_id, merchant_id, type, points_delta, source) select id, $1, 'earn', -4, 'system' from profiles limit 1`, [GROCER]); return 'ok'; }
+      catch (e) { return 'fail:' + e.message; }
+    });
+    check('ledger: the original rule is intact — a NEGATIVE earn is still rejected', oldTypes !== 'ok');
+
+    // ---- A) refund INSIDE the hold period: pending row edited / cancelled, balance never touched ----
+    const a = await makeCustomer(nextPhone());
+    const a1 = await newInvoice(a.phone, '100.00');
+    const rA1 = await refund(a1.ref, '100.00');
+    const lA1 = (await ledger(a1.invoiceId))[0];
+    check('hold refund (full): outcome pending_points_cancelled, ledger row cancelled, AVAILABLE balance untouched (0)',
+      rA1.ok && rA1.r.outcome === 'pending_points_cancelled' && lA1.status === 'cancelled' && (await avail(a.id)) === 0);
+    check('hold refund (full): points_cancelled equals the invoice\'s points; displayed balance (available+pending) is back to 0',
+      rA1.r.points_cancelled === a1.points && (await lookup(a.phone)) === 0);
+    const iA1 = await inv(a1.invoiceId);
+    check('hold refund (full): invoice status refunded, refunded_amount = 100.00', iA1.status === 'refunded' && Number(iA1.refunded_amount) === 100);
+    check('hold refund: NO refund_adjustment row exists — nothing was ever credited, so nothing is taken back',
+      (await ledger(a1.invoiceId)).every(r => r.type === 'earn'));
+
+    const a2 = await newInvoice(a.phone, '200.00');
+    const r1 = await refund(a2.ref, '50.00'), r2 = await refund(a2.ref, '50.00');
+    const rowAfter2 = (await ledger(a2.invoiceId))[0];
+    check('hold refund (partial ×2): row stays pending with points_delta = round(points × remaining share)',
+      r1.r.outcome === 'pending_points_reduced' && rowAfter2.status === 'pending' && rowAfter2.points_delta === Math.round(a2.points * 100 / 200));
+    const iA2 = await inv(a2.invoiceId);
+    check('hold refund (partial): invoice stays paid with refunded_amount = 100.00 (partial ≠ refunded)', iA2.status === 'paid' && Number(iA2.refunded_amount) === 100);
+    const r3 = await refund(a2.ref, '100.00');
+    check('hold refund (partial ×2 then the rest): cancelled, and the TOTAL cancelled over the three events == the invoice\'s points exactly',
+      r3.r.outcome === 'pending_points_cancelled' && r1.r.points_cancelled + r2.r.points_cancelled + r3.r.points_cancelled === a2.points);
+
+    // ---- B) refund AFTER the hold: deduct, never below zero, record the shortfall ----
+    const b = await makeCustomer(nextPhone());
+    const b1 = await newInvoice(b.phone, '100.00');
+    await releaseNow(b1.invoiceId);
+    check('setup: points released to available', (await avail(b.id)) === b1.points);
+    const rB1 = await refund(b1.ref, '40.00');
+    const intendedB1 = b1.points - Math.round(b1.points * 60 / 100);
+    const adj = (await ledger(b1.invoiceId)).find(r => r.type === 'refund_adjustment');
+    check('post-hold partial refund: a NEW immutable refund_adjustment row, points_delta = -(proportional share), nothing unrecovered',
+      rB1.r.outcome === 'points_deducted' && adj && adj.points_delta === -intendedB1 && adj.intended_delta === -intendedB1 && rB1.r.points_unrecovered === 0);
+    check('post-hold partial refund: merchant_loyalty.points reduced by exactly that share; the original earn row is untouched',
+      (await avail(b.id)) === b1.points - intendedB1 && (await ledger(b1.invoiceId)).find(r => r.type === 'earn').points_delta === b1.points &&
+      (await ledger(b1.invoiceId)).find(r => r.type === 'earn').status === 'available');
+    check('post-hold refund row carries the rate snapshot of the original earn and the pos source', adj.source === 'pos' && Number(adj.points_rate_applied) === GRATE && adj.external_ref !== null);
+
+    // customer spends points BEFORE the refund arrives → clamp at zero, remember the difference
+    const c = await makeCustomer(nextPhone());
+    const c1 = await newInvoice(c.phone, '100.00');
+    await releaseNow(c1.invoiceId);
+    const leave = Math.min(10, c1.points);
+    const rewardId = crypto.randomUUID();
+    await admin(c => c.query(`insert into rewards (id, merchant_id, title, cost_points, active) values ($1,$2,'مكافأة قبل الإرجاع',$3,true)`, [rewardId, GROCER, c1.points - leave]));
+    if (c1.points - leave > 0) await asUser(c.uid, cl => cl.query('select redeem_reward($1)', [rewardId]));
+    const availBefore = await avail(c.id);
+    const rC1 = await refund(c1.ref, '100.00');
+    const adjC = (await ledger(c1.invoiceId)).find(r => r.type === 'refund_adjustment');
+    check('spent-before-refund: balance is clamped at ZERO, never negative', (await avail(c.id)) === 0 && availBefore === leave);
+    check('spent-before-refund: applied = what was left; intended = the full share; the difference is recorded in the SAME row',
+      adjC.points_delta === -leave && adjC.intended_delta === -c1.points && rC1.r.points_deducted === leave && rC1.r.points_unrecovered === c1.points - leave);
+    const unrec = await admin(c => c.query(`select coalesce(sum(intended_delta - points_delta),0)::int as n from point_transactions where type='refund_adjustment' and invoice_id=$1`, [c1.invoiceId]));
+    check('unrecovered points are readable from point_transactions alone (sum(intended_delta - points_delta))', unrec.rows[0].n === -(c1.points - leave));
+
+    // a hold=0 merchant: same deduction rules, no pending step
+    await admin(c => c.query('update merchants set points_hold_days = 0 where id=$1', [GROCER]));
+    const d = await makeCustomer(nextPhone());
+    const d1 = await newInvoice(d.phone, '60.00');
+    check('hold=0: the earn is available at once (PR1 behaviour intact)', (await avail(d.id)) === d1.points && (await ledger(d1.invoiceId))[0].status === 'available');
+    const rD1 = await refund(d1.ref, '60.00');
+    check('hold=0 full refund: points deducted straight from available down to 0 via refund_adjustment', rD1.r.outcome === 'points_deducted' && (await avail(d.id)) === 0 && rD1.r.points_unrecovered === 0);
+    await admin(c => c.query('update merchants set points_hold_days = 7 where id=$1', [GROCER]));
+
+    // ---- C) unregistered customer ----
+    const UF = nextPhone(), UP = nextPhone();
+    const uFull = await newInvoice(UF, '100.00');
+    const uPart = await newInvoice(UP, '100.00');
+    const rUF = await refund(uFull.ref, '100.00');
+    const rUP = await refund(uPart.ref, '40.00');
+    check('unregistered refund: outcome unclaimed_marked, invoice marked, no points moved (none existed)',
+      rUF.r.outcome === 'unclaimed_marked' && (await inv(uFull.invoiceId)).status === 'refunded' && rUF.r.points_cancelled === 0 && rUF.r.points_deducted === 0);
+    const lateF = await makeCustomer(UF), lateP = await makeCustomer(UP);
+    const nF = await asUser(lateF.uid, c => c.query('select claim_unclaimed_invoices() as n'));
+    const nP = await asUser(lateP.uid, c => c.query('select claim_unclaimed_invoices() as n'));
+    check('claim_unclaimed_invoices still moves the fully-refunded invoice (history kept) …', Number(nF.rows[0].n) === 1 && (await inv(uFull.invoiceId)).user_id === lateF.id);
+    check('… but it earns NO points (no ledger row, available 0, displayed 0)',
+      (await ledger(uFull.invoiceId)).length === 0 && (await avail(lateF.id)) <= 0 && (await lookup(lateF.phone)) === 0);
+    const pRow = (await ledger(uPart.invoiceId))[0];
+    check('a PARTIALLY refunded unclaimed invoice earns proportionally fewer points on registration (60% of them), still on the invoice-date hold',
+      Number(nP.rows[0].n) === 1 && pRow && pRow.points_delta === Math.round(uPart.points * 60 / 100) && pRow.status === 'pending');
+
+    // ---- D) idempotency / limits / not found ----
+    const e = await makeCustomer(nextPhone());
+    const e1 = await newInvoice(e.phone, '100.00');
+    const first = await refund(e1.ref, '30.00', 'RFND-IDEM');
+    const stateBefore = JSON.stringify([await avail(e.id), (await inv(e1.invoiceId)), await ledger(e1.invoiceId)]);
+    const replay = await refund(e1.ref, '30.00', 'RFND-IDEM');
+    const replayDifferent = await refund(e1.ref, '99.00', 'RFND-IDEM');
+    check('replay: the same refund_ref returns the stored result with replayed=true',
+      first.r.replayed === false && replay.ok && replay.r.replayed === true && replay.r.outcome === first.r.outcome && replay.r.refunded_total === first.r.refunded_total);
+    check('replay: even with a different amount nothing is applied twice (invoice, balance and ledger unchanged), one pos_refunds row',
+      replayDifferent.ok && replayDifferent.r.replayed === true &&
+      JSON.stringify([await avail(e.id), (await inv(e1.invoiceId)), await ledger(e1.invoiceId)]) === stateBefore &&
+      (await admin(c => c.query(`select count(*)::int as n from pos_refunds where refund_ref='RFND-IDEM'`))).rows[0].n === 1);
+    const over = await refund(e1.ref, '80.00');
+    check('over-refund (30 + 80 > 100) is rejected with NOJ_REFUND_EXCEEDS_AMOUNT and changes nothing',
+      !over.ok && /NOJ_REFUND_EXCEEDS_AMOUNT/.test(over.msg) && Number((await inv(e1.invoiceId)).refunded_amount) === 30);
+    const exact = await refund(e1.ref, '70.00');
+    const again = await refund(e1.ref, '0.01');
+    check('refunding exactly the rest succeeds (invoice → refunded); one more cent is rejected',
+      exact.ok && exact.r.invoice_status === 'refunded' && !again.ok && /NOJ_REFUND_EXCEEDS_AMOUNT/.test(again.msg));
+    const zero = await refund(e1.ref, '0'), neg = await refund(e1.ref, '-5'), noRef = await refund(e1.ref, '5', '');
+    check('zero / negative amount and an empty refund_ref are rejected (NOJ_INVALID_REFUND)', [zero, neg, noRef].every(x => !x.ok && /NOJ_INVALID_REFUND/.test(x.msg)));
+    const nf = await refund('NO-SUCH-INVOICE', '5.00');
+    const otherBranch = await asServiceRole(async c => {
+      try { await c.query('select intake_pos_refund($1,$2,$3,$4,$5,$6)', ['20000000-0000-0000-0000-000000000001', e1.ref, 'RFND-X', '5', 'generic', null]); return 'ok'; }
+      catch (er) { return 'fail:' + er.message; }
+    });
+    check('unknown original → NOJ_REFUND_ORIGINAL_NOT_FOUND; the same ref under ANOTHER branch is also not found (branch-scoped)',
+      !nf.ok && /NOJ_REFUND_ORIGINAL_NOT_FOUND/.test(nf.msg) && /NOJ_REFUND_ORIGINAL_NOT_FOUND/.test(otherBranch));
+
+    // legacy invoice: status refunded, refunded_amount NULL (the value existed before the column) = fully refunded
+    const l = await makeCustomer(nextPhone());
+    const l1 = await newInvoice(l.phone, '50.00');
+    await admin(c => c.query(`update invoices set status='refunded', refunded_amount=null where id=$1`, [l1.invoiceId]));
+    const legacy = await refund(l1.ref, '1.00');
+    check('legacy "refunded" invoice with NULL refunded_amount counts as fully refunded: any further refund is rejected', !legacy.ok && /NOJ_REFUND_EXCEEDS_AMOUNT/.test(legacy.msg));
+
+    // ---- E) refund BEFORE the customer ever claimed ----
+    const mkTxn = async (ref, amount, status) => (await admin(c => c.query(`insert into pos_transactions (branch_id, amount, vat, external_ref, status) values ($1,$2,0,$3,$4) returning id`, [GROCER, amount, ref, status]))).rows[0].id;
+    const t1 = await mkTxn('RF-UNCLAIMED-1', '80.00', 'pending');
+    const partialEarly = await refund('RF-UNCLAIMED-1', '20.00');
+    check('partial refund of a still-claimable transaction is rejected (NOJ_REFUND_NOT_APPLICABLE) and the transaction stays pending',
+      !partialEarly.ok && /NOJ_REFUND_NOT_APPLICABLE/.test(partialEarly.msg) &&
+      (await admin(c => c.query('select status from pos_transactions where id=$1', [t1]))).rows[0].status === 'pending');
+    const fullEarly = await refund('RF-UNCLAIMED-1', '80.00');
+    const claimAfter = await asUser(kUid, async cl => { try { await cl.query('select * from kiosk_claim_pos_transaction($1,$2)', [t1, nextPhone()]); return 'ok'; } catch (er) { return 'fail:' + er.message; } });
+    check('full refund before the claim cancels the transaction: it can no longer be claimed (NOJ_TRANSACTION_NOT_PENDING)',
+      fullEarly.ok && fullEarly.r.outcome === 'cancelled_before_claim' && /NOJ_TRANSACTION_NOT_PENDING/.test(claimAfter));
+    const t2 = await mkTxn('RF-EXPIRED-1', '30.00', 'expired');
+    const expiredRefund = await refund('RF-EXPIRED-1', '30.00');
+    check('refund of an already-expired, never-claimed transaction: recorded (outcome no_invoice), nothing to reverse', expiredRefund.ok && expiredRefund.r.outcome === 'no_invoice');
+
+    // ---- F) concurrency ----
+    const g = await makeCustomer(nextPhone());
+    const g1 = await newInvoice(g.phone, '100.00');
+    const race = await Promise.all([refund(g1.ref, '60.00', 'RACE-A'), refund(g1.ref, '60.00', 'RACE-B')]);
+    check('two concurrent refunds of 60 on a 100 invoice: exactly one wins, the other is rejected, total never exceeds the invoice',
+      race.filter(x => x.ok).length === 1 && race.filter(x => !x.ok && /NOJ_REFUND_EXCEEDS_AMOUNT/.test(x.msg)).length === 1 &&
+      Number((await inv(g1.invoiceId)).refunded_amount) === 60);
+    const h = await makeCustomer(nextPhone());
+    const h1 = await newInvoice(h.phone, '100.00');
+    const same = await Promise.all([refund(h1.ref, '40.00', 'RACE-SAME'), refund(h1.ref, '40.00', 'RACE-SAME')]);
+    check('two concurrent copies of the SAME refund_ref: applied once, the other is a replay',
+      same.every(x => x.ok) && same.filter(x => x.r.replayed).length === 1 && Number((await inv(h1.invoiceId)).refunded_amount) === 40);
+
+    // ---- G) access / reporting / regression ----
+    const clientCall = await asUser(a.uid, async cl => { try { await cl.query(`select intake_pos_refund($1,'x','y',1,'generic',null)`, [GROCER]); return 'ok'; } catch (er) { return 'fail:' + er.message; } });
+    const clientTable = await asUser(a.uid, async cl => { try { await cl.query('select * from pos_refunds'); return 'ok'; } catch (er) { return 'fail:' + er.message; } });
+    const clientInsert = await asUser(a.uid, async cl => { try { await cl.query(`insert into pos_refunds (branch_id, external_ref, refund_ref, refund_amount, outcome, result) values ($1,'x','y',1,'x','{}')`, [GROCER]); return 'ok'; } catch (er) { return 'fail:' + er.message; } });
+    check('intake_pos_refund and pos_refunds are unreachable by a client role (no execute, no select, no insert)',
+      /permission denied/.test(clientCall) && /permission denied/.test(clientTable) && /permission denied/.test(clientInsert));
+
+    const rep = await asUser(ownerUid, c => c.query(`select merchant_list_invoices($1, '2020-01-01', (now() at time zone 'Asia/Riyadh')::date + 1, null, false, 100, 0) as r`, [GROCER]));
+    const expectedRefunded = await admin(c => c.query(`select coalesce(sum(case when status='refunded' and refunded_amount is null then amount else coalesce(refunded_amount,0) end),0)::numeric as n
+      from invoices where merchant_id=$1 and source <> 'demo'`, [GROCER]));
+    check('merchant_list_invoices: the "refunded" summary reflects the refunds recorded here (full and partial)',
+      Number(rep.rows[0].r.summary.refunded) === Number(expectedRefunded.rows[0].n) && Number(expectedRefunded.rows[0].n) > 0);
+
+    check('redeem_reward is untouched by this file (still defined only by the ledger migration, same body)',
+      (await admin(c => c.query(`select count(*)::int as n from pg_proc where proname='redeem_reward'`))).rows[0].n === 1);
+    check('every pending ledger row still has a release_at (PR1 invariant)',
+      (await admin(c => c.query(`select count(*)::int as n from point_transactions where status='pending' and release_at is null`))).rows[0].n === 0);
+    check('no merchant_loyalty balance is negative anywhere after all the refunds',
+      (await admin(c => c.query(`select count(*)::int as n from merchant_loyalty where points < 0`))).rows[0].n === 0);
   }
 
   // =========================================================================

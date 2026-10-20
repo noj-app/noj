@@ -58,6 +58,20 @@ Deno.serve(async (req: Request) => {
       }
       return { ok: true, row: data };
     },
+    intakeRefund: async (args) => {
+      const { data, error } = await supabase.rpc('intake_pos_refund', {
+        p_branch_id: args.branchId,
+        p_external_ref: args.externalRef,
+        p_refund_ref: args.refundRef,
+        p_refund_amount: args.refundAmount,
+        p_source_adapter: args.sourceAdapter,
+        p_metadata: args.metadata,
+      });
+      if (error) {
+        return { ok: false, error: error.message };
+      }
+      return { ok: true, result: data };
+    },
   });
 
   return new Response(result.body, {
