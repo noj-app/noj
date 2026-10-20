@@ -107,6 +107,7 @@ async function asServiceRole(fn) {
     'supabase-migration-pos-connections.sql',
     'supabase-migration-merchant-invoices.sql',
     'supabase-migration-pos-vat-inclusive.sql',
+    'supabase-migration-pending-points.sql',
   ].map(f => path.join(REPO_ROOT, f));
   for (const f of filesFromPhoneFormat) {
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
@@ -1860,6 +1861,182 @@ async function asServiceRole(fn) {
       catch (e) { return 'fail:' + e.message; }
     });
     check('VAT rule: the function is still unreachable by a client role (grants unchanged)', noAuthRole !== 'ok' && /permission denied/.test(noAuthRole));
+  }
+
+  // =========================================================================
+  // 21b) PENDING POINTS MODEL (supabase-migration-pending-points.sql, PR1):
+  //      merchants.points_hold_days, point_transactions.status/release_at,
+  //      apply_points_earn(), release_pending_points(), balance reads.
+  // =========================================================================
+  {
+    const GROCER = '20000000-0000-0000-0000-000000000002'; // بنده (type 'بقالة' → 7 days by default); branch id = merchant id
+    const MIGRATION = path.join(REPO_ROOT, 'supabase-migration-pending-points.sql');
+    const rateRow = await admin(c => c.query('select points_rate from merchants where id=$1', [GROCER]));
+    const GRATE = Number(rateRow.rows[0].points_rate);
+
+    // ---- A) defaults + schema ----
+    const holds = await admin(c => c.query('select id, type, points_hold_days from merchants'));
+    const holdOf = (id) => holds.rows.find(r => r.id === id).points_hold_days;
+    check('hold days: the grocery merchant (type بقالة) got 7 by default from its type', holdOf(GROCER) === 7);
+    check('hold days: restaurant / cafe / medical / other merchants got 0 (immediate)',
+      holdOf('20000000-0000-0000-0000-000000000001') === 0 && holdOf('20000000-0000-0000-0000-000000000003') === 0 &&
+      holdOf('20000000-0000-0000-0000-00000000000d') === 0 && holdOf('20000000-0000-0000-0000-00000000000c') === 0);
+
+    const newG = await admin(c => c.query(`insert into merchants (name, type, logo_color) values ('تجربة بقالة','بقالة','#000000') returning id, points_hold_days`));
+    const newC = await admin(c => c.query(`insert into merchants (name, type, logo_color) values ('تجربة مقهى','مقاهي','#000000') returning id, points_hold_days`));
+    const newX = await admin(c => c.query(`insert into merchants (name, type, logo_color, points_hold_days) values ('تجربة صريح','مقاهي','#000000', 3) returning id, points_hold_days`));
+    check('hold days: a NEW grocery merchant is derived to 7, a new cafe to 0', newG.rows[0].points_hold_days === 7 && newC.rows[0].points_hold_days === 0);
+    check('hold days: an explicit non-zero value on insert is kept as given', newX.rows[0].points_hold_days === 3);
+    await admin(c => c.query('delete from merchants where id = any($1)', [[newG.rows[0].id, newC.rows[0].id, newX.rows[0].id]]));
+
+    const badHold = async (v) => admin(async c => { try { await c.query('update merchants set points_hold_days=$1 where id=$2', [v, GROCER]); return 'ok'; } catch (e) { return 'fail:' + e.message; } });
+    check('hold days: a negative value is rejected', (await badHold(-1)) !== 'ok');
+    check('hold days: a value above 365 is rejected', (await badHold(400)) !== 'ok');
+
+    // the migration re-run must never overwrite what an owner set since
+    await admin(c => c.query('update merchants set points_hold_days = 3 where id=$1', [GROCER]));
+    execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${MIGRATION}'"`, { stdio: 'pipe' });
+    check('migration is idempotent AND does not overwrite an owner-edited points_hold_days (3 stays 3)', holdOf(GROCER) !== undefined &&
+      (await admin(c => c.query('select points_hold_days from merchants where id=$1', [GROCER]))).rows[0].points_hold_days === 3);
+    await admin(c => c.query('update merchants set points_hold_days = 7 where id=$1', [GROCER]));
+
+    const cols = await admin(c => c.query(`select column_name, column_default, is_nullable from information_schema.columns
+      where table_schema='public' and table_name='point_transactions' and column_name in ('status','release_at')`));
+    const colOf = (n) => cols.rows.find(r => r.column_name === n);
+    check('point_transactions.status defaults to available (NOT NULL) and release_at is nullable',
+      /available/.test(colOf('status').column_default) && colOf('status').is_nullable === 'NO' && colOf('release_at').is_nullable === 'YES');
+    const legacy = await admin(c => c.query(`select count(*)::int as n from point_transactions where status <> 'available' or release_at is not null`));
+    check('every point_transactions row that existed before this model reads available/release_at NULL (no backfill needed)', legacy.rows[0].n === 0);
+
+    const SOME_USER = (await admin(c => c.query('select user_id from point_transactions limit 1'))).rows[0].user_id;
+    const rawInsert = (status, release) => admin(async c => {
+      try {
+        await c.query(`insert into point_transactions (user_id, merchant_id, type, points_delta, source, status, release_at) values ($1,$2,'earn',1,'system',$3,$4)`,
+          [SOME_USER, GROCER, status, release]);
+        return 'ok';
+      } catch (e) { return 'fail:' + e.message; }
+    });
+    check('point_transactions: a pending row WITHOUT release_at is rejected', (await rawInsert('pending', null)) !== 'ok');
+    check('point_transactions: an unknown status is rejected', (await rawInsert('bogus', null)) !== 'ok');
+    check('point_transactions: cancelled is an accepted status (used by refunds in the next PR)', (await rawInsert('cancelled', null)) === 'ok');
+    await admin(c => c.query(`delete from point_transactions where status = 'cancelled' and source = 'system'`));
+
+    // ---- fixtures: a paired kiosk at the grocer + registered/unregistered customers ----
+    const ownerUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [ownerUid]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [GROCER, ownerUid]));
+    const kUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [kUid]));
+    const kReq = await asUser(kUid, c => c.query('select * from request_device_pairing()'));
+    await asUser(ownerUid, c => c.query('select * from approve_device_pairing($1,$2)', [kReq.rows[0].pairing_code, GROCER]));
+
+    const makeCustomer = async (phone, verified) => {
+      const u = crypto.randomUUID();
+      await admin(c => c.query('insert into auth.users (id) values ($1)', [u]));
+      const p = await admin(c => c.query(`insert into profiles (phone, auth_user_id, phone_verified_at) values ($1,$2,$3) returning id`, [phone, u, verified ? new Date() : null]));
+      await admin(c => c.query(`insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','kiosk')`, [p.rows[0].id]));
+      return { uid: u, id: p.rows[0].id, phone };
+    };
+    const reg = await makeCustomer('544400001', true);
+    const txn = async (ref, amount) => (await admin(c => c.query(
+      `insert into pos_transactions (branch_id, amount, vat, external_ref) values ($1,$2,0,$3) returning id`, [GROCER, amount, ref]))).rows[0].id;
+    const claim = async (id, phone) => (await asUser(kUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [id, phone]))).rows[0];
+    const avail = async (u) => (await admin(c => c.query('select coalesce((select points from merchant_loyalty where user_id=$1 and merchant_id=$2),-1) as p', [u, GROCER]))).rows[0].p;
+    const lookup = async (phone) => Number((await asUser(kUid, c => c.query('select kiosk_lookup_customer_points($1) as p', [phone]))).rows[0].p);
+
+    // ---- B) registered customer at a hold>0 merchant ----
+    const c1 = await claim(await txn('PP-1', '100.00'), reg.phone);
+    const pts1 = Math.round(100 * GRATE);
+    check('hold>0 claim: the kiosk still gets added_points = round(amount × rate) (shows "+X نقطة")', c1.added_points === pts1 && c1.is_registered === true);
+    check('hold>0 claim: merchant_loyalty.points (AVAILABLE) is NOT increased — row exists at 0', (await avail(reg.id)) === 0);
+    const led1 = await admin(c => c.query(`select pt.*, (pt.release_at = i.created_at + interval '7 days') as on_invoice_date
+      from point_transactions pt join invoices i on i.id = pt.invoice_id where pt.invoice_id = $1`, [c1.invoice_id]));
+    check('hold>0 claim: exactly one ledger row, type earn, status pending, points_delta = full amount of points',
+      led1.rows.length === 1 && led1.rows[0].type === 'earn' && led1.rows[0].status === 'pending' && led1.rows[0].points_delta === pts1);
+    check('hold>0 claim: release_at = the INVOICE date + 7 days', led1.rows[0].on_invoice_date === true);
+    check('hold>0 claim: invoices.points_earned records the full points while pending',
+      (await admin(c => c.query('select points_earned from invoices where id=$1', [c1.invoice_id]))).rows[0].points_earned === pts1);
+    check('kiosk_lookup_customer_points returns available + pending (the one honest number)', (await lookup(reg.phone)) === pts1);
+
+    const c2 = await claim(await txn('PP-2', '40.00'), reg.phone);
+    const pts2 = Math.round(40 * GRATE);
+    check('second claim: prev_points already counts the first invoice\'s pending points', c2.prev_points === pts1 && c2.total_points === pts1 + pts2);
+    check('lookup = both pending invoices, still 0 available', (await lookup(reg.phone)) === pts1 + pts2 && (await avail(reg.id)) === 0);
+
+    // redeem_reward spends from AVAILABLE only: displayed balance covers it, available does not
+    const rewardId = crypto.randomUUID();
+    await admin(c => c.query(`insert into rewards (id, merchant_id, title, cost_points, active) values ($1,$2,'مكافأة معلّقة',$3,true)`, [rewardId, GROCER, pts1]));
+    const redeemEarly = await asUser(reg.uid, async c => { try { await c.query('select redeem_reward($1)', [rewardId]); return 'ok'; } catch (e) { return 'fail:' + e.message; } });
+    check('redeem_reward refuses while the points are only pending (spends available only), with its original message',
+      redeemEarly !== 'ok' && /رصيد النقاط غير كافٍ/.test(redeemEarly));
+
+    // ---- release_pending_points ----
+    const releasedNone = await admin(c => c.query('select release_pending_points() as n'));
+    check('release_pending_points: nothing is due yet → releases 0 and changes nothing', Number(releasedNone.rows[0].n) === 0 && (await avail(reg.id)) === 0);
+
+    await admin(c => c.query(`update point_transactions set release_at = now() - interval '1 minute' where invoice_id = $1`, [c1.invoice_id]));
+    const releasedOne = await admin(c => c.query('select release_pending_points() as n'));
+    check('release_pending_points: only the due row is released (1), the not-yet-due one stays pending',
+      Number(releasedOne.rows[0].n) === 1 && (await avail(reg.id)) === pts1 &&
+      (await admin(c => c.query(`select status from point_transactions where invoice_id=$1`, [c2.invoice_id]))).rows[0].status === 'pending');
+    check('lookup is unchanged by a release (no double counting): still pts1 + pts2', (await lookup(reg.phone)) === pts1 + pts2);
+
+    const releasedAgain = await admin(c => c.query('select release_pending_points() as n'));
+    check('release_pending_points is idempotent: a second run releases 0 and the balance does not move', Number(releasedAgain.rows[0].n) === 0 && (await avail(reg.id)) === pts1);
+
+    const redeemOk = await asUser(reg.uid, async c => { try { await c.query('select redeem_reward($1)', [rewardId]); return 'ok'; } catch (e) { return 'fail:' + e.message; } });
+    check('redeem_reward succeeds once the points are released and available', redeemOk === 'ok' && (await avail(reg.id)) === 0);
+
+    const poorClient = await asUser(reg.uid, async c => { try { await c.query('select release_pending_points()'); return 'ok'; } catch (e) { return 'fail:' + e.message; } });
+    const poorSvc = await asServiceRole(async c => { try { await c.query('select release_pending_points()'); return 'ok'; } catch (e) { return 'fail:' + e.message; } });
+    const poorApply = await asUser(reg.uid, async c => { try { await c.query(`select apply_points_earn($1,$2,null,null,null,5,1,'pos',now())`, [reg.id, GROCER]); return 'ok'; } catch (e) { return 'fail:' + e.message; } });
+    check('release_pending_points / apply_points_earn are unreachable by a client and by service_role (no grant at all)',
+      /permission denied/.test(poorClient) && /permission denied/.test(poorSvc) && /permission denied/.test(poorApply));
+
+    // ---- C) unregistered customer: the hold clock is the INVOICE date, not the claim date ----
+    const UNREG = '544400002';
+    const u1 = await claim(await txn('PP-U1', '100.00'), UNREG); // will be 30 days old → hold long over
+    const u2 = await claim(await txn('PP-U2', '60.00'), UNREG);  // will be 3 days old → pending, 4 days left
+    const um = await claim(await txn('PP-U3', '20.00'), UNREG);  // will be moved to a hold=0 merchant below
+    check('unregistered claims return is_registered=false and store NO ledger rows yet',
+      u1.is_registered === false && (await admin(c => c.query('select count(*)::int as n from point_transactions where invoice_id = any($1)', [[u1.invoice_id, u2.invoice_id, um.invoice_id]]))).rows[0].n === 0);
+    await admin(c => c.query(`update invoices set created_at = now() - interval '30 days' where id=$1`, [u1.invoice_id]));
+    await admin(c => c.query(`update invoices set created_at = now() - interval '3 days' where id=$1`, [u2.invoice_id]));
+    await admin(c => c.query(`update invoices set merchant_id = $2 where id=$1`, [um.invoice_id, '20000000-0000-0000-0000-000000000001']));
+    const late = await makeCustomer(UNREG, true);
+    const claimedN = await asUser(late.uid, c => c.query('select claim_unclaimed_invoices() as n'));
+    check('claim_unclaimed_invoices still transfers every pending invoice of the verified phone (3)', Number(claimedN.rows[0].n) === 3);
+    const lr = await admin(c => c.query(`select pt.invoice_id, pt.status, pt.release_at, pt.points_delta, pt.merchant_id,
+      (pt.release_at = i.created_at + interval '7 days') as on_invoice_date, (pt.release_at > now() + interval '3 days 23 hours' and pt.release_at < now() + interval '4 days 1 hour') as about_4_days
+      from point_transactions pt join invoices i on i.id = pt.invoice_id where pt.user_id = $1`, [late.id]));
+    const byInv = (id) => lr.rows.find(r => r.invoice_id === id);
+    check('late registration, 30-day-old invoice: the hold is long over → available at once (release_at NULL)',
+      byInv(u1.invoice_id).status === 'available' && byInv(u1.invoice_id).release_at === null);
+    check('late registration, 3-day-old invoice: pending, release_at = INVOICE date + 7d (≈4 days away), NOT claim time + 7d',
+      byInv(u2.invoice_id).status === 'pending' && byInv(u2.invoice_id).on_invoice_date === true && byInv(u2.invoice_id).about_4_days === true);
+    check('late registration, invoice of a hold=0 merchant: available at once', byInv(um.invoice_id).status === 'available');
+    const lateLoyalty = await admin(c => c.query('select merchant_id, points from merchant_loyalty where user_id=$1', [late.id]));
+    const lp = (m) => (lateLoyalty.rows.find(r => r.merchant_id === m) || {}).points;
+    check('late registration: AVAILABLE balance at the grocer = only the 30-day-old invoice\'s points; the pending one is not in it',
+      lp(GROCER) === Math.round(100 * GRATE));
+    check('late registration: the loyalty row for the hold=0 merchant gets its points at once', lp('20000000-0000-0000-0000-000000000001') === byInv(um.invoice_id).points_delta);
+    check('late registration: unclaimed_customers anchor row removed, invoices moved to the real profile',
+      (await admin(c => c.query('select 1 from unclaimed_customers where phone=$1', [UNREG]))).rows.length === 0 &&
+      (await admin(c => c.query('select count(*)::int as n from invoices where user_id=$1 and pending_phone is null', [late.id]))).rows[0].n === 3);
+
+    // ---- E) kiosk_earn_points (demo) goes through the same function ----
+    await admin(c => c.query(`update branch_settings set demo_earn_enabled=true where branch_id=$1`, [GROCER]));
+    const demo = (await asUser(kUid, c => c.query('select * from kiosk_earn_points($1,$2,$3)', [reg.phone, '50.00', null]))).rows[0];
+    const demoLed = await admin(c => c.query('select status, source, release_at from point_transactions where invoice_id=$1', [demo.invoice_id]));
+    check('kiosk_earn_points at a hold>0 merchant records a pending row (same shared function), available balance untouched',
+      demoLed.rows[0].status === 'pending' && demoLed.rows[0].source === 'demo' && demoLed.rows[0].release_at !== null && (await avail(reg.id)) === 0);
+    check('kiosk_earn_points: prev/total include pending (prev = the still-pending second invoice)', demo.prev_points === pts2 && demo.total_points === pts2 + Math.round(50 * GRATE));
+
+    // ---- F) hold=0 merchant: bit-for-bit the old behavior ----
+    const zeroHold = await admin(c => c.query(`select points_hold_days from merchants where id='20000000-0000-0000-0000-000000000001'`));
+    check('hold=0 merchant (مطعم مذاق) really is 0 — its claims stay immediate (covered by sections 13/16 unchanged)', zeroHold.rows[0].points_hold_days === 0);
+    const pendingAtZero = await admin(c => c.query(`select count(*)::int as n from point_transactions where status='pending' and merchant_id='20000000-0000-0000-0000-000000000001'`));
+    check('no pending row exists anywhere for a hold=0 merchant', pendingAtZero.rows[0].n === 0);
   }
 
   // =========================================================================
