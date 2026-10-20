@@ -379,6 +379,14 @@ grant execute on function public.kiosk_claim_pos_transaction(uuid, text) to auth
 --    so each invoice goes through apply_points_earn() with ITS OWN original
 --    created_at — that is what keeps the hold clock on the invoice date.
 --    Ledger rows keep NULL branch/rate exactly like the previous version.
+--    REFUND-AWARE ON PURPOSE (same body as supabase-migration-pos-refunds.sql,
+--    which owns the refund logic): an invoice partially refunded while its
+--    customer was still unregistered earns round(points × remaining share),
+--    a fully refunded one earns nothing. The body is deliberately IDENTICAL
+--    in both files — this function is redefined by whichever file runs last,
+--    so re-running THIS file after the refunds one must not silently revert
+--    it to a version that grants the full points. db-tests assert the two
+--    bodies stay identical in either order.
 -- ---------------------------------------------------------------------------
 create or replace function public.claim_unclaimed_invoices() returns integer
 language plpgsql
@@ -389,6 +397,8 @@ declare
   v_profile public.profiles;
   v_phone text;
   v_claimed_count integer := 0;
+  v_refunded numeric;
+  v_points integer;
   r record;
 begin
   select * into v_profile from public.profiles where auth_user_id = auth.uid() and deleted_at is null;
@@ -407,7 +417,7 @@ begin
   v_phone := v_profile.phone;
 
   for r in
-    select id, merchant_id, points_earned, created_at
+    select id, merchant_id, points_earned, created_at, amount, status, refunded_amount
     from public.invoices
     where pending_phone = v_phone
     order by created_at, id
@@ -417,9 +427,21 @@ begin
     set user_id = v_profile.id, pending_phone = null
     where id = r.id;
 
-    perform public.apply_points_earn(
-      v_profile.id, r.merchant_id, null, null, r.id,
-      r.points_earned, null, 'pos', r.created_at);
+    v_refunded := case when r.status = 'refunded' then r.amount else coalesce(r.refunded_amount, 0) end;
+
+    if v_refunded = 0 then
+      perform public.apply_points_earn(
+        v_profile.id, r.merchant_id, null, null, r.id,
+        r.points_earned, null, 'pos', r.created_at);
+    else
+      v_points := case when v_refunded >= r.amount then 0
+                       else round(r.points_earned::numeric * (r.amount - v_refunded) / r.amount)::integer end;
+      if v_points > 0 then
+        perform public.apply_points_earn(
+          v_profile.id, r.merchant_id, null, null, r.id,
+          v_points, null, 'pos', r.created_at);
+      end if;
+    end if;
 
     v_claimed_count := v_claimed_count + 1;
   end loop;
