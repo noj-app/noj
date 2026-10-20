@@ -26,6 +26,9 @@
 --     merchant.html/kiosk.html, never stored. Writers that still set only
 --     `type` (old seed files, manual SQL) keep working: the trigger maps the
 --     label to its code.
+--   [SUPERSEDED by supabase-migration-sector-owner-only.sql: a branch-level
+--    write no longer changes the merchant's sector — a different value is
+--    rejected, and only the owner changes it, via merchant_set_sector().]
 --   - branch_settings.sector_code = a mirror of its merchant's sector_code.
 --     It is forced on insert, re-mirrored to every branch when the merchant's
 --     sector changes, and a write to it from the existing paths (kiosk
@@ -195,15 +198,14 @@ create trigger trg_merchants_sector_sync
 before insert or update of sector_code, type, points_hold_days on public.merchants
 for each row execute function public.merchants_sector_sync_trg();
 
--- merchants AFTER: mirror the code to every branch's settings (except the
--- branch whose own write started this change — its row is mid-update).
+-- merchants AFTER: mirror the code to every branch's settings.
+-- (Body identical to supabase-migration-sector-owner-only.sql, which replaced
+-- the original write-through design — see that file.)
 create or replace function public.merchants_sector_mirror_trg() returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_origin uuid := nullif(current_setting('noj.sector_origin_branch', true), '')::uuid;
 begin
   if new.sector_code is distinct from old.sector_code then
     update public.branch_settings bs
@@ -211,8 +213,7 @@ begin
     from public.branches b
     where b.id = bs.branch_id
       and b.merchant_id = new.id
-      and bs.sector_code is distinct from new.sector_code
-      and (v_origin is null or bs.branch_id <> v_origin);
+      and bs.sector_code is distinct from new.sector_code;
   end if;
   return null;
 end;
@@ -227,11 +228,11 @@ create trigger trg_merchants_sector_mirror
 after update on public.merchants
 for each row execute function public.merchants_sector_mirror_trg();
 
--- branch_settings BEFORE: insert = copy the merchant's code; an update to a
--- different code = write-through to the merchant (kiosk settings screen and
--- merchant.html keep working unchanged). SECURITY DEFINER: the caller (a
--- paired kiosk device or merchant staff, through the existing RLS update
--- policies) has no write grant on merchants.
+-- branch_settings BEFORE: insert = copy the merchant's code; an update that
+-- keeps it = no-op; an update to a DIFFERENT code = rejected (only the owner
+-- changes a sector, via merchant_set_sector()). Originally write-through;
+-- body now identical to supabase-migration-sector-owner-only.sql so re-running
+-- this file can never restore write-through.
 create or replace function public.branch_settings_sector_sync_trg() returns trigger
 language plpgsql
 security definer
@@ -255,10 +256,10 @@ begin
     return new;
   end if;
 
+  -- read-only mirror: re-sending the current value is fine, changing it is
+  -- the owner's job (merchant_set_sector)
   if new.sector_code is distinct from v_sector then
-    perform set_config('noj.sector_origin_branch', new.branch_id::text, true);
-    update public.merchants set sector_code = new.sector_code where id = v_merchant_id;
-    perform set_config('noj.sector_origin_branch', '', true);
+    raise exception 'NOJ_SECTOR_OWNER_ONLY';
   end if;
 
   return new;

@@ -59,7 +59,9 @@
             (scenario.branchSettings || []).forEach(function (s) {
               if (matchesFilters(s, filters)) {
                 Object.assign(s, updatePayload);
-                if (updatePayload.sector_code) sectorWriteThrough(s.branch_id, updatePayload.sector_code);
+                // trg_branch_settings_sector_sync (supabase-migration-sector-owner-only.sql):
+                // المرآة للقراءة فقط — قيمة مختلفة عن قسم التاجر تُرفض.
+                if (updatePayload.sector_code) state.branchSectorWriteAttempted = true;
               }
             });
             state.lastBranchSettingsUpdate = { payload: updatePayload, filters: filters.slice() };
@@ -122,10 +124,9 @@
       return !!member && member.role === 'owner';
     }
 
-    // يحاكي trg_branch_settings_sector_sync/trg_merchants_sector_sync
-    // (supabase-migration-unified-sectors.sql): كتابة قسم الفرع تغيّر قسم
-    // التاجر، ومدة التعليق تتبع افتراض القسم الجديد فقط إن كانت لا تزال
-    // تساوي افتراض القسم القديم (لم تُعدَّل يدوياً).
+    // يحاكي trg_merchants_sector_sync عند merchant_set_sector (مالك فقط):
+    // مدة التعليق تتبع افتراض القسم الجديد فقط إن كانت لا تزال تساوي افتراض
+    // القسم القديم (لم تُعدَّل يدوياً).
     var HOLD_DEFAULTS = { grocery: 7, retail: 7, cafe: 0, restaurant: 0, medical: 0, services: 0 };
     function sectorWriteThrough(branchId, code) {
       var branch = (scenario.branches || []).find(function (b) { return b.id === branchId; });
@@ -138,6 +139,23 @@
     }
 
     function rpc(name, args) {
+      if (name === 'merchant_set_sector') {
+        (state.sectorCalls = state.sectorCalls || []).push(args);
+        var owner = (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === args.p_merchant_id && mm.role === 'owner'; });
+        if (!owner) return Promise.resolve({ data: null, error: { message: 'لا تملك صلاحية على هذا التاجر' } });
+        if (scenario.sectorRpcError) return Promise.resolve({ data: null, error: { message: 'boom' } });
+        if (!HOLD_DEFAULTS.hasOwnProperty(args.p_sector)) return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_SECTOR' } });
+        var mr = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
+        if (mr) {
+          (scenario.branches || []).filter(function (b) { return b.merchant_id === mr.id; }).forEach(function (b) {
+            sectorWriteThrough(b.id, args.p_sector);
+            var bs = (scenario.branchSettings || []).find(function (x) { return x.branch_id === b.id; });
+            if (bs) bs.sector_code = args.p_sector;
+          });
+          mr.sector_code = args.p_sector;
+        }
+        return Promise.resolve({ data: { sector_code: args.p_sector, points_hold_days: mr ? mr.points_hold_days : null }, error: null });
+      }
       if (name === 'merchant_set_points_hold_days') {
         (state.holdCalls = state.holdCalls || []).push(args);
         var isOwner = (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === args.p_merchant_id && mm.role === 'owner'; });
@@ -273,6 +291,8 @@
       getLastIssuedPosToken: function () { return state.lastIssuedPosToken; },
       getIssuedPosTokenCount: function () { return state.issuedPosTokenCount; },
       getHoldCalls: function () { return (state.holdCalls || []).slice(); },
+      getSectorCalls: function () { return (state.sectorCalls || []).slice(); },
+      branchSectorWriteAttempted: function () { return !!state.branchSectorWriteAttempted; },
       getMerchant: function (id) { return (scenario.merchants || []).find(function (m) { return m.id === id; }) || null; },
     };
     return client;

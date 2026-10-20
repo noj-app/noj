@@ -409,7 +409,9 @@ async function loginFlow(page, phone, otp) {
     const update = await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate());
     check('16) الحفظ يستهدف الفرع الصحيح فعلياً', update && update.filters.some((f) => f.col === 'branch_id' && f.val === 'branch-1'));
     check('16) الحفظ يكتب الاسم الجديد فعلياً', update && update.payload.biz_name === 'مركز النور الطبي الجديد');
-    check('16) الحفظ يكتب القطاع الجديد فعلياً', update && update.payload.sector_code === 'cafe');
+    const sc16 = await page.evaluate(() => window.__TEST__.getSectorCalls());
+    check('16) القسم الجديد يُحفظ عبر merchant_set_sector للمالك (لا عبر branch_settings)',
+      update && !('sector_code' in update.payload) && sc16.length === 1 && sc16[0].p_merchant_id === 'merchant-1' && sc16[0].p_sector === 'cafe');
     check('16) الحفظ يكتب pos_mode (لم يتغيّر هنا، لا يزال تجريبي)', update && update.payload.pos_mode === 'demo');
     await context.close();
   }
@@ -919,8 +921,9 @@ async function loginFlow(page, phone, otp) {
     const upd = await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate());
     const m = await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'));
     const holdCalls = await page.evaluate(() => window.__TEST__.getHoldCalls());
-    check('36) الحفظ يكتب القسم الجديد (retail) والخادم يطبّق افتراضه (7) — بلا نداء إضافي لتعيين المدة',
-      upd && upd.payload.sector_code === 'retail' && m.sector_code === 'retail' && m.points_hold_days === 7 && holdCalls.length === 0);
+    check('36) الحفظ يغيّر القسم (retail) عبر merchant_set_sector والخادم يطبّق افتراضه (7) — بلا نداء إضافي لتعيين المدة',
+      upd && !('sector_code' in upd.payload) && m.sector_code === 'retail' && m.points_hold_days === 7 && holdCalls.length === 0 &&
+      (await page.evaluate(() => window.__TEST__.getSectorCalls())).length === 1);
     check('36) بعد الحفظ يعرض الحقل القيمة الفعلية (7)', await page.inputValue('#fHoldDays') === '7');
     await context.close();
   }
@@ -987,6 +990,50 @@ async function loginFlow(page, phone, otp) {
     const { context, page } = await openSettings(holdScenario({}, { merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
     const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_points_hold_days', { p_merchant_id: 'merchant-1', p_days: 30 })).error);
     check('40) دفاع في العمق: نداء مباشر للدالة بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 41-43) القسم للمالك فقط (supabase-migration-sector-owner-only.sql) + "شاشة نوج"
+  // =========================================================================
+  {
+    const { context, page } = await openSettings(holdScenario({}, { merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    const states = await page.$$eval('#sectorSw button', (bs) => bs.map((b) => [b.getAttribute('data-sector'), b.disabled, b.classList.contains('on')]));
+    check('41) الموظف يرى القسم الحالي (صحي) مُحدَّداً، وكل أزرار القسم معطَّلة، مع تنبيه "للمالك فقط"',
+      states.length === 6 && states.every((x) => x[1] === true) && states.find((x) => x[0] === 'medical')[2] === true &&
+      /تغيير القسم للمالك فقط/.test(await page.textContent('#sectorOwnerOnly')));
+    await page.evaluate(() => document.querySelector('#sectorSw button[data-sector="cafe"]').click());
+    await page.fill('#fBizName', 'اسم الموظف');
+    await page.click('#settingsSaveBtn');
+    await page.waitForTimeout(250);
+    const upd = await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate());
+    check('41) حفظ الموظف يحفظ بقية الحقول، ولا يغيّر القسم ولا يستدعي merchant_set_sector',
+      upd && upd.payload.biz_name === 'اسم الموظف' && !('sector_code' in upd.payload) &&
+      (await page.evaluate(() => window.__TEST__.getSectorCalls())).length === 0 &&
+      (await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'))).sector_code === 'medical');
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_sector', { p_merchant_id: 'merchant-1', p_sector: 'cafe' })).error);
+    check('41) دفاع في العمق: نداء merchant_set_sector مباشرة بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario());
+    await page.fill('#fBizSlogan', 'شعار');
+    await saveAndWait(page);
+    check('42) المالك يحفظ بلا تغيير القسم: لا نداء merchant_set_sector إطلاقاً', (await page.evaluate(() => window.__TEST__.getSectorCalls())).length === 0 && (await page.evaluate(() => window.__TEST__.branchSectorWriteAttempted())) === false);
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario({}, { sectorRpcError: true }));
+    await page.click('#sectorSw button[data-sector="cafe"]');
+    await saveAndWait(page);
+    check('42) فشل تغيير القسم يظهر برسالة صريحة (بقية الإعدادات حُفظت)', /تعذّر تغيير القسم/.test(await page.textContent('#app')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario());
+    const txt = await page.textContent('#app');
+    check('43) لوحة التاجر تسمّي الجهاز "شاشة نوج" (اعتماد/رمز إعدادات/رمز الإقران)، بلا "كشك"',
+      /اعتماد شاشة نوج جديدة/.test(txt) && /رمز إعدادات شاشة نوج/.test(txt) && /الظاهر على شاشة نوج/.test(txt) && !/كشك|أكشاك/.test(txt));
     await context.close();
   }
 

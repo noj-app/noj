@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
-<title>NOJ — شاشة العميل</title>
+<title>NOJ — شاشة نوج</title>
 <style>
   :root{
     --navy:#0F2350; --ink:#12235C;
@@ -589,7 +589,7 @@ var T={
   okItems:[
     {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
     {id:'queueNumber',i:'bell',c:'#C99A2E',b:'رقم دورك',s:'ستصلك تنبيهات قبل دورك'},
-    {id:'nextAppt',i:'cal',c:'#0F6E6E',b:'موعدك القادم',s:'احجزه من التطبيق مباشرة'}
+    {id:'nextAppt',i:'cal',c:'#0F6E6E',b:'موعدك القادم',s:'احجزه من تطبيق نوج مباشرة'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتصلك فاتورتك رقمياً وتتابع رقم انتظارك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to receive your invoice digitally and track your queue number.'},
@@ -632,10 +632,10 @@ var T={
   key:'restaurant',
   switchLabel:'مطاعم',
   category:'مطاعم',
-  ticketLabel:'رقم انتظارك',
+  ticketLabel:'رقم طلبك',
   biz:'مطعم مذاق', slogan:'نكهة تستحق الانتظار',
   logo:'<div style="width:60px;height:60px;display:flex;align-items:center;justify-content:center">'+ic('cutlery',46,'#7C5CE6',2)+'</div>',
-  ticket:47, ahead:5, aheadWord:'طاولات', aheadSingular:'طاولة واحدة', aheadDual:'طاولتان',
+  ticket:47, ahead:5, aheadWord:'طلبات', aheadSingular:'طلب واحد', aheadDual:'طلبان',
   topCard:{kind:'points',label:'نقاط مكتسبة من فاتورتك',unit:'نقطة',link:'استبدل نقاطك بمكافآت رائعة'},
   small2:{id:'offers',icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
@@ -647,7 +647,7 @@ var T={
   ],
   okItems:[
     {id:'invoiceArrived',i:'receipt',c:'#2D7BF4',b:'فاتورتك',s:'وصلت إلى تطبيق <span class="brandblue">NOJ</span>'},
-    {id:'orderNumber',i:'bell',c:'#0F6E6E',b:'رقم طاولتك',s:'ستصلك تنبيهات عند الجهوزية'}
+    {id:'orderNumber',i:'bell',c:'#0F6E6E',b:'رقم طلبك',s:'ستصلك تنبيهات عند الجهوزية'}
   ],
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
@@ -732,7 +732,7 @@ T.services={
    الترتيب: فاتورتك (okItems[0]، ثابت دوماً) ← نقاط الولاء (إن hasPoints)
    ← البطاقة الثانوية اليمنى (small2، إن لم تكن أصلاً من ضمن okItems،
    كحال "عروضنا" في المقاهي/المطاعم/البقالة) ← بقية عناصر okItems كما
-   وردت (كحال "رقم دورك" في القطاع الطبي، أو "رقم طلبك"/"رقم طاولتك" في
+   وردت (كحال "رقم دورك" في القطاع الطبي، أو "رقم طلبك" في
    المقاهي/المطاعم). كل مفتاح هنا له بالضرورة بطاقة مرئية مقابلة تحكمها
    نفس id على الشاشتين الثانية والثالثة معاً (انظر leftCol/rightCol
    وleftoverOkItem) — يستحيل بنيوياً وجود مفتاح بلا بطاقة أو العكس، فكلا
@@ -1354,12 +1354,12 @@ function rightCol(){
   var c=C();
   var digitalInvoice=(c.showDigitalInvoice&&cardOn('invoiceArrived'))?
    '<div class="rb"><div class="rb-i">'+ic('receipt',26,'#2D7BF4')+'</div>'+
-   '<b>استقبل فاتورتك<br>الإلكترونية بالتطبيق</b>'+
+   '<b>استقبل فاتورتك<br>الإلكترونية بتطبيق نوج</b>'+
    '<small>تصلك مباشرة بعد الدفع في تطبيق<br><span class="brandblue">NOJ</span></small></div>':'';
   var small2=cardOn(c.small2.id)?
    '<div class="rb"><div class="rb-i">'+ic(c.small2.icon,26,'#2D7BF4')+'</div>'+
    '<b>'+c.small2.title+'</b><small>'+c.small2.note+'</small></div>':'';
-  /* عنصر okItems الفائض (مثال: "رقم طلبك"/"رقم طاولتك" في المقاهي/
+  /* عنصر okItems الفائض (مثال: "رقم طلبك" في المقاهي/
      المطاعم) — لا يُرندَر هنا إن كان القطاع من ذوي hasQueue، فهناك
      يذهب إلى queueCard في leftCol بدلاً منه (انظر leftoverOkItem). */
   var extraItem=c.hasQueue?null:leftoverOkItem(c);
@@ -2310,11 +2310,9 @@ function settingsScreen(){
     '<div class="adm-hd"><div class="adm-hd-t">'+ic('gear',20,'#12235C',1.8)+'<h2>إعدادات الجهاز</h2></div>'+
      '<button class="close inline" id="adminExit">'+ic('close',16,'#8A93AD')+' خروج</button></div>'+
     '<div class="adm-body">'+
-     '<div class="adm-sec"><h3>القطاع</h3><div class="sw" id="adminSw">'+
-      Object.keys(T).map(function(k){
-        return '<button data-t="'+k+'" class="'+(d.sector===k?'on':'')+'">'+T[k].switchLabel+'</button>';
-      }).join('')+
-     '</div></div>'+
+     /* لا منتقي قسم هنا: القسم يُختار من لوحة التاجر وللمالك فقط
+        (merchant_set_sector)، وشاشة نوج تقرؤه من branch_settings عند
+        الإقلاع ولا تكتبه (supabase-migration-sector-owner-only.sql). */
      '<div class="adm-sec"><h3>بيانات المنشأة</h3>'+
       '<label class="adm-f">شعار المحل (اختياري)'+
        '<div class="adm-row" style="margin-top:6px">'+
@@ -2567,16 +2565,6 @@ function convertPdfToImages(arrayBuffer){
 }
 /* يُحدَّث فقط الزر النشط (وحقول العناصر النائبة عند تغيّر القطاع)، بلا
    إعادة بناء شاشة الإعدادات كاملةً — لتفادي وميضها مع كل ضغطة. */
-function updateSectorButtons(){
-  [].forEach.call(document.querySelectorAll('#adminSw button'),function(b){
-    b.className=(b.getAttribute('data-t')===DRAFT.sector)?'on':'';
-  });
-  var fName=document.getElementById('fBizName');
-  if(fName)fName.placeholder=T[DRAFT.sector].biz;
-  var fSlogan=document.getElementById('fBizSlogan');
-  if(fSlogan)fSlogan.placeholder=T[DRAFT.sector].slogan;
-  updateLogoPreview();
-}
 /* يُحدَّث فقط معاينة الشعار (صورة العميل المخصَّصة إن وُجدت، وإلا أيقونة
    القطاع الافتراضية) وظهور زر "إزالة"، بلا إعادة بناء الشاشة. */
 function updateLogoPreview(){
@@ -2641,9 +2629,6 @@ function bindAdmin(){
   var exit2=document.getElementById('adminExit2');
   if(exit2)exit2.onclick=closeAdmin;
 
-  [].forEach.call(document.querySelectorAll('#adminSw button'),function(b){
-    b.onclick=function(){DRAFT.sector=b.getAttribute('data-t');updateSectorButtons();renderIdleSectionAdmin();renderCardTogglesAdmin()};
-  });
   [].forEach.call(document.querySelectorAll('#adminMode button'),function(b){
     b.onclick=function(){DRAFT.mode=b.getAttribute('data-m');updateModeButtons()};
   });
@@ -2713,7 +2698,6 @@ function bindAdmin(){
       var sb=await getSb();
       if(!sb)throw new Error('supabase-client-unavailable');
       var res=await sb.from('branch_settings').update({
-        sector_code:DRAFT.sector,
         biz_name:DRAFT.bizName||null,
         biz_branch:DRAFT.bizBranch||null,
         biz_slogan:DRAFT.bizSlogan||null,

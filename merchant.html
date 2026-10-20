@@ -506,7 +506,7 @@ async function doVerify(){
 var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
   settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
-  holdServer:null,holdSector:null,
+  holdServer:null,holdSector:null,loadedSector:null,
   posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
   view:'manage',inv:null};
 
@@ -678,6 +678,7 @@ async function loadBranchSettings(branchId){
     bizName:row.biz_name||'',bizBranch:row.biz_branch||'',bizSlogan:row.biz_slogan||'',bizLogo:row.biz_logo||'',
     mode:row.pos_mode||'demo'
   };
+  M.loadedSector=M.settingsDraft.sector;
   M.pendingMode=null;
   await loadMerchantHold();
   await loadPosConnections(branchId);
@@ -742,7 +743,7 @@ function approveFormHtml(){
     return '<div class="card"><div class="empty">لا فروع لهذا التاجر بعد — تواصل مع فريق نوج.</div></div>';
   }
   return '<div class="card">'+
-    '<label class="form-f"><label>رمز الإقران الظاهر على شاشة الكشك (6 أرقام)</label>'+
+    '<label class="form-f"><label>رمز الإقران الظاهر على شاشة نوج (6 أرقام)</label>'+
       '<input type="text" inputmode="numeric" maxlength="6" id="pairCode" placeholder="000000"></label>'+
     '<label class="form-f"><label>الفرع</label><select id="pairBranch">'+
       M.branches.map(function(b){return '<option value="'+b.id+'">'+escAttr(b.name)+'</option>'}).join('')+
@@ -797,8 +798,11 @@ function branchSettingsHtml(){
     '<label class="form-f"><label>الفرع (نص وصفي)</label><input type="text" id="fBizBranch" value="'+escAttr(d.bizBranch)+'" placeholder="مثال: فرع العليا"></label>'+
     '<label class="form-f"><label>الشعار الفرعي</label><input type="text" id="fBizSlogan" value="'+escAttr(d.bizSlogan)+'" placeholder="جملة قصيرة تظهر تحت الاسم"></label>'+
     '<label class="form-f"><label>القطاع</label><div class="sw" id="sectorSw">'+
-      SECTOR_KEYS.map(function(k){return '<button type="button" data-sector="'+k+'" class="'+(d.sector===k?'on':'')+'">'+SECTOR_LABELS[k]+'</button>'}).join('')+
-    '</div>'+(M.branches.length>1?'<div class="hint">القسم واحد للتاجر: تغييره يُطبَّق على كل الفروع.</div>':'')+'</label>'+
+      SECTOR_KEYS.map(function(k){return '<button type="button" data-sector="'+k+'" class="'+(d.sector===k?'on':'')+'"'+(activeRole()==='owner'?'':' disabled')+'>'+SECTOR_LABELS[k]+'</button>'}).join('')+
+    '</div>'+
+    (activeRole()==='owner'
+      ?(M.branches.length>1?'<div class="hint">القسم واحد للتاجر: تغييره يُطبَّق على كل الفروع.</div>':'')
+      :'<div class="hint" id="sectorOwnerOnly">تغيير القسم للمالك فقط.</div>')+'</label>'+
     holdFieldHtml(d)+
     '<label class="form-f"><label>الوضع</label><div class="sw" id="modeSw">'+
       '<button type="button" data-mode="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
@@ -817,8 +821,8 @@ function modeConfirmHtml(){
   return '<div class="ov" id="modeConfirmOv"><div class="confirm-box">'+
     '<h3>'+(toLive?'التحويل للوضع المباشر؟':'التحويل للوضع التجريبي؟')+'</h3>'+
     '<p>'+(toLive?
-      'سيبدأ كل أكشاك هذا الفرع بالتقاط فواتير حقيقية من الكاشير فور الحفظ، بدل بيانات العرض التجريبي.':
-      'ستعود كل أكشاك هذا الفرع لعرض بيانات تجريبية ثابتة بدل التقاط فواتير حقيقية، فور الحفظ.')+'</p>'+
+      'ستبدأ كل شاشات نوج في هذا الفرع بالتقاط فواتير حقيقية من الكاشير فور الحفظ، بدل بيانات العرض التجريبي.':
+      'ستعود كل شاشات نوج في هذا الفرع لعرض بيانات تجريبية ثابتة بدل التقاط فواتير حقيقية، فور الحفظ.')+'</p>'+
     '<div class="confirm-row">'+
       '<button class="confirm-cancel" id="modeConfirmCancel">تراجع</button>'+
       '<button class="confirm-ok" id="modeConfirmOk" style="background:var(--navy)">تأكيد</button>'+
@@ -832,8 +836,8 @@ function modeConfirmHtml(){
    الواجهة، ولا تُعيد قيمة الرمز أبداً. */
 function adminPinHtml(){
   if(activeRole()!=='owner'||!M.branches.length)return '';
-  return '<div class="sec-h"><h2>رمز إعدادات الكشك</h2></div><div class="card">'+
-    '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.7">رمز من 4 أرقام يفتح شاشة إعدادات الكشك على جهاز فرع "'+escAttr(branchName(M.settingsBranchId))+'". لا تُعرض القيمة الحالية أبداً بعد الحفظ.</p>'+
+  return '<div class="sec-h"><h2>رمز إعدادات شاشة نوج</h2></div><div class="card">'+
+    '<p style="font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.7">رمز من 4 أرقام يفتح إعدادات شاشة نوج على جهاز فرع "'+escAttr(branchName(M.settingsBranchId))+'". لا تُعرض القيمة الحالية أبداً بعد الحفظ.</p>'+
     '<input type="tel" inputmode="numeric" maxlength="4" class="pin-input" id="pinInput" value="'+escAttr(M.pinInput)+'" placeholder="••••">'+
     '<div><button class="approve-btn" id="pinSaveBtn" style="max-width:220px;margin-top:14px">'+(M.pinSaving?'<span class="spinner"></span> جارٍ الحفظ...':'حفظ الرمز')+'</button></div>'+
     (M.pinErr?'<div class="form-warn">'+escAttr(M.pinErr)+'</div>':'')+
@@ -1059,7 +1063,7 @@ function renderApp(){
     (M.view==='invoices'?invoicesViewHtml():
     '<div class="sec-h"><h2>الأجهزة</h2></div>'+
     '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
-    '<div class="sec-h"><h2>اعتماد كشك جديد</h2></div>'+
+    '<div class="sec-h"><h2>اعتماد شاشة نوج جديدة</h2></div>'+
     approveFormHtml()+
     '<div class="sec-h"><h2>إعدادات الفرع</h2></div>'+
     branchSettingsHtml()+
@@ -1172,6 +1176,8 @@ function bindApp(){
 
   [].forEach.call(document.querySelectorAll('#sectorSw button'),function(b){
     b.onclick=function(){
+      // القسم للمالك فقط (merchant_set_sector يتحقق في الخادم أيضاً)
+      if(activeRole()!=='owner')return;
       var d=M.settingsDraft,k=b.getAttribute('data-sector');
       d.sector=k;
       // مدة لم يعدّلها التاجر يدوياً تتبع افتراض القسم الجديد (كما يفعل
@@ -1218,8 +1224,9 @@ function bindApp(){
     }
     M.settingsSaving=true;M.settingsSaveErr='';renderApp();
     var sb=await getSb();
+    // القسم لا يُكتب عبر branch_settings (مرآة للقراءة فقط في الخادم) — بل
+    // عبر merchant_set_sector للمالك بعد حفظ بقية الحقول.
     var res=await sb.from('branch_settings').update({
-      sector_code:d.sector,
       biz_name:d.bizName||null,
       biz_branch:d.bizBranch||null,
       biz_slogan:d.bizSlogan||null,
@@ -1230,6 +1237,15 @@ function bindApp(){
       M.settingsSaving=false;
       M.settingsSaveErr='تعذّر حفظ الإعدادات، تحقق من اتصالك وحاول مرة أخرى';
       renderApp();return;
+    }
+    if(activeRole()==='owner'&&d.sector!==M.loadedSector){
+      var sr=await sb.rpc('merchant_set_sector',{p_merchant_id:M.activeMerchantId,p_sector:d.sector});
+      if(sr.error){
+        M.settingsSaving=false;
+        M.settingsSaveErr='حُفظت الإعدادات، لكن تعذّر تغيير القسم. حاول مرة أخرى.';
+        renderApp();return;
+      }
+      M.loadedSector=d.sector;
     }
     if(wantHold!==null){
       // الخادم قد يكون طبّق افتراض القسم الجديد تلقائياً — نقرأ القيمة الفعلية
@@ -1312,7 +1328,7 @@ async function doLogout(){
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
     settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
-    holdServer:null,holdSector:null,
+    holdServer:null,holdSector:null,loadedSector:null,
     posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
     view:'manage',inv:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};

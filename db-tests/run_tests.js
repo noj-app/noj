@@ -111,6 +111,7 @@ async function asServiceRole(fn) {
     'supabase-migration-pending-points.sql',
     'supabase-migration-pos-refunds.sql',
     'supabase-migration-unified-sectors.sql',
+    'supabase-migration-sector-owner-only.sql',
   ].map(f => path.join(REPO_ROOT, f));
   // a byte-level snapshot of everything the sector unification must NOT touch,
   // taken right before that migration runs (checked in section 21e)
@@ -2499,18 +2500,50 @@ async function asServiceRole(fn) {
     const kReq = await asUser(kUid, c => c.query('select * from request_device_pairing()'));
     await asUser(owner, c => c.query('select * from approve_device_pairing($1,$2)', [kReq.rows[0].pairing_code, branchA]));
 
-    const kioskWrite = await asUser(kUid, c => c.query(`update branch_settings set sector_code='services', biz_name='اسم' where branch_id=$1`, [branchA]));
-    check('kiosk settings screen path (device RLS update): the save succeeds and is WRITE-THROUGH to the merchant',
-      kioskWrite.rowCount === 1 && (await merchantRow(multi)).sector_code === 'services' && (await merchantRow(multi)).type === 'خدمات');
-    check('… and the OTHER branch follows (one merchant, one sector)', JSON.stringify(await branchSectors(multi)) === '["services","services"]');
-    const staffWrite = await asUser(staff, c => c.query(`update branch_settings set sector_code='restaurant' where branch_id=$1`, [branchA]));
-    check('merchant.html path (staff RLS update): write-through too', staffWrite.rowCount === 1 && (await merchantRow(multi)).sector_code === 'restaurant' && JSON.stringify(await branchSectors(multi)) === '["restaurant","restaurant"]');
-    const sameWrite = await asUser(kUid, c => c.query(`update branch_settings set sector_code='restaurant', biz_slogan='س' where branch_id=$1`, [branchA]));
-    check('a save that re-sends the SAME sector (every kiosk save does) changes nothing else', sameWrite.rowCount === 1 && (await merchantRow(multi)).sector_code === 'restaurant');
-    const foreign = await asUser(strangerK, c => c.query(`update branch_settings set sector_code='medical' where branch_id=$1`, [branchA]));
-    check('an unpaired / foreign session matches zero rows and cannot touch the merchant\'s sector', foreign.rowCount === 0 && (await merchantRow(multi)).sector_code === 'restaurant');
-    const clientMerchant = await asUser(owner, async c => { try { const r = await c.query(`update merchants set sector_code='medical' where id=$1`, [multi]); return 'rows:' + r.rowCount; } catch (e) { return 'fail:' + e.message; } });
-    check('even the owner cannot write merchants directly (only through the branch settings path / RPC)', clientMerchant !== 'rows:1' && (await merchantRow(multi)).sector_code === 'restaurant');
+    // (supabase-migration-sector-owner-only.sql) the branch mirror is READ-ONLY: a different value is
+    // rejected from every client path, re-sending the current value is a no-op; only the owner's RPC changes it
+    const tryAs = (uid, sql, params) => asUser(uid, async c => { try { const r = await c.query(sql, params); return { ok: true, rows: r.rowCount, r }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const kioskWrite = await tryAs(kUid, `update branch_settings set sector_code='services', biz_name='اسم' where branch_id=$1`, [branchA]);
+    check('kiosk path (device RLS update) changing the sector is REJECTED (NOJ_SECTOR_OWNER_ONLY) — merchant, both branches and the other fields untouched',
+      !kioskWrite.ok && /NOJ_SECTOR_OWNER_ONLY/.test(kioskWrite.msg) && (await merchantRow(multi)).sector_code === 'cafe' &&
+      JSON.stringify(await branchSectors(multi)) === '["cafe","cafe"]' &&
+      (await admin(c => c.query('select biz_name from branch_settings where branch_id=$1', [branchA]))).rows[0].biz_name !== 'اسم');
+    const staffWrite = await tryAs(staff, `update branch_settings set sector_code='restaurant' where branch_id=$1`, [branchA]);
+    check('merchant staff (RLS update) changing the sector is rejected too', !staffWrite.ok && /NOJ_SECTOR_OWNER_ONLY/.test(staffWrite.msg) && (await merchantRow(multi)).sector_code === 'cafe');
+    const ownerWrite = await tryAs(owner, `update branch_settings set sector_code='restaurant' where branch_id=$1`, [branchA]);
+    check('even the OWNER cannot change it through branch_settings — only through merchant_set_sector()', !ownerWrite.ok && /NOJ_SECTOR_OWNER_ONLY/.test(ownerWrite.msg));
+    const sameWrite = await tryAs(kUid, `update branch_settings set sector_code='cafe', biz_slogan='س' where branch_id=$1`, [branchA]);
+    check('an (old cached) kiosk save that re-sends the SAME sector still saves its other settings', sameWrite.ok && sameWrite.rows === 1 &&
+      (await admin(c => c.query('select biz_slogan from branch_settings where branch_id=$1', [branchA]))).rows[0].biz_slogan === 'س');
+    const noSector = await tryAs(kUid, `update branch_settings set biz_slogan='ب' where branch_id=$1`, [branchA]);
+    check('a kiosk save without sector_code at all (the new kiosk.html) saves normally', noSector.ok && noSector.rows === 1);
+    const foreign = await tryAs(strangerK, `update branch_settings set sector_code='medical' where branch_id=$1`, [branchA]);
+    check('an unpaired / foreign session matches zero rows and cannot touch the merchant\'s sector', foreign.ok && foreign.rows === 0 && (await merchantRow(multi)).sector_code === 'cafe');
+    const clientMerchant = await tryAs(owner, `update merchants set sector_code='medical' where id=$1`, [multi]);
+    check('the owner cannot write merchants directly either', !(clientMerchant.ok && clientMerchant.rows === 1) && (await merchantRow(multi)).sector_code === 'cafe');
+
+    const setSector = (uid, code, mid = multi) => tryAs(uid, 'select merchant_set_sector($1,$2) as r', [mid, code]);
+    const own1 = await setSector(owner, 'restaurant');
+    check('merchant_set_sector: the owner changes the sector → label, EVERY branch mirror and the result follow',
+      own1.ok && own1.r.rows[0].r.sector_code === 'restaurant' && (await merchantRow(multi)).type === 'مطاعم' &&
+      JSON.stringify(await branchSectors(multi)) === '["restaurant","restaurant"]');
+    const otherOwnerS = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otherOwnerS]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ('20000000-0000-0000-0000-000000000001',$1,'owner')`, [otherOwnerS]));
+    const refused = [await setSector(staff, 'medical'), await setSector(kUid, 'medical'), await setSector(otherOwnerS, 'medical'), await setSector(strangerK, 'medical')];
+    check('merchant_set_sector is owner-only: staff, a kiosk, another merchant\'s owner and a stranger are refused',
+      refused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)) && (await merchantRow(multi)).sector_code === 'restaurant');
+    const badS = [await setSector(owner, 'bogus'), await setSector(owner, null), await setSector(owner, 'صحة')];
+    check('merchant_set_sector rejects anything but the six codes (NOJ_INVALID_SECTOR), labels included', badS.every(x => !x.ok && /NOJ_INVALID_SECTOR/.test(x.msg)));
+    const sp = await admin(c => c.query(`select has_function_privilege('anon','public.merchant_set_sector(uuid,text)','execute') as anon,
+      has_function_privilege('authenticated','public.merchant_set_sector(uuid,text)','execute') as authed`));
+    check('merchant_set_sector: not executable by anon, executable by authenticated', sp.rows[0].anon === false && sp.rows[0].authed === true);
+    const mirrorSrc = async () => (await admin(c => c.query(`select string_agg(prosrc, '||' order by proname) as s from pg_proc where proname in ('branch_settings_sector_sync_trg','merchants_sector_mirror_trg')`))).rows[0].s;
+    apply('supabase-migration-unified-sectors.sql');
+    const afterOld = await mirrorSrc();
+    apply('supabase-migration-sector-owner-only.sql');
+    check('the two sector trigger functions are IDENTICAL in unified-sectors.sql and sector-owner-only.sql (re-running the older file cannot restore write-through)',
+      afterOld === (await mirrorSrc()) && /NOJ_SECTOR_OWNER_ONLY/.test(afterOld));
 
     // ---- D) hold days follow a NON-customized default only; owner RPC ----
     await admin(c => c.query(`update merchants set sector_code='grocery' where id=$1`, [multi]));
@@ -2521,8 +2554,8 @@ async function asServiceRole(fn) {
     const rpc = (uid, days, mid = multi) => asUser(uid, async c => { try { const r = await c.query('select merchant_set_points_hold_days($1,$2) as d', [mid, days]); return { ok: true, d: r.rows[0].d }; } catch (e) { return { ok: false, msg: e.message }; } });
     const set3 = await rpc(owner, 3);
     check('owner sets a custom hold (3) via merchant_set_points_hold_days', set3.ok && set3.d === 3 && (await merchantRow(multi)).points_hold_days === 3);
-    await asUser(kUid, c => c.query(`update branch_settings set sector_code='cafe' where branch_id=$1`, [branchA]));
-    check('a CUSTOMIZED hold (3) is NOT overwritten when the sector changes (retail → cafe), from any path', (await merchantRow(multi)).points_hold_days === 3 && (await merchantRow(multi)).sector_code === 'cafe');
+    const viaOwner = await setSector(owner, 'cafe');
+    check('a CUSTOMIZED hold (3) is NOT overwritten when the owner changes the sector (retail → cafe); the RPC reports it', viaOwner.ok && viaOwner.r.rows[0].r.points_hold_days === 3 && (await merchantRow(multi)).points_hold_days === 3 && (await merchantRow(multi)).sector_code === 'cafe');
     const set0 = await rpc(owner, 0);
     await admin(c => c.query(`update merchants set sector_code='grocery' where id=$1`, [multi]));
     check('once the owner puts it back to the sector default (0), it follows sector changes again (→ 7)', set0.ok && (await merchantRow(multi)).points_hold_days === 7);
