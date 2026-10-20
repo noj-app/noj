@@ -544,6 +544,54 @@ async function openAdminSettingsViaPin(page, pin) {
     await context.close();
   }
 
+  // =========================================================================
+  // 24-26) "حجزك القادم" للمطعم والخدمات (supabase-migration-reservations.sql)
+  // =========================================================================
+  const bookingMain = async (code, bookingEnabled, cardToggles, type) => {
+    const sc = sectorScenario(code, { merchantRow: { name: 'تاجر', type: type || 'مطاعم', points_rate: 1, booking_enabled: bookingEnabled } });
+    if (cardToggles) sc.branchSettingsRow.card_toggles = cardToggles;
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sc });
+    await page.click('#idleDevNext');
+    await waitForCheckout(page);
+    const info = await page.evaluate(() => ({
+      right: (document.querySelector('.col.right') || {}).textContent || '',
+      toggles: sectorCardToggles(S.t).map((x) => x.id),
+    }));
+    await context.close();
+    return info;
+  };
+  {
+    const r = await bookingMain('restaurant', true);
+    const sv = await bookingMain('services', true, null, 'خدمات');
+    check('24) مطعم فعّل الحجوزات: بطاقة "حجزك القادم" ظاهرة (احجز طاولتك…من تطبيق NOJ) ومفتاحها بعد بقية المفاتيح',
+      /حجزك القادم/.test(r.right) && /احجز طاولتك أو ألغِ حجزك/.test(r.right) &&
+      JSON.stringify(r.toggles) === JSON.stringify(['invoiceArrived', 'loyaltyPoints', 'offers', 'orderNumber', 'nextBooking']));
+    check('24) خدمات فعّلت الحجوزات: نفس البطاقة بنص الخدمة',
+      /حجزك القادم/.test(sv.right) && /احجز خدمتك أو ألغِ حجزك/.test(sv.right) &&
+      JSON.stringify(sv.toggles) === JSON.stringify(['invoiceArrived', 'loyaltyPoints', 'offers', 'nextBooking']));
+    const rOff = await bookingMain('restaurant', false);
+    const svOff = await bookingMain('services', false, null, 'خدمات');
+    check('25) تاجر لم يفعّل الحجوزات: لا بطاقة ولا مفتاح (لا مفتاح بلا بطاقة)',
+      !/حجزك القادم/.test(rOff.right + svOff.right) && !rOff.toggles.includes('nextBooking') && !svOff.toggles.includes('nextBooking'));
+    const rHidden = await bookingMain('restaurant', true, { nextBooking: false });
+    check('25) مفتاح "حجزك القادم" في إعدادات الجهاز يخفي البطاقة', !/حجزك القادم/.test(rHidden.right) && rHidden.toggles.includes('nextBooking'));
+    const med = await bookingMain('medical', true, null, 'صحة');
+    const cafe = await bookingMain('cafe', true, null, 'مقاهي');
+    const groc = await bookingMain('grocery', true, null, 'بقالة');
+    check('26) الصحي بلا تغيير حتى مع booking_enabled: بطاقة الموعد نفسها ومفاتيحه نفسها، بلا "حجزك القادم"',
+      /حجز موعدك القادم/.test(med.right) && !/حجزك القادم/.test(med.right) &&
+      JSON.stringify(med.toggles) === JSON.stringify(['invoiceArrived', 'queueNumber', 'nextAppt', 'offers']));
+    check('26) المقهى والبقالة بلا بطاقة حجز حتى مع booking_enabled (جدول الميزات)',
+      !/حجزك القادم/.test(cafe.right + groc.right) && !cafe.toggles.includes('nextBooking') && !groc.toggles.includes('nextBooking'));
+  }
+  {
+    const sc = sectorScenario('restaurant', { adminPin: '1234', merchantRow: { name: 'تاجر', type: 'مطاعم', points_rate: 1, booking_enabled: true } });
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sc });
+    await openAdminSettingsViaPin(page, '1234');
+    check('26) إعدادات الجهاز تعرض مفتاح "حجزك القادم" لمطعم فعّل الحجوزات', /حجزك القادم/.test(await page.textContent('.adm-body')));
+    await context.close();
+  }
+
   await browser.close();
 
   console.log('\n=== KIOSK E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');

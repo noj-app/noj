@@ -139,6 +139,39 @@
     }
 
     function rpc(name, args) {
+      var isMemberOf = function (mid, ownerOnly) {
+        return (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === mid && (!ownerOnly || mm.role === 'owner'); });
+      };
+      var noAccess = { data: null, error: { message: 'لا تملك صلاحية على هذا التاجر' } };
+      if (name === 'merchant_list_reservations') {
+        (state.bookingListCalls = state.bookingListCalls || []).push(args);
+        if (scenario.bookingsError) return Promise.resolve({ data: null, error: { message: 'boom' } });
+        if (!isMemberOf(args.p_merchant_id)) return Promise.resolve(noAccess);
+        var bm = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; }) || {};
+        var brows = (scenario.reservations || []).filter(function (r) { return r.merchant_id === args.p_merchant_id; })
+          .map(function (r) { var o = Object.assign({}, r); delete o.merchant_id; return o; });
+        return Promise.resolve({ data: { booking_enabled: !!bm.booking_enabled, sector_code: bm.sector_code, rows: brows }, error: null });
+      }
+      if (name === 'merchant_set_reservation_status') {
+        (state.bookingStatusCalls = state.bookingStatusCalls || []).push(args);
+        var res = (scenario.reservations || []).find(function (r) { return r.id === args.p_reservation_id; });
+        if (!res) return Promise.resolve({ data: null, error: { message: 'NOJ_RESERVATION_NOT_FOUND' } });
+        if (!isMemberOf(res.merchant_id)) return Promise.resolve(noAccess);
+        if ((args.p_status === 'confirmed' && res.status !== 'pending') || (args.p_status === 'cancelled' && ['pending', 'confirmed'].indexOf(res.status) === -1)) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_TRANSITION' } });
+        }
+        res.status = args.p_status;
+        var out = Object.assign({}, res); delete out.merchant_id;
+        return Promise.resolve({ data: out, error: null });
+      }
+      if (name === 'merchant_set_booking_enabled') {
+        (state.bookingToggleCalls = state.bookingToggleCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
+        var tm = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
+        if (!tm || ['restaurant', 'services'].indexOf(tm.sector_code) === -1) return Promise.resolve({ data: null, error: { message: 'NOJ_BOOKING_NOT_AVAILABLE' } });
+        tm.booking_enabled = !!args.p_enabled;
+        return Promise.resolve({ data: tm.booking_enabled, error: null });
+      }
       if (name === 'merchant_set_sector') {
         (state.sectorCalls = state.sectorCalls || []).push(args);
         var owner = (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === args.p_merchant_id && mm.role === 'owner'; });
@@ -293,6 +326,9 @@
       getHoldCalls: function () { return (state.holdCalls || []).slice(); },
       getSectorCalls: function () { return (state.sectorCalls || []).slice(); },
       branchSectorWriteAttempted: function () { return !!state.branchSectorWriteAttempted; },
+      getBookingListCalls: function () { return (state.bookingListCalls || []).slice(); },
+      getBookingStatusCalls: function () { return (state.bookingStatusCalls || []).slice(); },
+      getBookingToggleCalls: function () { return (state.bookingToggleCalls || []).slice(); },
       getMerchant: function (id) { return (scenario.merchants || []).find(function (m) { return m.id === id; }) || null; },
     };
     return client;

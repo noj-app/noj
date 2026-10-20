@@ -158,6 +158,9 @@
   .num{direction:ltr;unicode-bidi:isolate;display:inline-block}
   b.num{text-align:right}
   .badge.warn{color:#B45309;background:rgba(245,158,11,.14)}
+  .bk-actions{display:flex;gap:8px;margin-top:10px}
+  .bk-actions .approve-btn{max-width:120px;padding:9px 14px;font-size:12.5px}
+  .sec-h .btn-outline{padding:6px 12px}
   .owner-only-note{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 </style>
 </head>
@@ -508,7 +511,7 @@ var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
   holdServer:null,holdSector:null,loadedSector:null,
   posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
-  view:'manage',inv:null};
+  view:'manage',inv:null,bk:null,bkConfirmCancelId:null};
 
 /* الأقسام الستة بأسمائها العربية للعرض فقط. القسم واحد لكل تاجر
    (merchants.sector_code، راجع supabase-migration-unified-sectors.sql)؛
@@ -1018,6 +1021,7 @@ function bindInvoices(){
       if(v===M.view)return;
       M.view=v;
       if(v==='invoices'&&!M.inv){M.inv=newInvState();renderApp();loadInvoices(false);return}
+      if(v==='bookings'&&!M.bk){M.bk=newBkState();renderApp();loadBookings();return}
       renderApp();
     };
   });
@@ -1047,6 +1051,156 @@ function bindInvoices(){
   if(retry)retry.onclick=function(){loadInvoices(false)};
 }
 
+/* ================= الحجوزات (المطعم والخدمات) =================
+   مبنية على نظام المواعيد الصحي نفسه (جدول appointments، راجع supabase-
+   migration-reservations.sql): merchant_list_reservations() للقراءة (مالك
+   وموظف — لا جوال كامل، فقط اسم العميل وآخر 4 أرقام)، merchant_set_
+   reservation_status() للقبول/الإلغاء (مالك وموظف)، وmerchant_set_booking_
+   enabled() لتفعيل/إيقاف استقبال الحجوزات (المالك فقط، وتتحقق الدالة من ذلك
+   أيضاً). التبويب يظهر فقط لتاجر قسمه مطعم أو خدمات. لا يُحمَّل شيء قبل فتحه. */
+var BOOKING_SECTORS=['restaurant','services'];
+var BK_STATUS_LABELS={pending:'بانتظار القبول',confirmed:'مؤكَّد',cancelled:'ملغى',done:'منتهٍ'};
+function bookingsTabVisible(){return BOOKING_SECTORS.indexOf(M.loadedSector)!==-1||M.view==='bookings'}
+function newBkState(){return {loading:false,err:'',rows:null,bookingEnabled:null,sector:null,busyId:null,toggling:false,req:0}}
+function bkErrorText(msg){
+  msg=msg||'';
+  if(/NOJ_INVALID_TRANSITION/.test(msg))return 'تغيّرت حالة هذا الحجز، حدّث القائمة.';
+  if(/NOJ_BOOKING_NOT_AVAILABLE/.test(msg))return 'الحجوزات متاحة لقسمي المطعم والخدمات فقط.';
+  if(/لا تملك صلاحية/.test(msg))return 'لا تملك صلاحية على هذا التاجر.';
+  return 'تعذّر تنفيذ العملية، حاول مرة أخرى.';
+}
+async function loadBookings(){
+  var S=M.bk;
+  if(!S||!M.activeMerchantId)return;
+  var myReq=++S.req;
+  S.loading=true;S.err='';renderApp();
+  var sb=await getSb();
+  var res=sb?await sb.rpc('merchant_list_reservations',{p_merchant_id:M.activeMerchantId}):{error:{message:'no-client'}};
+  if(M.bk!==S||myReq!==S.req)return;
+  S.loading=false;
+  if(res.error||!res.data){S.err='تعذّر تحميل الحجوزات، حاول مرة أخرى.';renderApp();return}
+  S.rows=res.data.rows||[];
+  S.bookingEnabled=!!res.data.booking_enabled;
+  S.sector=res.data.sector_code;
+  renderApp();
+}
+function bookingRowHtml(r){
+  var detail=r.kind==='table'?'عدد الأشخاص: <b class="num">'+fmtNum(r.party_size)+'</b>':'الخدمة: <b>'+escAttr(r.service_type||'')+'</b>';
+  var who=(r.customer_name?escAttr(r.customer_name):'عميل')+(r.customer_phone_last4?' · جوال ينتهي بـ <span class="num">'+escAttr(r.customer_phone_last4)+'</span>':'');
+  var busy=M.bk&&M.bk.busyId===r.id;
+  var actions='';
+  if(r.status==='pending'){
+    actions='<button type="button" class="approve-btn bk-accept" data-bk-accept="'+r.id+'"'+(busy?' disabled':'')+'>قبول</button>'+
+      '<button type="button" class="btn-outline bk-cancel" data-bk-cancel="'+r.id+'"'+(busy?' disabled':'')+'>إلغاء</button>';
+  }else if(r.status==='confirmed'){
+    actions='<button type="button" class="btn-outline bk-cancel" data-bk-cancel="'+r.id+'"'+(busy?' disabled':'')+'>إلغاء</button>';
+  }
+  return '<div class="inv-row bk-row" data-bk-row="'+r.id+'">'+
+    '<div class="inv-top"><b class="num">'+escAttr(r.scheduled_at_riyadh)+'</b>'+
+      '<span class="badge '+(r.status==='confirmed'?'active':r.status==='pending'?'warn':'revoked')+'" data-bk-status>'+escAttr(BK_STATUS_LABELS[r.status]||r.status)+'</span></div>'+
+    '<div class="inv-sub">'+detail+'</div>'+
+    '<div class="inv-sub">'+who+'</div>'+
+    (r.note?'<div class="inv-sub bk-note">ملاحظة: '+escAttr(r.note)+'</div>':'')+
+    (actions?'<div class="bk-actions">'+actions+'</div>':'')+
+  '</div>';
+}
+function bookingToggleHtml(S){
+  if(S.bookingEnabled===null)return '';
+  var on=S.bookingEnabled;
+  var owner=activeRole()==='owner';
+  return '<div class="card" id="bkToggleCard" style="margin-bottom:14px">'+
+    '<div class="inv-top"><b>استقبال الحجوزات من تطبيق نوج</b>'+
+      '<span class="badge '+(on?'active':'revoked')+'" id="bkEnabledBadge">'+(on?'مفعّل':'متوقف')+'</span></div>'+
+    (owner
+      ?'<p class="hint" style="margin:6px 0 10px">'+(on?'إيقافه يمنع الطلبات الجديدة فقط؛ الحجوزات القائمة تبقى هنا ويستطيع العميل إلغاءها.':'عند التفعيل يستطيع عملاؤك طلب حجز من تطبيق نوج، ويظهر هنا لتقبله أو تلغيه.')+'</p>'+
+        '<button type="button" class="btn-outline" id="bkToggleBtn"'+(S.toggling?' disabled':'')+'>'+(S.toggling?'<span class="spinner" style="border-color:rgba(18,35,92,.25);border-top-color:var(--navy)"></span> جارٍ الحفظ...':(on?'إيقاف الحجوزات':'تفعيل الحجوزات'))+'</button>'
+      :'<p class="hint" id="bkToggleOwnerOnly" style="margin-top:6px">تفعيل الحجوزات وإيقافها للمالك فقط.</p>')+
+  '</div>';
+}
+function bookingsViewHtml(){
+  var S=M.bk;
+  if(!S)return '';
+  var html='<div class="sec-h"><h2>الحجوزات</h2><button type="button" class="btn-outline" id="bkRefresh">تحديث</button></div>';
+  if(S.loading&&!S.rows)return html+'<div class="loading-row" id="bkLoading">جارٍ التحميل...</div>';
+  if(S.err&&!S.rows){
+    return html+'<div class="card"><div class="form-warn" id="bkErr">'+escAttr(S.err)+'</div>'+
+      '<button type="button" class="btn-outline" id="bkRetry" style="margin-top:10px">إعادة المحاولة</button></div>';
+  }
+  if(!S.rows)return html;
+  if(BOOKING_SECTORS.indexOf(S.sector)===-1){
+    return html+'<div class="card"><div class="empty" id="bkNotAvailable">الحجوزات متاحة لقسمي المطعم والخدمات فقط.</div></div>';
+  }
+  html+=bookingToggleHtml(S);
+  if(S.err)html+='<div class="form-warn" id="bkErr" style="margin-bottom:10px">'+escAttr(S.err)+'</div>';
+  var groups=[['pending','بانتظار القبول'],['confirmed','المؤكَّدة'],['cancelled','الملغاة']];
+  var any=false;
+  groups.forEach(function(g){
+    var rows=S.rows.filter(function(r){return r.status===g[0]});
+    if(!rows.length)return;
+    any=true;
+    html+='<div class="bk-group" id="bkGroup-'+g[0]+'"><div class="hint" style="margin:6px 2px 6px">'+g[1]+' (<span class="num">'+rows.length+'</span>)</div>'+
+      '<div class="card">'+rows.map(bookingRowHtml).join('')+'</div></div>';
+  });
+  if(!any)html+='<div class="card"><div class="empty" id="bkEmpty">لا حجوزات قادمة.</div></div>';
+  return html;
+}
+function bookingCancelConfirmHtml(){
+  if(!M.bkConfirmCancelId)return '';
+  return '<div class="ov" id="bkCancelOv"><div class="confirm-box">'+
+    '<h3>إلغاء هذا الحجز؟</h3>'+
+    '<p>سيظهر للعميل في تطبيق نوج أن الحجز أُلغي.</p>'+
+    '<div class="confirm-row">'+
+      '<button class="confirm-cancel" id="bkCancelBack">تراجع</button>'+
+      '<button class="confirm-ok" id="bkCancelOk">إلغاء الحجز</button>'+
+    '</div>'+
+  '</div></div>';
+}
+async function setBookingStatus(id,status){
+  var S=M.bk;
+  if(!S)return;
+  S.busyId=id;S.err='';renderApp();
+  var sb=await getSb();
+  var res=sb?await sb.rpc('merchant_set_reservation_status',{p_reservation_id:id,p_status:status}):{error:{message:'no-client'}};
+  if(M.bk!==S)return;
+  S.busyId=null;
+  if(res.error||!res.data){S.err=bkErrorText(res.error&&res.error.message);renderApp();return}
+  S.rows=S.rows.map(function(r){return r.id===id?res.data:r});
+  renderApp();
+  toast(status==='confirmed'?'تم قبول الحجز':'تم إلغاء الحجز');
+}
+function bindBookings(){
+  var S=M.bk;
+  if(!S||M.view!=='bookings')return;
+  var refresh=document.getElementById('bkRefresh');
+  if(refresh)refresh.onclick=function(){loadBookings()};
+  var retry=document.getElementById('bkRetry');
+  if(retry)retry.onclick=function(){loadBookings()};
+  [].forEach.call(document.querySelectorAll('[data-bk-accept]'),function(b){
+    b.onclick=function(){setBookingStatus(b.getAttribute('data-bk-accept'),'confirmed')};
+  });
+  [].forEach.call(document.querySelectorAll('[data-bk-cancel]'),function(b){
+    b.onclick=function(){M.bkConfirmCancelId=b.getAttribute('data-bk-cancel');renderApp()};
+  });
+  var back=document.getElementById('bkCancelBack');
+  if(back)back.onclick=function(){M.bkConfirmCancelId=null;renderApp()};
+  var ok=document.getElementById('bkCancelOk');
+  if(ok)ok.onclick=function(){var id=M.bkConfirmCancelId;M.bkConfirmCancelId=null;setBookingStatus(id,'cancelled')};
+  var toggle=document.getElementById('bkToggleBtn');
+  if(toggle)toggle.onclick=async function(){
+    if(activeRole()!=='owner'||S.toggling)return;
+    var want=!S.bookingEnabled;
+    S.toggling=true;S.err='';renderApp();
+    var sb=await getSb();
+    var res=sb?await sb.rpc('merchant_set_booking_enabled',{p_merchant_id:M.activeMerchantId,p_enabled:want}):{error:{message:'no-client'}};
+    if(M.bk!==S)return;
+    S.toggling=false;
+    if(res.error){S.err=bkErrorText(res.error.message);renderApp();return}
+    S.bookingEnabled=!!res.data;
+    renderApp();
+    toast(S.bookingEnabled?'تم تفعيل الحجوزات':'تم إيقاف الحجوزات');
+  };
+}
+
 function renderApp(){
   var el=document.getElementById('app');
   el.innerHTML=
@@ -1059,8 +1213,9 @@ function renderApp(){
     '<div class="tabs" id="viewTabs">'+
       '<button type="button" data-view="manage" class="'+(M.view==='manage'?'on':'')+'">الإدارة</button>'+
       '<button type="button" data-view="invoices" class="'+(M.view==='invoices'?'on':'')+'">الفواتير</button>'+
+      (bookingsTabVisible()?'<button type="button" data-view="bookings" class="'+(M.view==='bookings'?'on':'')+'">الحجوزات</button>':'')+
     '</div>'+
-    (M.view==='invoices'?invoicesViewHtml():
+    (M.view==='invoices'?invoicesViewHtml():M.view==='bookings'?bookingsViewHtml():
     '<div class="sec-h"><h2>الأجهزة</h2></div>'+
     '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
     '<div class="sec-h"><h2>اعتماد شاشة نوج جديدة</h2></div>'+
@@ -1069,7 +1224,7 @@ function renderApp(){
     branchSettingsHtml()+
     adminPinHtml()+
     posTokenHtml())+
-  confirmRevokeHtml()+modeConfirmHtml()+posTokenConfirmHtml();
+  confirmRevokeHtml()+modeConfirmHtml()+posTokenConfirmHtml()+bookingCancelConfirmHtml();
   bindApp();
 }
 
@@ -1077,12 +1232,14 @@ function bindApp(){
   var ms=document.getElementById('merchantSelect');
   if(ms)ms.onchange=async function(){
     M.activeMerchantId=ms.value;
-    M.inv=null;
+    M.inv=null;M.bk=null;M.bkConfirmCancelId=null;
     await loadDashboardData();
     if(M.view==='invoices'){M.inv=newInvState();loadInvoices(false)}
+    if(M.view==='bookings'){M.bk=newBkState();loadBookings()}
   };
 
   bindInvoices();
+  bindBookings();
 
   var logout=document.getElementById('logoutBtn');
   if(logout)logout.onclick=doLogout;
@@ -1330,7 +1487,7 @@ async function doLogout(){
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
     holdServer:null,holdSector:null,loadedSector:null,
     posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
-    view:'manage',inv:null};
+    view:'manage',inv:null,bk:null,bkConfirmCancelId:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';

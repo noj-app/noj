@@ -165,6 +165,10 @@ grant execute on function public.redeem_reward(uuid) to authenticated;
 drop policy if exists "update own appointments" on public.appointments;
 revoke update on public.appointments from anon, authenticated;
 
+-- The body below is IDENTICAL to the one in supabase-migration-
+-- reservations.sql (which also lets a customer withdraw a 'pending'
+-- reservation request) — compared by db-tests, so re-running this older file
+-- never takes that back. Health appointments are never 'pending'.
 create or replace function public.cancel_appointment(p_appointment_id uuid)
 returns public.appointments
 language plpgsql
@@ -189,7 +193,9 @@ begin
     raise exception 'الموعد غير موجود أو لا يخصّك';
   end if;
 
-  if v_row.status <> 'confirmed' then
+  -- 'pending' = a reservation request not yet accepted by the merchant
+  -- (supabase-migration-reservations.sql); health appointments are never pending
+  if v_row.status not in ('confirmed', 'pending') then
     raise exception 'لا يمكن إلغاء موعد ليس بحالة مؤكَّدة';
   end if;
 

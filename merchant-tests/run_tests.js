@@ -1037,6 +1037,135 @@ async function loginFlow(page, phone, otp) {
     await context.close();
   }
 
+  // =========================================================================
+  // 44-53) الحجوزات (supabase-migration-reservations.sql) — المطعم والخدمات
+  // =========================================================================
+  const bkScenario = (over, sector) => {
+    const sec = sector || 'restaurant';
+    return baseScenario(Object.assign({
+      merchants: [{ id: 'merchant-1', name: 'مطعم مذاق', sector_code: sec, points_hold_days: 0, booking_enabled: true }],
+      branchSettings: [{ branch_id: 'branch-1', sector_code: sec, biz_name: 'مطعم مذاق', biz_branch: 'فرع الملقا', biz_slogan: '', biz_logo: '', pos_mode: 'demo' }],
+      reservations: [
+        { id: 'r-1', merchant_id: 'merchant-1', kind: 'table', status: 'pending', scheduled_at: '2030-03-11T17:00:00Z', scheduled_at_riyadh: '2030-03-11 20:00', party_size: 4, service_type: null, note: 'قرب النافذة', created_at: '2030-03-01T10:00:00Z', customer_name: 'سارة', customer_phone_last4: '4567' },
+        { id: 'r-2', merchant_id: 'merchant-1', kind: 'table', status: 'confirmed', scheduled_at: '2030-03-12T17:00:00Z', scheduled_at_riyadh: '2030-03-12 20:00', party_size: 2, service_type: null, note: null, created_at: '2030-03-01T10:00:00Z', customer_name: 'علي', customer_phone_last4: '6543' },
+        { id: 'r-3', merchant_id: 'merchant-1', kind: 'table', status: 'cancelled', scheduled_at: '2030-03-13T17:00:00Z', scheduled_at_riyadh: '2030-03-13 20:00', party_size: 6, service_type: null, note: null, created_at: '2030-03-01T10:00:00Z', customer_name: null, customer_phone_last4: null },
+      ],
+    }, over || {}));
+  };
+  const openBookings = async (scenario) => {
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    await page.click('#viewTabs [data-view="bookings"]');
+    await page.waitForFunction(() => !document.getElementById('bkLoading'), null, { timeout: 3000 });
+    return { context, page };
+  };
+  {
+    const { context, page } = await openMerchant(browser, { scenario: bkScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    check('44) تاجر مطعم: تبويب "الحجوزات" ظاهر، ولا يُحمَّل شيء قبل فتحه',
+      (await page.textContent('#viewTabs')).includes('الحجوزات') && (await page.evaluate(() => window.__TEST__.getBookingListCalls())).length === 0);
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: holdScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#sectorSw', { timeout: 3000 });
+    check('44) تاجر صحي: لا تبويب حجوزات (مواعيد الصحي لا تمر بهذه الشاشة)', (await page.$('#viewTabs [data-view="bookings"]')) === null);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    const calls = await page.evaluate(() => window.__TEST__.getBookingListCalls());
+    const pending = await page.textContent('#bkGroup-pending');
+    check('45) فتح التبويب يستدعي merchant_list_reservations مرة واحدة للتاجر النشط',
+      calls.length === 1 && calls[0].p_merchant_id === 'merchant-1');
+    check('45) الحجوزات مجمَّعة: بانتظار القبول ثم المؤكَّدة ثم الملغاة، بأعدادها',
+      /بانتظار القبول \(1\)/.test(pending) && /المؤكَّدة \(1\)/.test(await page.textContent('#bkGroup-confirmed')) && /الملغاة \(1\)/.test(await page.textContent('#bkGroup-cancelled')));
+    check('45) سطر الحجز: الوقت بتوقيت الرياض، عدد الأشخاص، الاسم، آخر 4 أرقام فقط، والملاحظة',
+      /2030-03-11 20:00/.test(pending) && /عدد الأشخاص: 4/.test(pending) && /سارة/.test(pending) && /ينتهي بـ 4567/.test(pending) && /قرب النافذة/.test(pending));
+    check('45) الملغى بلا أزرار، المؤكَّد بزر إلغاء فقط، المعلَّق بقبول وإلغاء',
+      (await page.$$('#bkGroup-cancelled button')).length === 0 && (await page.$$('#bkGroup-confirmed [data-bk-accept]')).length === 0 &&
+      (await page.$$('#bkGroup-confirmed [data-bk-cancel]')).length === 1 && (await page.$$('#bkGroup-pending [data-bk-accept]')).length === 1);
+    await page.click('[data-bk-accept="r-1"]');
+    await page.waitForFunction(() => !document.getElementById('bkGroup-pending'), null, { timeout: 3000 });
+    const sc = await page.evaluate(() => window.__TEST__.getBookingStatusCalls());
+    check('46) "قبول" يستدعي merchant_set_reservation_status(confirmed) وينقل الحجز للمؤكَّدة',
+      sc.length === 1 && sc[0].p_reservation_id === 'r-1' && sc[0].p_status === 'confirmed' && /المؤكَّدة \(2\)/.test(await page.textContent('#bkGroup-confirmed')));
+    await page.click('[data-bk-cancel="r-2"]');
+    await page.waitForSelector('#bkCancelOv', { timeout: 2000 });
+    await page.click('#bkCancelBack');
+    check('47) "إلغاء" يفتح تأكيداً؛ "تراجع" لا يستدعي شيئاً', (await page.$('#bkCancelOv')) === null && (await page.evaluate(() => window.__TEST__.getBookingStatusCalls())).length === 1);
+    await page.click('[data-bk-cancel="r-2"]');
+    await page.click('#bkCancelOk');
+    await page.waitForFunction(() => /الملغاة \(2\)/.test((document.getElementById('bkGroup-cancelled') || {}).textContent || ''), null, { timeout: 3000 });
+    const sc2 = await page.evaluate(() => window.__TEST__.getBookingStatusCalls());
+    check('47) التأكيد يستدعي merchant_set_reservation_status(cancelled) وينقله للملغاة', sc2.length === 2 && sc2[1].p_reservation_id === 'r-2' && sc2[1].p_status === 'cancelled');
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    check('48) المالك يرى حالة الاستقبال "مفعّل" وزر "إيقاف الحجوزات"', (await page.textContent('#bkEnabledBadge')) === 'مفعّل' && /إيقاف الحجوزات/.test(await page.textContent('#bkToggleBtn')));
+    await page.click('#bkToggleBtn');
+    await page.waitForFunction(() => (document.getElementById('bkEnabledBadge') || {}).textContent === 'متوقف', null, { timeout: 3000 });
+    const tc = await page.evaluate(() => window.__TEST__.getBookingToggleCalls());
+    check('48) الضغط يستدعي merchant_set_booking_enabled(false) للتاجر الصحيح، والقائمة تبقى كما هي',
+      tc.length === 1 && tc[0].p_merchant_id === 'merchant-1' && tc[0].p_enabled === false &&
+      (await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'))).booking_enabled === false && (await page.$$('.bk-row')).length === 3);
+    await page.click('#bkToggleBtn');
+    await page.waitForFunction(() => (document.getElementById('bkEnabledBadge') || {}).textContent === 'مفعّل', null, { timeout: 3000 });
+    check('48) والضغط مرة أخرى يعيد التفعيل', (await page.evaluate(() => window.__TEST__.getBookingToggleCalls()))[1].p_enabled === true);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    check('49) الموظف يرى حالة الاستقبال بلا زر تفعيل/إيقاف، مع تنبيه "للمالك فقط"',
+      (await page.$('#bkToggleBtn')) === null && /للمالك فقط/.test(await page.textContent('#bkToggleOwnerOnly')));
+    await page.click('[data-bk-accept="r-1"]');
+    await page.waitForFunction(() => !document.getElementById('bkGroup-pending'), null, { timeout: 3000 });
+    check('49) الموظف يقبل الحجوزات ويلغيها (مالك وموظف معاً)', (await page.evaluate(() => window.__TEST__.getBookingStatusCalls())).length === 1);
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_booking_enabled', { p_merchant_id: 'merchant-1', p_enabled: false })).error);
+    check('49) دفاع في العمق: نداء merchant_set_booking_enabled مباشرة بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+  {
+    const sc = bkScenario({}, 'services');
+    sc.reservations = [{ id: 's-1', merchant_id: 'merchant-1', kind: 'service', status: 'pending', scheduled_at: '2030-03-11T07:00:00Z', scheduled_at_riyadh: '2030-03-11 10:00', party_size: null, service_type: 'غسيل داخلي', note: null, created_at: '2030-03-01T10:00:00Z', customer_name: 'سارة', customer_phone_last4: '4567' }];
+    const { context, page } = await openBookings(sc);
+    const t = await page.textContent('#bkGroup-pending');
+    check('50) تاجر خدمات: التبويب ظاهر، وسطر الحجز يعرض نوع الخدمة لا عدد الأشخاص', /الخدمة: غسيل داخلي/.test(t) && !/عدد الأشخاص/.test(t));
+    await context.close();
+  }
+  {
+    const sc = bkScenario({ bookingsError: true });
+    const { context, page } = await openBookings(sc);
+    check('51) فشل التحميل: رسالة خطأ صريحة مع إعادة محاولة، بلا بيانات مختلقة', /تعذّر تحميل الحجوزات/.test(await page.textContent('#bkErr')) && (await page.$$('.bk-row')).length === 0);
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.bookingsError = false; });
+    await page.click('#bkRetry');
+    await page.waitForSelector('.bk-row', { timeout: 3000 });
+    check('51) "إعادة المحاولة" تحمّل القائمة', (await page.$$('.bk-row')).length === 3);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario({ reservations: [] }));
+    check('52) لا حجوزات: حالة فارغة صريحة', /لا حجوزات قادمة/.test(await page.textContent('#bkEmpty')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    // الحجز تغيّر في الخادم (ألغاه العميل) بعد تحميل القائمة
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.reservations[0].status = 'cancelled'; });
+    await page.click('[data-bk-accept="r-1"]');
+    await page.waitForSelector('#bkErr', { timeout: 3000 });
+    check('53) قبول حجز تغيّرت حالته: رسالة واضحة "حدّث القائمة"، والسطر لا يتغيّر محلياً',
+      /تغيّرت حالة هذا الحجز/.test(await page.textContent('#bkErr')) && (await page.$('[data-bk-accept="r-1"]')) !== null);
+    await page.click('#bkRefresh');
+    await page.waitForFunction(() => !document.querySelector('[data-bk-accept="r-1"]'), null, { timeout: 3000 });
+    check('53) "تحديث" يعيد الجلب ويعرض الحالة الفعلية', /الملغاة \(2\)/.test(await page.textContent('#bkGroup-cancelled')));
+    await context.close();
+  }
+
   await browser.close();
   console.log('\n=== MERCHANT E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));

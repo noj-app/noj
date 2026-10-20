@@ -240,6 +240,10 @@
   .rw b{display:block;font-size:14px;font-weight:700;margin-bottom:4px}
   .rw small{font-size:12px;color:var(--muted)}
   .rw button{padding:9px 16px;border-radius:12px;font-size:12px;font-weight:700;flex-shrink:0}
+  .res-form{display:flex;flex-direction:column;gap:12px}
+  .res-l{display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:700;color:var(--muted)}
+  .res-l input,.res-l select,.res-l textarea{width:100%;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);font-size:14px;color:var(--text);font-family:inherit;outline:none}
+  .res-err{font-size:12.5px;font-weight:700;color:#DC2626}
 
   /* صفحة مكافآت المتجر: أيقونة نوع المكافأة + دائرة نقاط + زر استبدال بعرض كامل */
   .rwd{padding:16px}
@@ -829,6 +833,11 @@ let MERCHANT_CLINICS={};
 // صحّة فقط: مواعيد العميل القادمة لدى هذا المركز — {[merchantId]:
 // [{id,clinicName,doctorName,scheduledAt}]}.
 let MERCHANT_APPOINTMENTS={};
+// المطعم والخدمات: حجوزات العميل القادمة (بانتظار التأكيد أو المؤكَّدة) —
+// نفس جدول appointments بنوع 'table'/'service' (supabase-migration-
+// reservations.sql): {[merchantId]: [{id,kind,status,scheduledAt,partySize,
+// serviceType,note}]}. تُحمَّل مع بيانات العميل في loadUserData.
+let USER_RESERVATIONS={};
 const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاجري',i:'store'},{id:'loyalty',l:'الولاء',i:'star'},{id:'reports',l:'التقارير',i:'bars'},{id:'more',l:'المزيد',i:'dots'}];
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
@@ -923,7 +932,32 @@ async function loadUserData(profileId){
     S.q={ahead:t.position,min:t.est_minutes,now:t.position<=0};
   }
 
+  await loadUserReservations(profileId);
   await loadUserMerchants(profileId);
+}
+
+// حجوزات العميل القادمة للمطعم والخدمات — عبر سياسة "select own appointments"
+// القائمة نفسها. أفضل جهد: فشلها لا يوقف تحميل بقية البيانات (تبقى فارغة).
+async function loadUserReservations(profileId){
+  try{
+    var sb=await getSb();
+    var res=await sb.from('appointments').select('id, merchant_id, booking_kind, status, scheduled_at, party_size, service_type, note')
+      .eq('user_id',profileId).in('booking_kind',['table','service']).in('status',['pending','confirmed'])
+      .gte('scheduled_at',new Date().toISOString()).order('scheduled_at',{ascending:true});
+    if(res.error) throw res.error;
+    var byMerchant={};
+    (res.data||[]).forEach(function(row){
+      (byMerchant[row.merchant_id]=byMerchant[row.merchant_id]||[]).push(reservationFromRow(row));
+    });
+    USER_RESERVATIONS=byMerchant;
+  }catch(e){
+    // يبقى آخر ما حُمِّل (فارغ عند أول تحميل) — لا مسح لقائمة ظاهرة بسبب تحديث فاشل
+    console.error('NOJ reservations error:',e);
+  }
+}
+function reservationFromRow(row){
+  return {id:row.id,kind:row.booking_kind,status:row.status,scheduledAt:row.scheduled_at,
+    partySize:row.party_size,serviceType:row.service_type,note:row.note};
 }
 
 // "متاجري": every merchant the customer has ANY relationship with (an
@@ -936,7 +970,7 @@ async function loadUserMerchants(profileId){
   var invoiceCounts={};
   INVOICES.forEach(function(inv){if(inv.merchantId)invoiceCounts[inv.merchantId]=(invoiceCounts[inv.merchantId]||0)+1});
 
-  var merchantIds=Object.keys(invoiceCounts).concat(Object.keys(loyByMerchant));
+  var merchantIds=Object.keys(invoiceCounts).concat(Object.keys(loyByMerchant)).concat(Object.keys(USER_RESERVATIONS));
   merchantIds=merchantIds.filter(function(id,idx){return id&&merchantIds.indexOf(id)===idx});
   if(!merchantIds.length){USER_MERCHANTS=[];return}
 
@@ -1416,9 +1450,14 @@ function merchantsPage(){
 // يخاطب القطاع فعليًا.
 const BOOKING_COPY={
   'صحة':{label:'مواعيدي',desc:'احجز أو استعرض مواعيدك القادمة'},
-  'مطاعم':{label:'حجز طاولة',desc:'احجز طاولتك مسبقًا وتجنّب الانتظار'},
-  'مقاهي':{label:'حجز مسبق',desc:'اطلب أو احجز مسبقًا'}
+  'مطاعم':{label:'حجوزات',desc:'احجز طاولتك مسبقًا وتابع حجوزاتك'},
+  'مقاهي':{label:'حجز مسبق',desc:'اطلب أو احجز مسبقًا'},
+  'خدمات':{label:'حجوزات',desc:'احجز خدمتك مسبقًا وتابع حجوزاتك'}
 };
+// القسمان اللذان يحجزان فعلياً عبر create_reservation (المطعم: طاولة،
+// الخدمات: خدمة). الصحي يبقى على مسار "مواعيدي" كما هو تماماً.
+const RESERVATION_KINDS={'مطاعم':'table','خدمات':'service'};
+function reservationKindFor(type){return RESERVATION_KINDS[type]||null}
 function bookingCopyFor(type){return BOOKING_COPY[type]||{label:'الحجز المسبق',desc:'احجز موعدك مسبقاً وتجنّب الانتظار'}}
 
 // الأقسام الستة الممكنة لصفحة متجر داخل "متاجري". قسم لم يُفعّله التاجر لا
@@ -1435,7 +1474,9 @@ function merchantSectionsList(m,myInvoices){
     sections.push({key:'invoices',label:'فواتيري',icon:'receipt',color:'#3B82F6',
       desc:'راجع كل فواتيرك لدى هذا المتجر'});
   }
-  if(m.bookingEnabled){
+  // حجز قائم يبقى ظاهراً حتى لو أوقف التاجر الحجوزات لاحقاً (ليستطيع العميل
+  // رؤيته وإلغاءه) — للمطعم والخدمات فقط.
+  if(m.bookingEnabled||(reservationKindFor(m.type)&&(USER_RESERVATIONS[m.merchantId]||[]).length)){
     var bc=bookingCopyFor(m.type);
     sections.push({key:'booking',label:bc.label,icon:'check',color:'#22A87A',desc:bc.desc});
   }
@@ -1592,9 +1633,83 @@ function merchantBookingPage(){
       apptsHtml+newBtn+picker;
   }
 
+  var kind=reservationKindFor(m.type);
+  if(kind)return reservationPageHtml(m,kind,bc);
+
   return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2></div>'+
     '<div class="box"><p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7">'+bc.desc+' لدى '+m.name+'.</p>'+
     '<button class="btn" data-book="'+m.merchantId+'">'+ic('clock',16,'#fff')+' احجز الآن</button></div>';
+}
+
+// ============= الحجوزات (المطعم والخدمات) =============
+// مبنية على نظام المواعيد نفسه: نفس جدول appointments (نوع table/service)،
+// ونفس cancel_appointment() للإلغاء، والطلب الجديد عبر create_reservation().
+// الطلب يبدأ "بانتظار تأكيد المتجر" حتى يقبله التاجر من لوحته.
+function escRes(v){
+  return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]});
+}
+// وقت الحجز بتوقيت المتجر (الرياض) — نفس الوقت الذي اختاره العميل في النموذج،
+// أياً كان توقيت جهازه (بصيغة formatApptDateTime نفسها).
+function formatResDateTime(iso){
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',day:'2-digit',month:'2-digit',hour:'numeric',minute:'2-digit',hour12:false}).formatToParts(new Date(iso));
+  var g={};parts.forEach(function(p){g[p.type]=p.value});
+  var h=Number(g.hour)%24;
+  return g.day+'/'+g.month+' - '+(h%12||12)+':'+g.minute+' '+(h>=12?'م':'ص');
+}
+const RES_STATUS={pending:{l:'بانتظار تأكيد المتجر',c:'#B45309'},confirmed:{l:'مؤكَّد',c:'#22A87A'}};
+function reservationRowHtml(r){
+  var st=RES_STATUS[r.status]||{l:r.status,c:'#8A93AD'};
+  var title=r.kind==='table'?'طاولة لـ '+r.partySize+(r.partySize===1?' شخص':r.partySize===2?' شخصين':r.partySize<=10?' أشخاص':' شخصاً'):escRes(r.serviceType);
+  return '<div class="rw" data-res-row="'+r.id+'"><div style="min-width:0"><b>'+title+'</b><small>'+formatResDateTime(r.scheduledAt)+'</small>'+
+      (r.note?'<small style="display:block;margin-top:3px">'+escRes(r.note)+'</small>':'')+
+      '<span class="badge" data-res-status style="background:'+st.c+'18;color:'+st.c+'">'+st.l+'</span></div>'+
+    '<button data-cancel-res="'+r.id+'" style="background:#FEF2F2;color:#DC2626">إلغاء</button></div>';
+}
+// "اليوم" بتوقيت الرياض (لا بتوقيت الجهاز) بصيغة YYYY-MM-DD، مع إزاحة أيام.
+function riyadhDateIso(addDays){
+  var t=new Date(Date.now()+(addDays||0)*86400000);
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(t);
+  var g={};parts.forEach(function(p){g[p.type]=p.value});
+  return g.year+'-'+g.month+'-'+g.day;
+}
+function reservationFormHtml(m,kind){
+  var f=S.resForm||{};
+  var partyOpts='';
+  for(var i=1;i<=20;i++)partyOpts+='<option value="'+i+'"'+(String(f.party||2)===String(i)?' selected':'')+'>'+i+'</option>';
+  return '<div class="box res-form" id="resForm" style="margin-top:14px">'+
+    '<label class="res-l">التاريخ<input type="date" id="resDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
+    '<label class="res-l">الوقت<input type="time" id="resTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
+    (kind==='table'
+      ?'<label class="res-l">عدد الأشخاص<select id="resParty">'+partyOpts+'</select></label>'
+      :'<label class="res-l">نوع الخدمة<input type="text" id="resService" maxlength="80" placeholder="مثال: غسيل داخلي وخارجي" value="'+escRes(f.service||'')+'"></label>')+
+    '<label class="res-l">ملاحظة (اختياري)<textarea id="resNote" maxlength="300" rows="2">'+escRes(f.note||'')+'</textarea></label>'+
+    (f.err?'<div class="res-err" id="resErr">'+escRes(f.err)+'</div>':'')+
+    '<button class="btn" id="resSubmit"'+(f.sending?' disabled':'')+'>'+(f.sending?'جارٍ الإرسال...':'إرسال طلب الحجز')+'</button>'+
+    '<p style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.7">يُرسَل الطلب إلى '+escRes(m.name)+' ويصبح مؤكَّدًا بعد أن يقبله المتجر.</p>'+
+  '</div>';
+}
+function reservationPageHtml(m,kind,bc){
+  var list=USER_RESERVATIONS[m.merchantId]||[];
+  var listHtml=list.length
+    ?'<div class="list" id="resList">'+list.map(reservationRowHtml).join('')+'</div>'
+    :'<div class="empty" id="resEmpty">لا توجد حجوزات قادمة لديك حاليًا</div>';
+  var newPart=m.bookingEnabled
+    ?'<button class="btn" data-toggle-res-form="1" style="margin-top:14px">'+ic('clock',16,'#fff')+' '+(kind==='table'?'حجز طاولة جديد':'حجز خدمة جديد')+'</button>'+
+      (S.resForm&&S.resForm.merchantId===m.merchantId?reservationFormHtml(m,kind):'')
+    :'<div class="note" id="resPaused" style="margin-top:14px">الحجز متوقف حاليًا لدى '+escRes(m.name)+'.</div>';
+  return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2></div>'+
+    '<p style="font-size:13px;color:var(--muted);margin:-4px 0 12px;line-height:1.7">'+bc.desc+' لدى '+escRes(m.name)+'.</p>'+
+    listHtml+newPart;
+}
+function reservationErrorText(msg){
+  msg=msg||'';
+  if(/NOJ_BOOKING_LIMIT/.test(msg))return 'لديك 3 حجوزات قادمة لدى هذا المتجر — ألغِ أحدها لطلب حجز جديد.';
+  if(/NOJ_BOOKING_DISABLED/.test(msg))return 'الحجز متوقف حاليًا لدى هذا المتجر.';
+  if(/NOJ_INVALID_BOOKING_TIME/.test(msg))return 'اختر وقتًا بعد 15 دقيقة على الأقل وخلال 90 يومًا.';
+  if(/NOJ_INVALID_PARTY_SIZE/.test(msg))return 'عدد الأشخاص غير صحيح.';
+  if(/NOJ_INVALID_SERVICE_TYPE/.test(msg))return 'اكتب نوع الخدمة المطلوبة (80 حرفًا كحد أقصى).';
+  if(/NOJ_INVALID_BOOKING_NOTE/.test(msg))return 'الملاحظة طويلة جدًا (300 حرف كحد أقصى).';
+  return 'تعذّر إرسال طلب الحجز، حاول مرة أخرى.';
 }
 
 // بطاقة عيادة واحدة في قائمة "الانتظار الذكي" لمركز صحي. عيادة العميل
@@ -2117,7 +2232,7 @@ function logoutFlow(){
   A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null,verifyType:null};
   PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
   QUEUE={ticket:null,label:'',merchantId:null};
-  INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];USER_MERCHANTS=[];MERCHANT_QUEUE_STATS={};
+  INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];USER_MERCHANTS=[];MERCHANT_QUEUE_STATS={};USER_RESERVATIONS={};S.resForm=null;
   S.selMerchant=null;
   S.showConsent=false;S.consentDetailsOpen=false;
   var el=document.getElementById('auth');
@@ -2325,13 +2440,20 @@ function bind(){
     S.selMerchant=id;
     if(section==='loyalty'){S.rewardsBack='merchantDetail';S.tab='merchantRewards'}
     else if(section==='invoices')S.tab='merchantInvoices';
-    else if(section==='booking'){S.tab='merchantBooking';S.showApptPicker=false}
+    else if(section==='booking'){S.tab='merchantBooking';S.showApptPicker=false;S.resForm=null}
     else if(section==='queue')S.tab='merchantQueue';
     else if(section==='alerts')S.tab='merchantAlerts';
     render();
     var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
     if(section==='queue')prefetchMerchantQueueData(m);
     if(section==='booking'&&m&&m.type==='صحة')prefetchMerchantHealthData(m);
+    // المطعم والخدمات: تحديث صامت لحالة الحجوزات (قد يكون المتجر قبل طلباً)
+    if(section==='booking'&&m&&reservationKindFor(m.type)&&PROFILE.id){
+      var before=JSON.stringify(USER_RESERVATIONS[id]||[]);
+      loadUserReservations(PROFILE.id).then(function(){
+        if(S.tab==='merchantBooking'&&S.selMerchant===id&&JSON.stringify(USER_RESERVATIONS[id]||[])!==before)render();
+      });
+    }
   }});
 
   // استبدال مكافأة من صفحة مكافآت المتجر: يحدّث بطاقة المكافأة ورقم
@@ -2438,6 +2560,76 @@ function bind(){
       console.error('NOJ cancel appointment error:',e);
       b.disabled=false;
       toast('تعذّر إلغاء الموعد، حاول مرة أخرى');
+    }
+  }});
+
+  bindReservations();
+}
+
+function bindReservations(){
+  var toggleRes=document.querySelector('[data-toggle-res-form]');
+  if(toggleRes)toggleRes.onclick=function(){
+    S.resForm=(S.resForm&&S.resForm.merchantId===S.selMerchant)?null:{merchantId:S.selMerchant,party:2};
+    render();
+  };
+  var keep=function(id,key){var el=document.getElementById(id);if(el)el.oninput=el.onchange=function(){if(S.resForm)S.resForm[key]=el.value}};
+  keep('resDate','date');keep('resTime','time');keep('resParty','party');keep('resService','service');keep('resNote','note');
+
+  var submit=document.getElementById('resSubmit');
+  if(submit)submit.onclick=async function(){
+    var f=S.resForm;
+    var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+    var kind=m&&reservationKindFor(m.type);
+    if(!f||!kind||f.sending)return;
+    var fail=function(t){f.err=t;render()};
+    if(!f.date||!f.time)return fail('اختر التاريخ والوقت.');
+    // المتجر في الرياض: الوقت المختار بتوقيت الرياض (+03:00) أياً كان توقيت الجهاز
+    var at=new Date(f.date+'T'+f.time+':00+03:00');
+    if(isNaN(at.getTime()))return fail('اختر التاريخ والوقت.');
+    if(at.getTime()<Date.now()+15*60000||at.getTime()>Date.now()+90*86400000)return fail(reservationErrorText('NOJ_INVALID_BOOKING_TIME'));
+    var party=Number(f.party||2);
+    var service=String(f.service||'').trim();
+    var note=String(f.note||'').trim();
+    if(kind==='service'&&(!service||service.length>80))return fail(reservationErrorText('NOJ_INVALID_SERVICE_TYPE'));
+    if(note.length>300)return fail(reservationErrorText('NOJ_INVALID_BOOKING_NOTE'));
+    f.sending=true;f.err='';render();
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.rpc('create_reservation',{p_merchant_id:m.merchantId,p_scheduled_at:at.toISOString(),
+        p_party_size:kind==='table'?party:null,p_service_type:kind==='service'?service:null,p_note:note||null});
+      if(res.error) throw res.error;
+      var row=Array.isArray(res.data)?res.data[0]:res.data;
+      var list=(USER_RESERVATIONS[m.merchantId]=USER_RESERVATIONS[m.merchantId]||[]);
+      list.push(reservationFromRow(row));
+      list.sort(function(a,b){return a.scheduledAt<b.scheduledAt?-1:a.scheduledAt>b.scheduledAt?1:0});
+      S.resForm=null;
+      render();
+      toast('تم إرسال طلب الحجز — بانتظار تأكيد المتجر');
+    }catch(e){
+      console.error('NOJ create reservation error:',e);
+      f.sending=false;
+      fail(reservationErrorText(e&&e.message));
+    }
+  };
+
+  // إلغاء حجز: نفس cancel_appointment() المستخدمة لمواعيد الصحي
+  [].forEach.call(document.querySelectorAll('[data-cancel-res]'),function(b){b.onclick=async function(){
+    var resId=b.getAttribute('data-cancel-res');
+    var mid=S.selMerchant;
+    b.disabled=true;
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.rpc('cancel_appointment',{p_appointment_id:resId});
+      if(res.error) throw res.error;
+      USER_RESERVATIONS[mid]=(USER_RESERVATIONS[mid]||[]).filter(function(r){return r.id!==resId});
+      render();
+      toast('تم إلغاء الحجز');
+    }catch(e){
+      console.error('NOJ cancel reservation error:',e);
+      b.disabled=false;
+      toast('تعذّر إلغاء الحجز، حاول مرة أخرى');
     }
   }});
 }
