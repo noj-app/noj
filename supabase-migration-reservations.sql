@@ -35,6 +35,26 @@
 --      merchant_set_reservation_status() (owner AND staff), and
 --      merchant_set_booking_enabled() (owner only) for the existing flag.
 --
+-- MERCHANT CONTROLS (second round of PR ب):
+--   6. merchant_services: the services merchant's OWN list (name, optional
+--      price, active or not, booking open or not). It is the list the kiosk's
+--      "خدماتنا" button shows, and the only thing a customer can book — no
+--      free text. Owner manages it through merchant_save_service().
+--   7. booking is opened/closed per unit: restaurant = its tables
+--      (merchants.booking_enabled), services = the master switch
+--      (merchants.booking_enabled) AND each service's booking_enabled.
+--   8. cancellation policy per merchant (merchants.booking_cancel_allowed,
+--      booking_cancel_cutoff_hours): enforced inside cancel_appointment() for
+--      reservations; the merchant can ALWAYS cancel (merchant_set_
+--      reservation_status ignores the policy). Owner sets it through
+--      merchant_set_booking_policy().
+--   9. new-booking alerts: a trigger writes one booking_alerts row per new
+--      reservation (no customer data — just merchant + reservation id) when
+--      merchants.booking_alerts_enabled is on; merchant.html listens to it
+--      through Realtime (sound + counter on the tab). Owner or staff switch
+--      it with merchant_set_booking_alerts(); old alert rows are purged
+--      daily by pg_cron.
+--
 -- PRIVACY: the merchant sees, per reservation, the customer's profile name
 -- and the LAST 4 digits of their phone only (enough to receive them at the
 -- door, never the full number) — the customer chose to book with that
@@ -97,8 +117,52 @@ alter table public.appointments add constraint appointments_note_len_chk
 
 create index if not exists appointments_merchant_scheduled_idx on public.appointments (merchant_id, scheduled_at);
 
+-- merchant-level booking settings (merchants is publicly readable already:
+-- the app needs the cancel policy to hide its cancel button)
+alter table public.merchants add column if not exists booking_cancel_allowed boolean not null default true;
+alter table public.merchants add column if not exists booking_cancel_cutoff_hours integer not null default 0;
+alter table public.merchants add column if not exists booking_alerts_enabled boolean not null default true;
+alter table public.merchants drop constraint if exists merchants_booking_cancel_cutoff_chk;
+alter table public.merchants add constraint merchants_booking_cancel_cutoff_chk
+  check (booking_cancel_cutoff_hours between 0 and 168);
+
+-- the services merchant's list ("خدماتنا")
+create table if not exists public.merchant_services (
+  id uuid primary key default gen_random_uuid(),
+  merchant_id uuid not null references public.merchants(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 80 and name = btrim(name)),
+  price numeric(10,2) check (price is null or (price >= 0 and price <= 1000000)),
+  is_active boolean not null default true,
+  booking_enabled boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (merchant_id, name)
+);
+alter table public.merchant_services enable row level security;
+-- customers and kiosks see a merchant's ACTIVE services (like clinics)
+drop policy if exists "active services are publicly readable" on public.merchant_services;
+create policy "active services are publicly readable"
+  on public.merchant_services for select
+  using (is_active);
+-- the merchant's own members also see the inactive ones
+drop policy if exists "merchant members read their services" on public.merchant_services;
+create policy "merchant members read their services"
+  on public.merchant_services for select
+  using (exists (
+    select 1 from public.merchant_members mm
+    where mm.merchant_id = merchant_services.merchant_id and mm.auth_user_id = auth.uid()
+  ));
+revoke all on public.merchant_services from anon, authenticated;
+grant select on public.merchant_services to anon, authenticated;
+
+-- which service a reservation is for (service_type keeps the name as it was
+-- when booked, so a later rename never rewrites history)
+alter table public.appointments add column if not exists service_id uuid references public.merchant_services(id) on delete set null;
+
 -- ---------------------------------------------------------------------------
--- 2. cancel_appointment(): also withdraws a 'pending' request.
+-- 2. cancel_appointment(): also withdraws a 'pending' request, and applies the
+--    merchant's cancellation policy to reservations (never to health).
 --    IDENTICAL body in supabase-migration-lockdown-direct-writes.sql.
 -- ---------------------------------------------------------------------------
 create or replace function public.cancel_appointment(p_appointment_id uuid)
@@ -110,6 +174,7 @@ as $$
 declare
   v_profile_id uuid;
   v_row public.appointments;
+  v_policy jsonb;
 begin
   select id into v_profile_id from public.profiles where auth_user_id = auth.uid();
   if v_profile_id is null then
@@ -131,6 +196,21 @@ begin
     raise exception 'لا يمكن إلغاء موعد ليس بحالة مؤكَّدة';
   end if;
 
+  -- a reservation (table/service) follows its merchant's cancellation policy
+  -- (merchants.booking_cancel_allowed / booking_cancel_cutoff_hours). Read
+  -- through to_jsonb() so this SAME body also runs where those columns do not
+  -- exist yet (supabase-migration-lockdown-direct-writes.sql alone): there a
+  -- row has no booking_kind, i.e. it is a health appointment, unchanged.
+  if coalesce(to_jsonb(v_row)->>'booking_kind', 'appointment') in ('table', 'service') then
+    select to_jsonb(m) into v_policy from public.merchants m where m.id = v_row.merchant_id;
+    if coalesce((v_policy->>'booking_cancel_allowed')::boolean, true) = false then
+      raise exception 'NOJ_CANCEL_NOT_ALLOWED';
+    end if;
+    if v_row.scheduled_at < now() + make_interval(hours => coalesce((v_policy->>'booking_cancel_cutoff_hours')::integer, 0)) then
+      raise exception 'NOJ_CANCEL_WINDOW_CLOSED';
+    end if;
+  end if;
+
   update public.appointments
   set status = 'cancelled'
   where id = p_appointment_id
@@ -149,22 +229,28 @@ grant execute on function public.cancel_appointment(uuid) to authenticated;
 -- Rules (each failure is a NOJ_* code index.html translates):
 --   - the caller has a (non-deleted) profile;
 --   - the merchant's sector is restaurant (→ 'table', party_size 1..50
---     required) or services (→ 'service', service_type 1..80 chars required);
+--     required) or services (→ 'service', p_service_id required: one of the
+--     merchant's OWN services, active and open for booking, else
+--     NOJ_SERVICE_NOT_AVAILABLE — its name is copied into service_type);
 --     anything else, health included, is NOJ_BOOKING_NOT_AVAILABLE;
---   - merchants.booking_enabled is true (NOJ_BOOKING_DISABLED);
+--   - merchants.booking_enabled is true (NOJ_BOOKING_DISABLED): the tables of
+--     a restaurant / the master switch of a services merchant;
 --   - scheduled_at is at least 15 minutes ahead and at most 90 days ahead
 --     (NOJ_INVALID_BOOKING_TIME);
 --   - optional note, trimmed, at most 300 chars (NOJ_INVALID_BOOKING_NOTE);
 --   - at most 3 upcoming (pending/confirmed) reservations per customer per
 --     merchant (NOJ_BOOKING_LIMIT) — serialized on the customer's profile row
 --     so two concurrent requests cannot both slip under the limit.
--- The field that does not belong to the kind (service_type for a table,
+-- The field that does not belong to the kind (p_service_id for a table,
 -- party_size for a service) is ignored, not stored.
+-- (the first draft of this file took a free-text p_service_type; never applied
+-- live, dropped here in case a test database still has it)
+drop function if exists public.create_reservation(uuid, timestamptz, integer, text, text);
 create or replace function public.create_reservation(
   p_merchant_id uuid,
   p_scheduled_at timestamptz,
   p_party_size integer default null,
-  p_service_type text default null,
+  p_service_id uuid default null,
   p_note text default null
 )
 returns public.appointments
@@ -177,7 +263,7 @@ declare
   v_merchant public.merchants;
   v_kind text;
   v_party integer;
-  v_service text;
+  v_service public.merchant_services;
   v_note text;
   v_active integer;
   v_row public.appointments;
@@ -220,9 +306,10 @@ begin
     end if;
     v_party := p_party_size;
   else
-    v_service := nullif(btrim(coalesce(p_service_type, '')), '');
-    if v_service is null or char_length(v_service) > 80 then
-      raise exception 'NOJ_INVALID_SERVICE_TYPE';
+    select * into v_service from public.merchant_services
+    where id = p_service_id and merchant_id = p_merchant_id and is_active and booking_enabled;
+    if v_service.id is null then
+      raise exception 'NOJ_SERVICE_NOT_AVAILABLE';
     end if;
   end if;
 
@@ -238,16 +325,16 @@ begin
     raise exception 'NOJ_BOOKING_LIMIT';
   end if;
 
-  insert into public.appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booking_kind, party_size, service_type, note)
-  values (v_profile_id, p_merchant_id, null, p_scheduled_at, 'pending', v_kind, v_party, v_service, v_note)
+  insert into public.appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booking_kind, party_size, service_id, service_type, note)
+  values (v_profile_id, p_merchant_id, null, p_scheduled_at, 'pending', v_kind, v_party, v_service.id, v_service.name, v_note)
   returning * into v_row;
 
   return v_row;
 end;
 $$;
 
-revoke execute on function public.create_reservation(uuid, timestamptz, integer, text, text) from public, anon;
-grant execute on function public.create_reservation(uuid, timestamptz, integer, text, text) to authenticated;
+revoke execute on function public.create_reservation(uuid, timestamptz, integer, uuid, text) from public, anon;
+grant execute on function public.create_reservation(uuid, timestamptz, integer, uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. merchant side (merchant.html "الحجوزات" tab)
@@ -329,6 +416,9 @@ begin
   return jsonb_build_object(
     'booking_enabled', v_merchant.booking_enabled,
     'sector_code', v_merchant.sector_code,
+    'cancel_allowed', v_merchant.booking_cancel_allowed,
+    'cancel_cutoff_hours', v_merchant.booking_cancel_cutoff_hours,
+    'alerts_enabled', v_merchant.booking_alerts_enabled,
     'from', v_from,
     'to', v_to,
     'rows', v_rows
@@ -340,7 +430,8 @@ revoke execute on function public.merchant_list_reservations(uuid, date, date) f
 grant execute on function public.merchant_list_reservations(uuid, date, date) to authenticated;
 
 -- Accept (pending → confirmed) or cancel (pending/confirmed → cancelled) one
--- reservation. Owner or staff of the reservation's merchant.
+-- reservation. Owner or staff of the reservation's merchant. The customer's
+-- cancellation policy does NOT apply here: the merchant can always cancel.
 create or replace function public.merchant_set_reservation_status(p_reservation_id uuid, p_status text)
 returns jsonb
 language plpgsql
@@ -384,7 +475,8 @@ $$;
 revoke execute on function public.merchant_set_reservation_status(uuid, text) from public, anon;
 grant execute on function public.merchant_set_reservation_status(uuid, text) to authenticated;
 
--- Turn bookings on/off for a merchant — OWNER only, restaurant/services
+-- Turn bookings on/off for a merchant (the restaurant's tables / the services
+-- master switch) — OWNER only, restaurant/services
 -- only (the health flag keeps its own meaning and is not touched from here).
 -- Turning it off cancels nothing: existing reservations stay listed for the
 -- merchant (who can still accept/cancel them) and for the customer (who can
@@ -424,3 +516,232 @@ $$;
 
 revoke execute on function public.merchant_set_booking_enabled(uuid, boolean) from public, anon;
 grant execute on function public.merchant_set_booking_enabled(uuid, boolean) to authenticated;
+
+-- Cancellation policy — OWNER only, restaurant/services only. p_cutoff_hours:
+-- 0..168 (0 = until the reservation time itself).
+create or replace function public.merchant_set_booking_policy(p_merchant_id uuid, p_cancel_allowed boolean, p_cutoff_hours integer)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sector text;
+  v_row public.merchants;
+begin
+  if not exists (
+    select 1 from public.merchant_members
+    where merchant_id = p_merchant_id and auth_user_id = auth.uid() and role = 'owner'
+  ) then
+    raise exception 'لا تملك صلاحية على هذا التاجر';
+  end if;
+  if p_cancel_allowed is null or p_cutoff_hours is null or p_cutoff_hours < 0 or p_cutoff_hours > 168 then
+    raise exception 'NOJ_INVALID_CANCEL_POLICY';
+  end if;
+  select sector_code into v_sector from public.merchants where id = p_merchant_id;
+  if v_sector is null or v_sector not in ('restaurant', 'services') then
+    raise exception 'NOJ_BOOKING_NOT_AVAILABLE';
+  end if;
+
+  update public.merchants
+  set booking_cancel_allowed = p_cancel_allowed, booking_cancel_cutoff_hours = p_cutoff_hours
+  where id = p_merchant_id
+  returning * into v_row;
+
+  return jsonb_build_object('cancel_allowed', v_row.booking_cancel_allowed, 'cancel_cutoff_hours', v_row.booking_cancel_cutoff_hours);
+end;
+$$;
+
+revoke execute on function public.merchant_set_booking_policy(uuid, boolean, integer) from public, anon;
+grant execute on function public.merchant_set_booking_policy(uuid, boolean, integer) to authenticated;
+
+-- New-booking alerts on/off — owner OR staff (an operational switch, like
+-- silencing a phone at the counter), saved per merchant.
+create or replace function public.merchant_set_booking_alerts(p_merchant_id uuid, p_enabled boolean)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_enabled boolean;
+begin
+  if not exists (
+    select 1 from public.merchant_members
+    where merchant_id = p_merchant_id and auth_user_id = auth.uid()
+  ) then
+    raise exception 'لا تملك صلاحية على هذا التاجر';
+  end if;
+  if p_enabled is null then
+    raise exception 'NOJ_INVALID_BOOKING_FLAG';
+  end if;
+
+  update public.merchants set booking_alerts_enabled = p_enabled
+  where id = p_merchant_id
+  returning booking_alerts_enabled into v_enabled;
+
+  return v_enabled;
+end;
+$$;
+
+revoke execute on function public.merchant_set_booking_alerts(uuid, boolean) from public, anon;
+grant execute on function public.merchant_set_booking_alerts(uuid, boolean) to authenticated;
+
+-- Add (p_service_id NULL) or edit one service — OWNER only, services merchants
+-- only. Services are never deleted (reservations point at them): "مفعّلة" off
+-- hides one everywhere; booking off keeps it listed but not bookable.
+create or replace function public.merchant_save_service(
+  p_merchant_id uuid,
+  p_service_id uuid,
+  p_name text,
+  p_price numeric,
+  p_is_active boolean,
+  p_booking_enabled boolean
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sector text;
+  v_name text := btrim(coalesce(p_name, ''));
+  v_row public.merchant_services;
+begin
+  if not exists (
+    select 1 from public.merchant_members
+    where merchant_id = p_merchant_id and auth_user_id = auth.uid() and role = 'owner'
+  ) then
+    raise exception 'لا تملك صلاحية على هذا التاجر';
+  end if;
+  select sector_code into v_sector from public.merchants where id = p_merchant_id;
+  if v_sector is null or v_sector <> 'services' then
+    raise exception 'NOJ_SERVICES_NOT_AVAILABLE';
+  end if;
+  if char_length(v_name) < 1 or char_length(v_name) > 80 then
+    raise exception 'NOJ_INVALID_SERVICE_NAME';
+  end if;
+  if p_price is not null and (p_price < 0 or p_price > 1000000) then
+    raise exception 'NOJ_INVALID_SERVICE_PRICE';
+  end if;
+  if p_is_active is null or p_booking_enabled is null then
+    raise exception 'NOJ_INVALID_BOOKING_FLAG';
+  end if;
+
+  begin
+    if p_service_id is null then
+      if (select count(*) from public.merchant_services where merchant_id = p_merchant_id) >= 100 then
+        raise exception 'NOJ_SERVICE_LIMIT';
+      end if;
+      insert into public.merchant_services (merchant_id, name, price, is_active, booking_enabled, sort_order)
+      values (p_merchant_id, v_name, round(p_price, 2), p_is_active, p_booking_enabled,
+              coalesce((select max(sort_order) + 1 from public.merchant_services where merchant_id = p_merchant_id), 0))
+      returning * into v_row;
+    else
+      update public.merchant_services
+      set name = v_name, price = round(p_price, 2), is_active = p_is_active,
+          booking_enabled = p_booking_enabled, updated_at = now()
+      where id = p_service_id and merchant_id = p_merchant_id
+      returning * into v_row;
+      if v_row.id is null then
+        raise exception 'NOJ_SERVICE_NOT_FOUND';
+      end if;
+    end if;
+  exception when unique_violation then
+    raise exception 'NOJ_SERVICE_NAME_TAKEN';
+  end;
+
+  return jsonb_build_object('id', v_row.id, 'name', v_row.name, 'price', v_row.price,
+    'is_active', v_row.is_active, 'booking_enabled', v_row.booking_enabled, 'sort_order', v_row.sort_order);
+end;
+$$;
+
+revoke execute on function public.merchant_save_service(uuid, uuid, text, numeric, boolean, boolean) from public, anon;
+grant execute on function public.merchant_save_service(uuid, uuid, text, numeric, boolean, boolean) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5. new-booking alerts (merchant.html listens through Realtime)
+-- ---------------------------------------------------------------------------
+-- One row per new reservation, no customer data at all. Members of the
+-- merchant read their own rows (that is also what Realtime checks before
+-- delivering an INSERT); nobody writes except the trigger below.
+create table if not exists public.booking_alerts (
+  id bigint generated always as identity primary key,
+  merchant_id uuid not null references public.merchants(id) on delete cascade,
+  appointment_id uuid not null references public.appointments(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+create index if not exists booking_alerts_merchant_created_idx on public.booking_alerts (merchant_id, created_at);
+alter table public.booking_alerts enable row level security;
+drop policy if exists "merchant members read their booking alerts" on public.booking_alerts;
+create policy "merchant members read their booking alerts"
+  on public.booking_alerts for select
+  using (exists (
+    select 1 from public.merchant_members mm
+    where mm.merchant_id = booking_alerts.merchant_id and mm.auth_user_id = auth.uid()
+  ));
+revoke all on public.booking_alerts from anon, authenticated;
+grant select on public.booking_alerts to authenticated;
+
+create or replace function public.booking_alert_on_reservation_trg() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.booking_kind in ('table', 'service')
+     and exists (select 1 from public.merchants where id = new.merchant_id and booking_alerts_enabled) then
+    insert into public.booking_alerts (merchant_id, appointment_id) values (new.merchant_id, new.id);
+  end if;
+  return null;
+end;
+$$;
+
+revoke all on function public.booking_alert_on_reservation_trg() from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_booking_alert_on_reservation on public.appointments;
+create trigger trg_booking_alert_on_reservation
+after insert on public.appointments
+for each row execute function public.booking_alert_on_reservation_trg();
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'booking_alerts'
+    ) then
+      alter publication supabase_realtime add table public.booking_alerts;
+    end if;
+  else
+    raise notice 'supabase_realtime publication not found — expected on a local/plain Postgres test db; nothing to do.';
+  end if;
+end $$;
+
+-- alerts are only "something just arrived" signals: keep a week
+create or replace function public.purge_old_booking_alerts() returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_n integer;
+begin
+  delete from public.booking_alerts where created_at < now() - interval '7 days';
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+revoke all on function public.purge_old_booking_alerts() from public, anon, authenticated, service_role;
+
+do $$
+begin
+  create extension if not exists pg_cron;
+  if exists (select 1 from cron.job where jobname = 'purge-booking-alerts') then
+    perform cron.unschedule('purge-booking-alerts');
+  end if;
+  perform cron.schedule('purge-booking-alerts', '17 3 * * *', $sql$select public.purge_old_booking_alerts();$sql$);
+exception when others then
+  raise notice 'pg_cron not available/enabled in this environment — enable it from the dashboard (Database → Extensions) and schedule purge_old_booking_alerts() daily there. (%)', sqlerrm;
+end $$;

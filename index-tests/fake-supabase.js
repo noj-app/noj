@@ -55,12 +55,17 @@
         var sector = m && SECTOR_OF[m.type];
         if (!sector) return Promise.resolve({ data: null, error: { message: 'NOJ_BOOKING_NOT_AVAILABLE' } });
         if (!m.booking_enabled) return Promise.resolve({ data: null, error: { message: 'NOJ_BOOKING_DISABLED' } });
+        var svc = null;
+        if (sector === 'services') {
+          svc = (tables.merchant_services || []).find(function (v) { return v.id === args.p_service_id && v.merchant_id === m.id && v.is_active && v.booking_enabled; });
+          if (!svc) return Promise.resolve({ data: null, error: { message: 'NOJ_SERVICE_NOT_AVAILABLE' } });
+        }
         var row = {
           id: 'res-new-' + calls.length, user_id: scenario.profile.id, merchant_id: m.id, clinic_id: null,
           scheduled_at: args.p_scheduled_at, status: 'pending', created_at: new Date().toISOString(),
           booking_kind: sector === 'restaurant' ? 'table' : 'service',
           party_size: sector === 'restaurant' ? args.p_party_size : null,
-          service_type: sector === 'services' ? args.p_service_type : null, note: args.p_note,
+          service_id: svc ? svc.id : null, service_type: svc ? svc.name : null, note: args.p_note,
         };
         (tables.appointments = tables.appointments || []).push(row);
         return Promise.resolve({ data: JSON.parse(JSON.stringify(row)), error: null });

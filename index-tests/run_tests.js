@@ -45,6 +45,12 @@ function baseScenario(over) {
         { id: CAFE, name: 'مقهى نجل', branch: null, type: 'مقاهي', booking_enabled: true, queue_enabled: false },
         { id: PAUSED, name: 'مطعم متوقف', branch: null, type: 'مطاعم', booking_enabled: false, queue_enabled: false },
       ],
+      merchant_services: [
+        { id: 'svc-1', merchant_id: SERV, name: 'غسيل داخلي وخارجي', price: 45, is_active: true, booking_enabled: true, sort_order: 0 },
+        { id: 'svc-2', merchant_id: SERV, name: 'تلميع', price: null, is_active: true, booking_enabled: true, sort_order: 1 },
+        { id: 'svc-3', merchant_id: SERV, name: 'تظليل', price: 300, is_active: true, booking_enabled: false, sort_order: 2 },
+        { id: 'svc-4', merchant_id: SERV, name: 'خدمة قديمة', price: 10, is_active: false, booking_enabled: true, sort_order: 3 },
+      ],
       appointments: [
         { id: 'h-1', user_id: PROFILE.id, merchant_id: HEALTH, clinic_id: 'c-1', booking_kind: 'appointment', status: 'confirmed', scheduled_at: inDays(2), clinics: { name: 'عيادة الأسنان', doctor_name: 'د. سلطان' } },
       ],
@@ -109,7 +115,7 @@ const appText = (page) => page.textContent('#app');
     const a = calls[0] && calls[0].args;
     check('3) الإرسال: create_reservation بمعرّف المتجر، والوقت المختار بتوقيت الرياض، و4 أشخاص، وملاحظة مقصوصة',
       calls.length === 1 && a.p_merchant_id === REST && a.p_scheduled_at === new Date(day + 'T20:00:00+03:00').toISOString() &&
-      a.p_party_size === 4 && a.p_service_type === null && a.p_note === 'قرب النافذة <b>x</b>');
+      a.p_party_size === 4 && a.p_service_id === null && a.p_note === 'قرب النافذة <b>x</b>');
     const row = await page.textContent('#resList');
     check('3) يظهر الحجز فوراً "طاولة لـ 4 أشخاص" بحالة "بانتظار تأكيد المتجر"، مع رسالة تأكيد',
       /طاولة لـ 4 أشخاص/.test(row) && /بانتظار تأكيد المتجر/.test(row) && /بانتظار تأكيد المتجر/.test(await toastText(page)) && !(await page.$('#resForm')));
@@ -140,16 +146,22 @@ const appText = (page) => page.textContent('#app');
     await openBooking(page, SERV);
     check('5) الخدمات: قسم "حجوزات" وزر "حجز خدمة جديد"', /حجوزات/.test(await appText(page)) && /حجز خدمة جديد/.test(await appText(page)));
     await page.click('[data-toggle-res-form]');
-    check('5) نموذج الخدمات: نوع الخدمة بدل عدد الأشخاص', !!(await page.$('#resService')) && !(await page.$('#resParty')));
+    await page.waitForSelector('#resService', { timeout: 3000 });
+    const opts = await page.$$eval('#resService option', (os) => os.map((o) => [o.value, o.textContent]));
+    check('5) نموذج الخدمات: قائمة خدمات التاجر (لا نص حر ولا عدد أشخاص) — المفعّلة والمفتوحة للحجز فقط، بأسعارها',
+      !(await page.$('#resParty')) && !(await page.$('input#resService')) &&
+      JSON.stringify(opts) === JSON.stringify([['', 'اختر الخدمة'], ['svc-1', 'غسيل داخلي وخارجي — 45.00 ر.س'], ['svc-2', 'تلميع']]));
+    const sq = (await page.evaluate(() => window.__TEST__.getQueries('merchant_services')))[0];
+    check('5) الاستعلام: خدمات هذا التاجر المفعّلة والمفتوحة للحجز', sq && JSON.stringify(sq.filters.map((f) => [f.col, f.val])) === JSON.stringify([['merchant_id', SERV], ['is_active', true], ['booking_enabled', true]]));
     await page.fill('#resDate', riyadhDate(1));
     await page.fill('#resTime', '10:00');
     await page.click('#resSubmit');
-    check('5) نوع خدمة فارغ: رسالة ولا نداء', /اكتب نوع الخدمة/.test(await page.textContent('#resErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
-    await page.fill('#resService', '  غسيل داخلي وخارجي ');
+    check('5) بلا خدمة مختارة: رسالة ولا نداء', /اختر الخدمة/.test(await page.textContent('#resErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
+    await page.selectOption('#resService', 'svc-1');
     await page.click('#resSubmit');
     await page.waitForSelector('#resList');
     const c = (await page.evaluate(() => window.__TEST__.getCalls('create_reservation')))[0].args;
-    check('5) الإرسال: نوع الخدمة مقصوصاً، بلا عدد أشخاص ولا ملاحظة', c.p_service_type === 'غسيل داخلي وخارجي' && c.p_party_size === null && c.p_note === null && c.p_merchant_id === SERV);
+    check('5) الإرسال: معرّف الخدمة المختارة، بلا عدد أشخاص ولا ملاحظة', c.p_service_id === 'svc-1' && c.p_party_size === null && c.p_note === null && c.p_merchant_id === SERV && !('p_service_type' in c));
     check('5) السطر يعرض نوع الخدمة', /غسيل داخلي وخارجي/.test(await page.textContent('#resList')));
     await context.close();
   }
@@ -228,6 +240,70 @@ const appText = (page) => page.textContent('#app');
     check('10) الصحي: الإلغاء عبر cancel_appointment كما كان', (await page.evaluate(() => window.__TEST__.getCalls('cancel_appointment')))[0].args.p_appointment_id === 'h-1' && /تم إلغاء الموعد/.test(await toastText(page)));
     await openBooking(page, CAFE);
     check('11) المقهى بلا تغيير: الزر العام "احجز الآن" (توست تجريبي)، بلا نموذج حجز', !!(await page.$('[data-book="' + CAFE + '"]')) && !(await page.$('[data-toggle-res-form]')));
+    await context.close();
+  }
+
+  // 12-15) سياسة الإلغاء (يحددها التاجر) وقائمة الخدمات
+  {
+    const sc = baseScenario();
+    const rest = sc.tables.merchants.find((m) => m.id === REST);
+    Object.assign(rest, { booking_cancel_allowed: true, booking_cancel_cutoff_hours: 24 });
+    sc.tables.appointments.push(
+      { id: 'r-far', user_id: PROFILE.id, merchant_id: REST, clinic_id: null, booking_kind: 'table', status: 'confirmed', scheduled_at: inDays(2), party_size: 2, service_type: null, note: null },
+      { id: 'r-near', user_id: PROFILE.id, merchant_id: REST, clinic_id: null, booking_kind: 'table', status: 'pending', scheduled_at: inDays(0, 10), party_size: 4, service_type: null, note: null },
+    );
+    const { context, page } = await openApp(browser, sc);
+    await openBooking(page, REST);
+    await page.waitForSelector('[data-res-cancel-hint]', { timeout: 3000 }).catch(() => {});
+    const far = await page.textContent('[data-res-row="r-far"]');
+    const near = await page.textContent('[data-res-row="r-near"]');
+    check('12) مهلة 24 ساعة: حجز بعد يومين له زر إلغاء ونص "حتى 24 ساعة قبل الموعد"؛ حجز بعد 10 ساعات بلا زر و"انتهت مهلة الإلغاء"',
+      !!(await page.$('[data-cancel-res="r-far"]')) && /يمكن الإلغاء حتى 24 ساعة قبل الموعد/.test(far) &&
+      !(await page.$('[data-cancel-res="r-near"]')) && /انتهت مهلة الإلغاء/.test(near));
+    const pq = (await page.evaluate(() => window.__TEST__.getQueries('merchants'))).find((q) => /booking_cancel_allowed/.test(q.select || ''));
+    check('12) سياسة الإلغاء تُقرأ من صف التاجر (قراءة منفصلة، أفضل جهد)', !!pq);
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.cancelError = 'NOJ_CANCEL_WINDOW_CLOSED'; });
+    await page.click('[data-cancel-res="r-far"]');
+    await page.waitForTimeout(200);
+    check('13) رفض الخادم (المهلة انتهت أثناء فتح الصفحة): رسالة واضحة والحجز يبقى', /انتهت مهلة إلغاء هذا الحجز/.test(await toastText(page)) && !!(await page.$('[data-res-row="r-far"]')));
+    await context.close();
+  }
+  {
+    const sc = baseScenario();
+    sc.tables.merchants.find((m) => m.id === REST).booking_cancel_allowed = false;
+    sc.tables.appointments.push({ id: 'r-x2', user_id: PROFILE.id, merchant_id: REST, clinic_id: null, booking_kind: 'table', status: 'confirmed', scheduled_at: inDays(5), party_size: 2, service_type: null, note: null });
+    const { context, page } = await openApp(browser, sc);
+    await openBooking(page, REST);
+    await page.waitForSelector('[data-res-cancel-hint]', { timeout: 3000 }).catch(() => {});
+    check('14) التاجر منع الإلغاء: لا زر إلغاء، ونص "الإلغاء غير متاح لدى هذا المتجر"',
+      !(await page.$('[data-cancel-res]')) && /الإلغاء غير متاح لدى هذا المتجر/.test(await page.textContent('[data-res-row="r-x2"]')));
+    await context.close();
+  }
+  {
+    const sc = baseScenario();
+    sc.tables.merchant_services.forEach((v) => { v.booking_enabled = false; });
+    const { context, page } = await openApp(browser, sc);
+    await openBooking(page, SERV);
+    await page.click('[data-toggle-res-form]');
+    await page.waitForSelector('#resNoServices', { timeout: 3000 });
+    check('15) لا خدمة مفتوحة للحجز: رسالة واضحة وبلا زر إرسال', /لا توجد خدمات متاحة للحجز حاليًا/.test(await page.textContent('#resNoServices')) && !(await page.$('#resSubmit')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openApp(browser, baseScenario());
+    await openBooking(page, SERV);
+    await page.click('[data-toggle-res-form]');
+    await page.waitForSelector('#resService', { timeout: 3000 });
+    await page.fill('#resDate', riyadhDate(2));
+    await page.fill('#resTime', '11:00');
+    await page.selectOption('#resService', 'svc-1');
+    // أغلق التاجر حجز هذه الخدمة بعد فتح النموذج
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.tables.merchant_services.find((v) => v.id === 'svc-1').booking_enabled = false; });
+    await page.click('#resSubmit');
+    await page.waitForSelector('#resErr', { timeout: 3000 });
+    const opts = await page.$$eval('#resService option', (os) => os.map((o) => o.value));
+    check('15) خدمة أُغلقت بعد فتح النموذج: رسالة "غير متاحة للحجز الآن" والقائمة تتحدّث (اختفت الخدمة)',
+      /غير متاحة للحجز الآن/.test(await page.textContent('#resErr')) && JSON.stringify(opts) === JSON.stringify(['', 'svc-2']) && (await page.inputValue('#resTime')) === '11:00');
     await context.close();
   }
 

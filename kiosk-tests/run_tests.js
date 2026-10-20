@@ -592,6 +592,30 @@ async function openAdminSettingsViaPin(page, pin) {
     await context.close();
   }
 
+  // 27) زر "خدماتنا" = قائمة خدمات التاجر نفسها (merchant_services)
+  {
+    const sc = sectorScenario('services', { merchantRow: { name: 'غسيل', type: 'خدمات', points_rate: 1, booking_enabled: true }, services: [
+      { merchant_id: 'merchant-1', name: 'تلميع', price: null, is_active: true, sort_order: 1 },
+      { merchant_id: 'merchant-1', name: 'غسيل داخلي', price: 45, is_active: true, sort_order: 0 },
+      { merchant_id: 'merchant-1', name: 'خدمة قديمة', price: 10, is_active: false, sort_order: 2 },
+      { merchant_id: 'merchant-other', name: 'خدمة تاجر آخر', price: 1, is_active: true, sort_order: 0 },
+    ] });
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sc });
+    await page.click('#idleMenuBtn');
+    await page.waitForSelector('#svcList', { timeout: 2000 }).catch(() => {});
+    const rows = await page.$$eval('#svcList .svc-row', (rs) => rs.map((r) => r.textContent));
+    check('27) "خدماتنا" يعرض قائمة خدمات التاجر المفعّلة بترتيبها وأسعارها (لا غير المفعّلة ولا خدمات تاجر آخر)',
+      JSON.stringify(rows) === JSON.stringify(['غسيل داخلي45.00 ر.س', 'تلميع']));
+    await page.click('#menuClose');
+    await context.close();
+  }
+  {
+    const sc = sectorScenario('restaurant', { services: [{ merchant_id: 'merchant-1', name: 'x', price: 1, is_active: true, sort_order: 0 }] });
+    const { context, page } = await openKiosk(browser, { mode: 'demo', scenario: sc });
+    check('27) المطعم لا يقرأ قائمة الخدمات أصلاً (زر "المنيو" بلا تغيير)', (await page.evaluate(() => window.__TEST__.getServicesQueries())) === 0);
+    await context.close();
+  }
+
   await browser.close();
 
   console.log('\n=== KIOSK E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
