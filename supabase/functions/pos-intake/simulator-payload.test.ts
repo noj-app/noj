@@ -133,3 +133,39 @@ Deno.test('simulator payload: 115 شاملاً 15 ضريبة يمرّ عبر pos
   const result = await handlePosIntake(JSON.stringify(payload), headers(VALID_TOKEN), makeDeps());
   assertEquals(result.status, 200);
 });
+
+// ---------------------------------------------------------------------------
+// Refund simulation — the SAME single source of truth, through the real handler
+// ---------------------------------------------------------------------------
+import { buildPosRefundPayload } from '../../../scripts/pos-invoice-payload.mjs';
+
+Deno.test('simulator refund payload: passes through the real pos-intake refund path and reaches intakeRefund intact', async () => {
+  const payload = buildPosRefundPayload({ refundOf: 'sim-12-1700000000000', refundAmount: '40.5', ci: { runId: '9', runNumber: '12' } });
+  let seen: Record<string, unknown> | null = null;
+  const deps = makeDeps({
+    intakeRefund: (args) => {
+      seen = args as unknown as Record<string, unknown>;
+      return Promise.resolve({ ok: true, result: { outcome: 'points_deducted' } });
+    },
+  });
+  const result = await handlePosIntake(JSON.stringify(payload), headers(VALID_TOKEN), deps);
+  assertEquals(result.status, 200);
+  assertEquals(seen!.externalRef, 'sim-12-1700000000000');
+  assertEquals(seen!.refundAmount, 40.5);
+  assertEquals(typeof seen!.refundRef, 'string');
+  assertEquals((seen!.refundRef as string).startsWith('sim-refund-12-'), true);
+});
+
+Deno.test('simulator refund payload: refund_of and refund_amount are required, amount must be > 0', () => {
+  for (const args of [
+    { refundOf: '', refundAmount: '5' },
+    { refundOf: '   ', refundAmount: '5' },
+    { refundOf: 'sim-1', refundAmount: '' },
+    { refundOf: 'sim-1', refundAmount: '0' },
+    { refundOf: 'sim-1', refundAmount: '-2' },
+  ]) {
+    let threw = false;
+    try { buildPosRefundPayload({ ...args, ci: null }); } catch { threw = true; }
+    assertEquals(threw, true, JSON.stringify(args));
+  }
+});

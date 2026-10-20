@@ -186,3 +186,109 @@ Deno.test('sha256Hex: deterministic and distinct for different inputs', async ()
   assertEquals(a, b);
   assertEquals(a === c, false);
 });
+
+// ---------------------------------------------------------------------------
+// Refunds (type: "refund") — same endpoint, same token
+// ---------------------------------------------------------------------------
+function makeRefundDeps(
+  refund: IntakeDeps['intakeRefund'],
+  overrides: Partial<IntakeDeps> = {},
+): IntakeDeps {
+  return makeDeps({ intakeRefund: refund, ...overrides });
+}
+
+const okRefund: NonNullable<IntakeDeps['intakeRefund']> = (args) =>
+  Promise.resolve({
+    ok: true,
+    result: { outcome: 'points_deducted', refund_amount: args.refundAmount, replayed: false },
+  });
+
+Deno.test('refund: valid payload reaches intakeRefund with the right fields and returns 200', async () => {
+  let seen: Record<string, unknown> | null = null;
+  const deps = makeRefundDeps((args) => {
+    seen = args as unknown as Record<string, unknown>;
+    return okRefund(args);
+  });
+  const body = JSON.stringify({ type: 'refund', external_ref: 'INV-1', refund_ref: 'RF-1', refund_amount: 40.5 });
+  const result = await handlePosIntake(body, headers(VALID_TOKEN), deps);
+  assertEquals(result.status, 200);
+  const parsed = JSON.parse(result.body);
+  assertEquals(parsed.ok, true);
+  assertEquals(parsed.refund.outcome, 'points_deducted');
+  assertEquals(seen!.branchId, BRANCH_ID);
+  assertEquals(seen!.externalRef, 'INV-1');
+  assertEquals(seen!.refundRef, 'RF-1');
+  assertEquals(seen!.refundAmount, 40.5);
+  assertEquals(seen!.sourceAdapter, 'generic');
+});
+
+Deno.test('refund: a refund is NEVER treated as a new invoice (no intakeTransaction call)', async () => {
+  let invoiceCalls = 0;
+  const deps = makeRefundDeps(okRefund, {
+    intakeTransaction: (args) => {
+      invoiceCalls++;
+      return Promise.resolve({ ok: true, row: { id: 'x', status: 'pending', external_ref: args.externalRef } });
+    },
+  });
+  const body = JSON.stringify({ type: 'refund', external_ref: 'INV-1', refund_ref: 'RF-1', refund_amount: 10 });
+  await handlePosIntake(body, headers(VALID_TOKEN), deps);
+  assertEquals(invoiceCalls, 0);
+});
+
+Deno.test('refund: requires the bearer token like any intake (no token → 401, wrong token → 401, no DB call)', async () => {
+  let calls = 0;
+  const deps = makeRefundDeps((a) => { calls++; return okRefund(a); });
+  const body = JSON.stringify({ type: 'refund', external_ref: 'INV-1', refund_ref: 'RF-1', refund_amount: 10 });
+  assertEquals((await handlePosIntake(body, headers(null), deps)).status, 401);
+  assertEquals((await handlePosIntake(body, headers('wrong-token-value'), deps)).status, 401);
+  assertEquals(calls, 0);
+});
+
+Deno.test('refund: missing/invalid fields are rejected with 400 before any DB call', async () => {
+  let calls = 0;
+  const deps = makeRefundDeps((a) => { calls++; return okRefund(a); });
+  const bad = [
+    { type: 'refund', refund_ref: 'RF', refund_amount: 5 },                         // no external_ref
+    { type: 'refund', external_ref: 'INV', refund_amount: 5 },                      // no refund_ref
+    { type: 'refund', external_ref: 'INV', refund_ref: 'RF' },                      // no amount
+    { type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: 0 },    // zero
+    { type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: -3 },   // negative
+    { type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: '5' },  // string
+    { type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: 5, metadata: [1] },
+    { type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: 5, metadata: { x: 'y'.repeat(2500) } },
+  ];
+  for (const b of bad) {
+    const r = await handlePosIntake(JSON.stringify(b), headers(VALID_TOKEN), deps);
+    assertEquals(r.status, 400, JSON.stringify(b).slice(0, 80));
+  }
+  assertEquals(calls, 0);
+});
+
+Deno.test('refund: database errors map to clear statuses (404 / 400 / 409), unknown → 500', async () => {
+  const cases: Array<[string, number]> = [
+    ['NOJ_REFUND_ORIGINAL_NOT_FOUND', 404],
+    ['NOJ_REFUND_EXCEEDS_AMOUNT', 400],
+    ['NOJ_REFUND_NOT_APPLICABLE', 409],
+    ['NOJ_INVALID_REFUND', 400],
+    ['something unexpected', 500],
+  ];
+  for (const [err, status] of cases) {
+    const deps = makeRefundDeps(() => Promise.resolve({ ok: false, error: err }));
+    const body = JSON.stringify({ type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: 5 });
+    const r = await handlePosIntake(body, headers(VALID_TOKEN), deps);
+    assertEquals(r.status, status, err);
+  }
+});
+
+Deno.test('refund: unsupported vendor and a deployment without refund wiring fail cleanly', async () => {
+  const body = JSON.stringify({ type: 'refund', external_ref: 'INV', refund_ref: 'RF', refund_amount: 5 });
+  assertEquals((await handlePosIntake(body, headers(VALID_TOKEN, 'nope'), makeRefundDeps(okRefund))).status, 400);
+  assertEquals((await handlePosIntake(body, headers(VALID_TOKEN), makeDeps())).status, 500);
+});
+
+Deno.test('invoices are unchanged: a body without type still goes to intakeTransaction; "type":"invoice"-like extras are ignored as before', async () => {
+  const body = JSON.stringify({ external_ref: 'INV-9', amount: 50, type: 'sale' });
+  const r = await handlePosIntake(body, headers(VALID_TOKEN), makeRefundDeps(okRefund));
+  assertEquals(r.status, 200);
+  assertEquals(JSON.parse(r.body).transaction_id, 'txn-INV-9');
+});

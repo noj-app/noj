@@ -24,14 +24,23 @@ on:
   workflow_dispatch:
     inputs:
       amount:
-        description: 'إجمالي ما دفعه العميل شاملاً الضريبة (مثال: 115)'
-        required: true
+        description: 'إجمالي ما دفعه العميل شاملاً الضريبة (مثال: 115) — مطلوب لفاتورة جديدة، ويُترك فارغاً عند الإرجاع'
+        required: false
+        default: ''
       vat:
         description: 'الضريبة المتضمَّنة داخل المبلغ لا فوقه، وأقل من المبلغ (مثال: 15 لمبلغ 115؛ افتراضي 0)'
         required: false
         default: '0'
       device_id:
         description: 'معرّف جهاز الكشك (اختياري، UUID)'
+        required: false
+        default: ''
+      refund_of:
+        description: 'للإرجاع بدل فاتورة جديدة: external_ref الفاتورة الأصلية (يُطبع عند إرسالها، مثال sim-12-1700000000000)'
+        required: false
+        default: ''
+      refund_amount:
+        description: 'مبلغ الإرجاع شاملاً الضريبة (مطلوب مع refund_of؛ جزئي أو كامل، والمجموع لا يتجاوز مبلغ الفاتورة)'
         required: false
         default: ''
 
@@ -55,8 +64,12 @@ jobs:
           AMOUNT: ${{ github.event.inputs.amount }}
           VAT: ${{ github.event.inputs.vat }}
           DEVICE_ID: ${{ github.event.inputs.device_id }}
+          REFUND_OF: ${{ github.event.inputs.refund_of }}
+          REFUND_AMOUNT: ${{ github.event.inputs.refund_amount }}
         run: |
           node scripts/simulate-pos-invoice.js \
             --amount "$AMOUNT" \
             --vat "$VAT" \
-            --device-id "$DEVICE_ID"
+            --device-id "$DEVICE_ID" \
+            --refund-of "$REFUND_OF" \
+            --refund-amount "$REFUND_AMOUNT"
