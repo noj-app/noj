@@ -57,7 +57,10 @@
           }
           if (table === 'branch_settings') {
             (scenario.branchSettings || []).forEach(function (s) {
-              if (matchesFilters(s, filters)) Object.assign(s, updatePayload);
+              if (matchesFilters(s, filters)) {
+                Object.assign(s, updatePayload);
+                if (updatePayload.sector_code) sectorWriteThrough(s.branch_id, updatePayload.sector_code);
+              }
             });
             state.lastBranchSettingsUpdate = { payload: updatePayload, filters: filters.slice() };
           }
@@ -119,7 +122,34 @@
       return !!member && member.role === 'owner';
     }
 
+    // يحاكي trg_branch_settings_sector_sync/trg_merchants_sector_sync
+    // (supabase-migration-unified-sectors.sql): كتابة قسم الفرع تغيّر قسم
+    // التاجر، ومدة التعليق تتبع افتراض القسم الجديد فقط إن كانت لا تزال
+    // تساوي افتراض القسم القديم (لم تُعدَّل يدوياً).
+    var HOLD_DEFAULTS = { grocery: 7, retail: 7, cafe: 0, restaurant: 0, medical: 0, services: 0 };
+    function sectorWriteThrough(branchId, code) {
+      var branch = (scenario.branches || []).find(function (b) { return b.id === branchId; });
+      var m = branch && (scenario.merchants || []).find(function (x) { return x.id === branch.merchant_id; });
+      if (!m || m.sector_code === code) return;
+      if (typeof m.points_hold_days === 'number' && m.points_hold_days === HOLD_DEFAULTS[m.sector_code]) {
+        m.points_hold_days = HOLD_DEFAULTS[code];
+      }
+      m.sector_code = code;
+    }
+
     function rpc(name, args) {
+      if (name === 'merchant_set_points_hold_days') {
+        (state.holdCalls = state.holdCalls || []).push(args);
+        var isOwner = (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === args.p_merchant_id && mm.role === 'owner'; });
+        if (!isOwner) return Promise.resolve({ data: null, error: { message: 'لا تملك صلاحية على هذا التاجر' } });
+        if (scenario.holdRpcError) return Promise.resolve({ data: null, error: { message: 'boom' } });
+        if (typeof args.p_days !== 'number' || args.p_days < 0 || args.p_days > 365) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_HOLD_DAYS' } });
+        }
+        var mrow = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
+        if (mrow) mrow.points_hold_days = args.p_days;
+        return Promise.resolve({ data: args.p_days, error: null });
+      }
       if (name === 'merchant_list_invoices') {
         state.invoiceCalls.push(args);
         var delay = (scenario.invoicesDelays || [])[state.invoiceCalls.length - 1] || 0;
@@ -242,6 +272,8 @@
       getLastSetPinCall: function () { return state.lastSetPinCall; },
       getLastIssuedPosToken: function () { return state.lastIssuedPosToken; },
       getIssuedPosTokenCount: function () { return state.issuedPosTokenCount; },
+      getHoldCalls: function () { return (state.holdCalls || []).slice(); },
+      getMerchant: function (id) { return (scenario.merchants || []).find(function (m) { return m.id === id; }) || null; },
     };
     return client;
   }

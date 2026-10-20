@@ -874,6 +874,122 @@ async function loginFlow(page, phone, otp) {
     await context.close();
   }
 
+  // =========================================================================
+  // 34-40) الأقسام الستة + مدة تعليق النقاط (supabase-migration-unified-sectors.sql)
+  // =========================================================================
+  const holdScenario = (merchant, extra) => baseScenario(Object.assign({
+    merchants: [Object.assign({ id: 'merchant-1', name: 'مركز النور الطبي', sector_code: 'medical', points_hold_days: 0 }, merchant || {})],
+    branchSettings: [{ branch_id: 'branch-1', sector_code: (merchant && merchant.sector_code) || 'medical', biz_name: 'مركز النور', biz_branch: 'فرع الملقا', biz_slogan: '', biz_logo: '', pos_mode: 'demo' }],
+  }, extra || {}));
+  const openSettings = async (scenario) => {
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#sectorSw', { timeout: 3000 });
+    return { context, page };
+  };
+  const saveAndWait = async (page) => {
+    await page.click('#settingsSaveBtn');
+    await page.waitForFunction(() => !document.querySelector('#settingsSaveBtn .spinner'), null, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(150);
+  };
+
+  {
+    const { context, page } = await openSettings(holdScenario());
+    const btns = await page.$$eval('#sectorSw button', (bs) => bs.map((b) => [b.getAttribute('data-sector'), b.textContent]));
+    check('34) الأقسام الستة بالترتيب وبأسمائها: بقالة، تجزئة، مقهى، مطعم، صحي، خدمات',
+      JSON.stringify(btns) === JSON.stringify([['grocery', 'بقالة'], ['retail', 'تجزئة'], ['cafe', 'مقهى'], ['restaurant', 'مطعم'], ['medical', 'صحي'], ['services', 'خدمات']]));
+    check('35) المالك يرى حقل مدة تعليق النقاط بقيمة الخادم الفعلية (0)', await page.inputValue('#fHoldDays') === '0');
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario({}, { merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    check('35) الموظف لا يرى حقل مدة التعليق إطلاقاً (للمالك فقط)', (await page.$('#fHoldDays')) === null);
+    await context.close();
+  }
+  {
+    // غير معدَّلة يدوياً (صحي = 0 = افتراضه): تتبع افتراض القسم الجديد
+    const { context, page } = await openSettings(holdScenario());
+    await page.click('#sectorSw button[data-sector="grocery"]');
+    check('36) مدة غير معدَّلة يدوياً: تغيير القسم إلى بقالة يضع افتراضه (7) في الحقل', await page.inputValue('#fHoldDays') === '7');
+    check('36) …مع تنبيه واضح بأن الافتراض سيُطبَّق', /ستُطبَّق المدة الافتراضية لقسم بقالة: 7 أيام/.test(await page.textContent('#holdHint')));
+    await page.click('#sectorSw button[data-sector="medical"]');
+    check('36) الرجوع للقسم الأصلي يعيد القيمة الأصلية (0)', await page.inputValue('#fHoldDays') === '0');
+    await page.click('#sectorSw button[data-sector="retail"]');
+    await saveAndWait(page);
+    const upd = await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate());
+    const m = await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'));
+    const holdCalls = await page.evaluate(() => window.__TEST__.getHoldCalls());
+    check('36) الحفظ يكتب القسم الجديد (retail) والخادم يطبّق افتراضه (7) — بلا نداء إضافي لتعيين المدة',
+      upd && upd.payload.sector_code === 'retail' && m.sector_code === 'retail' && m.points_hold_days === 7 && holdCalls.length === 0);
+    check('36) بعد الحفظ يعرض الحقل القيمة الفعلية (7)', await page.inputValue('#fHoldDays') === '7');
+    await context.close();
+  }
+  {
+    // معدَّلة يدوياً (بقالة بمدة 3 ≠ 7): لا تتغيّر تلقائياً، الافتراض الجديد اقتراح فقط
+    const { context, page } = await openSettings(holdScenario({ sector_code: 'grocery', points_hold_days: 3 }));
+    await page.click('#sectorSw button[data-sector="cafe"]');
+    check('37) مدة معدَّلة يدوياً (3): تغيير القسم لا يغيّرها في الحقل', await page.inputValue('#fHoldDays') === '3');
+    const hint = await page.textContent('#holdHint');
+    check('37) …ويظهر افتراض القسم الجديد كاقتراح فقط، مع زر لتطبيقه', /المدة الافتراضية لقسم مقهى: بلا تعليق/.test(hint) && /عدّلتها يدوياً فلن تتغيّر تلقائياً/.test(hint) && (await page.$('#useDefaultHold')) !== null);
+    await saveAndWait(page);
+    const m = await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'));
+    check('37) الحفظ بلا ضغط الزر: القسم يتغيّر والمدة المعدَّلة يدوياً تبقى 3 (بلا نداء تعيين)',
+      m.sector_code === 'cafe' && m.points_hold_days === 3 && (await page.evaluate(() => window.__TEST__.getHoldCalls())).length === 0);
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario({ sector_code: 'grocery', points_hold_days: 3 }));
+    await page.click('#sectorSw button[data-sector="cafe"]');
+    await page.click('#useDefaultHold');
+    check('37) زر "استخدام المدة الافتراضية" يضع افتراض القسم الجديد (0) في الحقل', await page.inputValue('#fHoldDays') === '0');
+    await saveAndWait(page);
+    const calls = await page.evaluate(() => window.__TEST__.getHoldCalls());
+    check('37) …والحفظ يستدعي merchant_set_points_hold_days بالقيمة المختارة للتاجر الصحيح',
+      calls.length === 1 && calls[0].p_merchant_id === 'merchant-1' && calls[0].p_days === 0 && (await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'))).points_hold_days === 0);
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario());
+    await page.fill('#fHoldDays', '14');
+    await saveAndWait(page);
+    const calls = await page.evaluate(() => window.__TEST__.getHoldCalls());
+    check('38) تعديل المدة يدوياً (14) في نفس القسم: نداء واحد بالقيمة الصحيحة', calls.length === 1 && calls[0].p_days === 14);
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario());
+    await page.fill('#fHoldDays', '400');
+    await page.click('#settingsSaveBtn');
+    await page.waitForTimeout(200);
+    const err = await page.textContent('#app');
+    check('38) قيمة خارج 0..365 تُرفض محلياً برسالة واضحة، بلا أي حفظ ولا نداء',
+      /من 0 إلى 365/.test(err) && (await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate())) === null && (await page.evaluate(() => window.__TEST__.getHoldCalls())).length === 0);
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario({}, { holdRpcError: true }));
+    await page.fill('#fHoldDays', '5');
+    await saveAndWait(page);
+    check('39) فشل حفظ المدة يظهر برسالة صريحة (الإعدادات الأخرى حُفظت)', /تعذّر حفظ مدة تعليق النقاط/.test(await page.textContent('#app')) && (await page.evaluate(() => window.__TEST__.getLastBranchSettingsUpdate())) !== null);
+    check('39) …والقيمة المطلوبة تبقى في الحقل لإعادة المحاولة', await page.inputValue('#fHoldDays') === '5');
+    await context.close();
+  }
+  {
+    const multi = holdScenario({}, {
+      branches: [{ id: 'branch-1', merchant_id: 'merchant-1', name: 'فرع الملقا' }, { id: 'branch-2', merchant_id: 'merchant-1', name: 'فرع العليا' }],
+    });
+    multi.branchSettings.push({ branch_id: 'branch-2', sector_code: 'medical', biz_name: 'مركز النور', biz_branch: 'فرع العليا', biz_slogan: '', biz_logo: '', pos_mode: 'demo' });
+    const { context, page } = await openSettings(multi);
+    check('40) تاجر بأكثر من فرع: تنبيه أن القسم واحد لكل الفروع', /القسم واحد للتاجر: تغييره يُطبَّق على كل الفروع/.test(await page.textContent('#app')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openSettings(holdScenario({}, { merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_points_hold_days', { p_merchant_id: 'merchant-1', p_days: 30 })).error);
+    check('40) دفاع في العمق: نداء مباشر للدالة بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+
   await browser.close();
   console.log('\n=== MERCHANT E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));

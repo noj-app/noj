@@ -506,14 +506,25 @@ async function doVerify(){
 var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
   settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
+  holdServer:null,holdSector:null,
   posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
   view:'manage',inv:null};
 
-/* القطاعات نفسها معروضة بالاسم العربي هنا فقط للعرض — لا علاقة لها ببيانات
-   T{} الكاملة في kiosk.html (قوالب عرض تفصيلية لا تخص لوحة التاجر إطلاقاً)،
-   فقط تسمية مختصرة لكل sector_code الثابت المخزَّن في branch_settings. */
-var SECTOR_LABELS={medical:'طبي',cafe:'مقهى',restaurant:'مطعم',grocery:'بقالة'};
+/* الأقسام الستة بأسمائها العربية للعرض فقط. القسم واحد لكل تاجر
+   (merchants.sector_code، راجع supabase-migration-unified-sectors.sql)؛
+   branch_settings.sector_code مرآة له، وكتابتها من هنا تغيّر قسم التاجر
+   لكل فروعه. SECTOR_HOLD_DEFAULTS = نفس قاعدة merchant_default_hold_days()
+   في الخادم (اختبار db يقارنهما) — للاقتراح في الواجهة فقط، والخادم هو
+   الذي يطبّق القاعدة فعلاً. */
+var SECTOR_LABELS={grocery:'بقالة',retail:'تجزئة',cafe:'مقهى',restaurant:'مطعم',medical:'صحي',services:'خدمات'};
+var SECTOR_HOLD_DEFAULTS={grocery:7,retail:7,cafe:0,restaurant:0,medical:0,services:0};
 var SECTOR_KEYS=Object.keys(SECTOR_LABELS);
+function holdDaysText(n){
+  if(n===0)return 'بلا تعليق (فوري)';
+  if(n===1)return 'يوم واحد';
+  if(n===2)return 'يومان';
+  return n+(n<=10?' أيام':' يوماً');
+}
 
 async function checkAccess(){
   var sb=await getSb();
@@ -612,6 +623,40 @@ async function loadPosConnections(branchId){
   M.posConnections=r.error?null:(r.data||[]);
 }
 
+/* مدة تعليق النقاط على مستوى التاجر (merchants عام القراءة أصلاً) — تُقرأ
+   مع إعدادات الفرع لأنها تُعرض وتُعدَّل في القسم نفسه (المالك فقط). فشل
+   القراءة يُخفي الحقل فقط ولا يعطّل بقية الإعدادات. */
+async function loadMerchantHold(){
+  M.holdServer=null;M.holdSector=null;
+  var sb=await getSb();
+  if(!sb||!M.activeMerchantId)return;
+  var r=await sb.from('merchants').select('id,sector_code,points_hold_days').eq('id',M.activeMerchantId).single();
+  if(r.error||!r.data||typeof r.data.points_hold_days!=='number')return;
+  M.holdServer=r.data.points_hold_days;
+  M.holdSector=SECTOR_KEYS.indexOf(r.data.sector_code)!==-1?r.data.sector_code:(M.settingsDraft?M.settingsDraft.sector:null);
+  if(M.settingsDraft)M.settingsDraft.holdDays=String(M.holdServer);
+}
+/* هل عدّل التاجر المدة يدوياً؟ = تختلف عن افتراض قسمه الحالي (نفس معيار الخادم). */
+function holdIsCustom(){
+  return M.holdServer!==null&&!!M.holdSector&&M.holdServer!==SECTOR_HOLD_DEFAULTS[M.holdSector];
+}
+function holdFieldHtml(d){
+  if(activeRole()!=='owner'||M.holdServer===null)return '';
+  var hint;
+  if(d.sector!==M.holdSector){
+    var nd=SECTOR_HOLD_DEFAULTS[d.sector];
+    hint=holdIsCustom()
+      ?'<div class="hint" id="holdHint">المدة الافتراضية لقسم '+SECTOR_LABELS[d.sector]+': '+holdDaysText(nd)+'. مدتك الحالية ('+holdDaysText(M.holdServer)+') عدّلتها يدوياً فلن تتغيّر تلقائياً.</div>'+
+       '<button type="button" class="btn-outline" id="useDefaultHold" style="margin-top:8px">استخدام المدة الافتراضية ('+holdDaysText(nd)+')</button>'
+      :'<div class="hint" id="holdHint">ستُطبَّق المدة الافتراضية لقسم '+SECTOR_LABELS[d.sector]+': '+holdDaysText(nd)+'.</div>';
+  }else{
+    hint='<div class="hint" id="holdHint">تبقى النقاط معلّقة هذه المدة قبل أن تصبح قابلة للاستبدال، لكل فروع التاجر. لا تتأثر النقاط المعلّقة حالياً بأي تغيير.</div>';
+  }
+  return '<label class="form-f"><label>مدة تعليق النقاط (بالأيام)</label>'+
+    '<input type="number" inputmode="numeric" min="0" max="365" id="fHoldDays" value="'+escAttr(d.holdDays)+'">'+
+    hint+'</label>';
+}
+
 async function loadBranchSettings(branchId){
   // رمز PIN/توكن POS معروضان مرتبطان بفرع بعينه — تبديل الفرع (حتى بلا
   // تبديل تاجر) يُسقطهما فوراً، فلا يبقى توكن ظاهر لفرع سابق معروضاً وهماً
@@ -634,6 +679,7 @@ async function loadBranchSettings(branchId){
     mode:row.pos_mode||'demo'
   };
   M.pendingMode=null;
+  await loadMerchantHold();
   await loadPosConnections(branchId);
   renderApp();
 }
@@ -752,7 +798,8 @@ function branchSettingsHtml(){
     '<label class="form-f"><label>الشعار الفرعي</label><input type="text" id="fBizSlogan" value="'+escAttr(d.bizSlogan)+'" placeholder="جملة قصيرة تظهر تحت الاسم"></label>'+
     '<label class="form-f"><label>القطاع</label><div class="sw" id="sectorSw">'+
       SECTOR_KEYS.map(function(k){return '<button type="button" data-sector="'+k+'" class="'+(d.sector===k?'on':'')+'">'+SECTOR_LABELS[k]+'</button>'}).join('')+
-    '</div></label>'+
+    '</div>'+(M.branches.length>1?'<div class="hint">القسم واحد للتاجر: تغييره يُطبَّق على كل الفروع.</div>':'')+'</label>'+
+    holdFieldHtml(d)+
     '<label class="form-f"><label>الوضع</label><div class="sw" id="modeSw">'+
       '<button type="button" data-mode="demo" class="'+(d.mode==='demo'?'on':'')+'">تجريبي</button>'+
       '<button type="button" data-mode="live" class="'+(d.mode==='live'?'on':'')+'">مباشر</button>'+
@@ -1124,8 +1171,23 @@ function bindApp(){
   if(fSlogan)fSlogan.oninput=function(){M.settingsDraft.bizSlogan=fSlogan.value};
 
   [].forEach.call(document.querySelectorAll('#sectorSw button'),function(b){
-    b.onclick=function(){M.settingsDraft.sector=b.getAttribute('data-sector');renderApp()};
+    b.onclick=function(){
+      var d=M.settingsDraft,k=b.getAttribute('data-sector');
+      d.sector=k;
+      // مدة لم يعدّلها التاجر يدوياً تتبع افتراض القسم الجديد (كما يفعل
+      // الخادم)؛ المعدّلة يدوياً تبقى، ويظهر الافتراض الجديد كاقتراح فقط.
+      if(M.holdServer!==null&&!holdIsCustom()){
+        d.holdDays=String(k===M.holdSector?M.holdServer:SECTOR_HOLD_DEFAULTS[k]);
+      }
+      renderApp();
+    };
   });
+  var fHoldDays=document.getElementById('fHoldDays');
+  if(fHoldDays)fHoldDays.oninput=function(){M.settingsDraft.holdDays=fHoldDays.value};
+  var useDefaultHold=document.getElementById('useDefaultHold');
+  if(useDefaultHold)useDefaultHold.onclick=function(){
+    M.settingsDraft.holdDays=String(SECTOR_HOLD_DEFAULTS[M.settingsDraft.sector]);renderApp();
+  };
 
   // التحويل الفعلي للوضع في DRAFT لا يحدث هنا مباشرة — فقط يفتح تنبيه
   // التأكيد (modeConfirmHtml)، تماشياً مع "تنبيه واضح قبل التحويل".
@@ -1146,9 +1208,16 @@ function bindApp(){
 
   var settingsSaveBtn=document.getElementById('settingsSaveBtn');
   if(settingsSaveBtn)settingsSaveBtn.onclick=async function(){
+    var d=M.settingsDraft;
+    var wantHold=null;
+    if(activeRole()==='owner'&&M.holdServer!==null){
+      if(!/^\d{1,3}$/.test(String(d.holdDays).trim())||Number(d.holdDays)>365){
+        M.settingsSaveErr='مدة تعليق النقاط يجب أن تكون رقماً صحيحاً من 0 إلى 365';renderApp();return;
+      }
+      wantHold=Number(d.holdDays);
+    }
     M.settingsSaving=true;M.settingsSaveErr='';renderApp();
     var sb=await getSb();
-    var d=M.settingsDraft;
     var res=await sb.from('branch_settings').update({
       sector_code:d.sector,
       biz_name:d.bizName||null,
@@ -1157,11 +1226,28 @@ function bindApp(){
       biz_logo:d.bizLogo||null,
       pos_mode:d.mode
     }).eq('branch_id',M.settingsBranchId);
-    M.settingsSaving=false;
     if(res.error){
+      M.settingsSaving=false;
       M.settingsSaveErr='تعذّر حفظ الإعدادات، تحقق من اتصالك وحاول مرة أخرى';
       renderApp();return;
     }
+    if(wantHold!==null){
+      // الخادم قد يكون طبّق افتراض القسم الجديد تلقائياً — نقرأ القيمة الفعلية
+      // أولاً، ولا نستدعي الدالة إلا إن اختلفت عما يريده المالك.
+      await loadMerchantHold();
+      if(M.holdServer!==null&&M.holdServer!==wantHold){
+        var hr=await sb.rpc('merchant_set_points_hold_days',{p_merchant_id:M.activeMerchantId,p_days:wantHold});
+        if(hr.error){
+          M.settingsSaving=false;
+          M.settingsSaveErr='حُفظت الإعدادات، لكن تعذّر حفظ مدة تعليق النقاط. حاول مرة أخرى.';
+          d.holdDays=String(wantHold);
+          renderApp();return;
+        }
+        M.holdServer=hr.data;
+      }
+      if(M.holdServer!==null)d.holdDays=String(M.holdServer);
+    }
+    M.settingsSaving=false;
     renderApp();
     toast('تم حفظ الإعدادات بنجاح');
   };
@@ -1226,6 +1312,7 @@ async function doLogout(){
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
     settingsBranchId:null,settingsLoading:false,settingsDraft:null,settingsSaving:false,settingsSaveErr:'',
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
+    holdServer:null,holdSector:null,
     posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
     view:'manage',inv:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};

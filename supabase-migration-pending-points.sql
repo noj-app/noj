@@ -54,13 +54,16 @@
 -- ---------------------------------------------------------------------------
 -- 1. merchants.points_hold_days
 -- ---------------------------------------------------------------------------
+-- Accepts the Arabic merchants.type labels AND the sector codes of
+-- supabase-migration-unified-sectors.sql — the body is IDENTICAL in both files
+-- so re-running either one can never revert the other (db-tests compare them).
 create or replace function public.merchant_default_hold_days(p_type text)
 returns integer
 language sql
 immutable
 set search_path = public
 as $$
-  select case when p_type in ('بقالة', 'تجزئة', 'تسوق', 'متاجر') then 7 else 0 end;
+  select case when p_type in ('grocery', 'retail', 'بقالة', 'تجزئة', 'تسوق', 'متاجر') then 7 else 0 end;
 $$;
 
 revoke all on function public.merchant_default_hold_days(text) from public, anon, authenticated, service_role;

@@ -2,6 +2,7 @@ const { Client } = require('pg');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const CONN = { host: '127.0.0.1', port: 5432, user: 'postgres', password: 'postgres', database: 'noj_test' };
@@ -109,9 +110,32 @@ async function asServiceRole(fn) {
     'supabase-migration-pos-vat-inclusive.sql',
     'supabase-migration-pending-points.sql',
     'supabase-migration-pos-refunds.sql',
+    'supabase-migration-unified-sectors.sql',
   ].map(f => path.join(REPO_ROOT, f));
+  // a byte-level snapshot of everything the sector unification must NOT touch,
+  // taken right before that migration runs (checked in section 21e)
+  const SECTOR_SNAPSHOT_SQL = {
+    invoices: `select id, user_id, pending_phone, merchant_id, branch_id, amount, vat, category, points_earned, status, refunded_amount, created_at from invoices order by id`,
+    ledger: `select * from point_transactions order by id`,
+    loyalty: `select user_id, merchant_id, points, tier from merchant_loyalty order by user_id, merchant_id`,
+    merchants: `select id, name, type, points_hold_days, points_rate from merchants order by id`,
+  };
+  let preSectorSnapshot = null, postSectorSnapshot = null;
   for (const f of filesFromPhoneFormat) {
+    if (f.endsWith('supabase-migration-unified-sectors.sql')) {
+      preSectorSnapshot = {};
+      for (const [k, q] of Object.entries(SECTOR_SNAPSHOT_SQL)) {
+        preSectorSnapshot[k] = (await admin(c => c.query(q))).rows;
+      }
+      preSectorSnapshot.branchSectors = (await admin(c => c.query(`select branch_id, sector_code from branch_settings order by branch_id`))).rows;
+    }
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
+    if (f.endsWith('supabase-migration-unified-sectors.sql')) {
+      postSectorSnapshot = {};
+      for (const [k, q] of Object.entries(SECTOR_SNAPSHOT_SQL)) {
+        postSectorSnapshot[k] = (await admin(c => c.query(q))).rows;
+      }
+    }
   }
   console.log('Rebuild done.\n');
 
@@ -2388,6 +2412,188 @@ async function asServiceRole(fn) {
       (await earnRows(i4.invoiceId))[0].points_delta === Math.round(43 * 65 / 115));
 
     await admin(c => c.query('update merchants set points_rate = $2 where id=$1', [GROCER, origRate]));
+  }
+
+  // =========================================================================
+  // 21e) ONE SECTOR PER MERCHANT (supabase-migration-unified-sectors.sql):
+  //      merchants.sector_code is the source; merchants.type and
+  //      branch_settings.sector_code are derived and can never diverge.
+  // =========================================================================
+  {
+    const SECTORS = ['grocery', 'retail', 'cafe', 'restaurant', 'medical', 'services'];
+    const MIG = path.join(REPO_ROOT, 'supabase-migration-unified-sectors.sql');
+    const apply = (f) => execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    const tryQ = (sql, params) => admin(async c => { try { const r = await c.query(sql, params); return { ok: true, r }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const merchantRow = async (id) => (await admin(c => c.query('select id, type, sector_code, points_hold_days from merchants where id=$1', [id]))).rows[0];
+    const branchSectors = async (merchantId) => (await admin(c => c.query(
+      `select bs.sector_code from branch_settings bs join branches b on b.id = bs.branch_id where b.merchant_id=$1 order by b.created_at, b.id`, [merchantId]))).rows.map(r => r.sector_code);
+    const divergent = async () => (await admin(c => c.query(
+      `select count(*)::int as n from branch_settings bs join branches b on b.id=bs.branch_id join merchants m on m.id=b.merchant_id
+       where bs.sector_code <> m.sector_code or m.type <> public.sector_label(m.sector_code)`))).rows[0].n;
+
+    // ---- A) the data migration, measured against the snapshot taken just before it ran ----
+    const pre = preSectorSnapshot;
+    const preType = (id) => (pre.merchants.find(m => m.id === id) || {}).type;
+    const seeded = {
+      '20000000-0000-0000-0000-000000000001': ['restaurant', 'مطاعم'],
+      '20000000-0000-0000-0000-000000000002': ['grocery', 'بقالة'],
+      '20000000-0000-0000-0000-000000000003': ['cafe', 'مقاهي'],
+      '20000000-0000-0000-0000-00000000000d': ['medical', 'صحة'],
+      '20000000-0000-0000-0000-00000000000c': ['services', 'خدمات'],
+    };
+    let mapOk = true;
+    for (const [id, [code, label]] of Object.entries(seeded)) {
+      const m = await merchantRow(id);
+      if (!m || m.sector_code !== code || m.type !== label) mapOk = false;
+    }
+    check('migration: صحة→medical, مقاهي→cafe, مطاعم→restaurant, بقالة→grocery, أخرى→services', mapOk);
+    check('migration: the services merchant was "أخرى" before it', preType('20000000-0000-0000-0000-00000000000c') === 'أخرى');
+    const post = postSectorSnapshot;
+    check('NO retroactive effect: every invoice is byte-identical across the migration (amount, vat, category — "أخرى" included — points, status, refunds)',
+      JSON.stringify(post.invoices) === JSON.stringify(pre.invoices) && pre.invoices.length > 0);
+    check('NO retroactive effect: every ledger row and every loyalty balance is byte-identical across the migration',
+      JSON.stringify(post.ledger) === JSON.stringify(pre.ledger) && JSON.stringify(post.loyalty) === JSON.stringify(pre.loyalty) && pre.loyalty.length > 0);
+    check('the old "أخرى" invoice keeps its category (index.html keeps that key as a legacy alias)',
+      post.invoices.some(r => r.id === '40000013-0000-0000-0000-000000000013' && r.category === 'أخرى'));
+    check('NO retroactive effect: every merchant kept its points_hold_days and points_rate; only the label "أخرى" changed (→ خدمات)',
+      pre.merchants.length === post.merchants.length && pre.merchants.every((p, i) => {
+        const n = post.merchants[i];
+        return n.id === p.id && n.points_hold_days === p.points_hold_days && n.points_rate === p.points_rate &&
+          (p.type === 'أخرى' ? n.type === 'خدمات' : n.type === p.type);
+      }));
+    check('migration: before it some branches disagreed with their merchant (default "cafe"); after it none do',
+      pre.branchSectors.length > 0 && (await divergent()) === 0);
+
+    // ---- B) derivation on every write path ----
+    const ins = async (cols, vals) => (await admin(c => c.query(
+      `insert into merchants (name, logo_color${cols ? ', ' + cols : ''}) values ('تجربة قسم', '#000000'${vals ? ', ' + vals : ''}) returning id, type, sector_code, points_hold_days`))).rows[0];
+    const r1 = await ins("type", "'تجزئة'");
+    const r2 = await ins("type", "'مقهى'");
+    const r3 = await ins("sector_code", "'services'");
+    const r4 = await ins("type", "'مواصلات'");
+    const r5 = await ins("sector_code, type", "'medical', 'مطاعم'");
+    check('insert with a type label: تجزئة → retail (label kept), hold 7 by default', r1.sector_code === 'retail' && r1.type === 'تجزئة' && r1.points_hold_days === 7);
+    check('insert with a singular label: مقهى → cafe, label normalized to مقاهي, hold 0', r2.sector_code === 'cafe' && r2.type === 'مقاهي' && r2.points_hold_days === 0);
+    check('insert with only a sector code: services → type خدمات, hold 0', r3.sector_code === 'services' && r3.type === 'خدمات' && r3.points_hold_days === 0);
+    check('insert with an unknown free-text label: falls into services (the old "أخرى" bucket)', r4.sector_code === 'services' && r4.type === 'خدمات');
+    check('insert with both: the CODE wins, the label is derived from it (no disagreement can be stored)', r5.sector_code === 'medical' && r5.type === 'صحة');
+    check('a new merchant\'s auto-created branch settings get the merchant\'s sector, not the "cafe" default',
+      JSON.stringify(await branchSectors(r1.id)) === '["retail"]');
+    await admin(c => c.query(`update merchants set type='صحة' where id=$1`, [r3.id]));
+    check('a legacy write of ONLY the label moves the code with it (and the branch mirror)', (await merchantRow(r3.id)).sector_code === 'medical' && JSON.stringify(await branchSectors(r3.id)) === '["medical"]');
+    const badCode = await tryQ(`update merchants set sector_code='bogus' where id=$1`, [r3.id]);
+    const badBranch = await tryQ(`update branch_settings set sector_code='bogus' where branch_id=(select id from branches where merchant_id=$1 limit 1)`, [r3.id]);
+    check('an invalid sector CODE is rejected on merchants and on branch_settings', !badCode.ok && !badBranch.ok && (await merchantRow(r3.id)).sector_code === 'medical');
+
+    // ---- C) one merchant, two branches: mirror + write-through from every existing path ----
+    const multi = r1.id;
+    await admin(c => c.query(`insert into branches (merchant_id, name) values ($1, 'الفرع الثاني')`, [multi]));
+    check('a SECOND branch is created with the merchant\'s sector too', JSON.stringify(await branchSectors(multi)) === '["retail","retail"]');
+    await admin(c => c.query(`update merchants set sector_code='cafe' where id=$1`, [multi]));
+    check('changing the merchant\'s sector re-mirrors EVERY branch', JSON.stringify(await branchSectors(multi)) === '["cafe","cafe"]' && (await merchantRow(multi)).type === 'مقاهي');
+
+    const branchA = (await admin(c => c.query('select id from branches where merchant_id=$1 order by created_at, id limit 1', [multi]))).rows[0].id;
+    const owner = crypto.randomUUID(), staff = crypto.randomUUID(), kUid = crypto.randomUUID(), strangerK = crypto.randomUUID();
+    for (const u of [owner, staff, kUid, strangerK]) await admin(c => c.query('insert into auth.users (id) values ($1)', [u]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner'),($1,$3,'staff')`, [multi, owner, staff]));
+    const kReq = await asUser(kUid, c => c.query('select * from request_device_pairing()'));
+    await asUser(owner, c => c.query('select * from approve_device_pairing($1,$2)', [kReq.rows[0].pairing_code, branchA]));
+
+    const kioskWrite = await asUser(kUid, c => c.query(`update branch_settings set sector_code='services', biz_name='اسم' where branch_id=$1`, [branchA]));
+    check('kiosk settings screen path (device RLS update): the save succeeds and is WRITE-THROUGH to the merchant',
+      kioskWrite.rowCount === 1 && (await merchantRow(multi)).sector_code === 'services' && (await merchantRow(multi)).type === 'خدمات');
+    check('… and the OTHER branch follows (one merchant, one sector)', JSON.stringify(await branchSectors(multi)) === '["services","services"]');
+    const staffWrite = await asUser(staff, c => c.query(`update branch_settings set sector_code='restaurant' where branch_id=$1`, [branchA]));
+    check('merchant.html path (staff RLS update): write-through too', staffWrite.rowCount === 1 && (await merchantRow(multi)).sector_code === 'restaurant' && JSON.stringify(await branchSectors(multi)) === '["restaurant","restaurant"]');
+    const sameWrite = await asUser(kUid, c => c.query(`update branch_settings set sector_code='restaurant', biz_slogan='س' where branch_id=$1`, [branchA]));
+    check('a save that re-sends the SAME sector (every kiosk save does) changes nothing else', sameWrite.rowCount === 1 && (await merchantRow(multi)).sector_code === 'restaurant');
+    const foreign = await asUser(strangerK, c => c.query(`update branch_settings set sector_code='medical' where branch_id=$1`, [branchA]));
+    check('an unpaired / foreign session matches zero rows and cannot touch the merchant\'s sector', foreign.rowCount === 0 && (await merchantRow(multi)).sector_code === 'restaurant');
+    const clientMerchant = await asUser(owner, async c => { try { const r = await c.query(`update merchants set sector_code='medical' where id=$1`, [multi]); return 'rows:' + r.rowCount; } catch (e) { return 'fail:' + e.message; } });
+    check('even the owner cannot write merchants directly (only through the branch settings path / RPC)', clientMerchant !== 'rows:1' && (await merchantRow(multi)).sector_code === 'restaurant');
+
+    // ---- D) hold days follow a NON-customized default only; owner RPC ----
+    await admin(c => c.query(`update merchants set sector_code='grocery' where id=$1`, [multi]));
+    check('restaurant (0, default) → grocery: hold FOLLOWS the new default (7)', (await merchantRow(multi)).points_hold_days === 7);
+    await admin(c => c.query(`update merchants set sector_code='cafe' where id=$1`, [multi]));
+    check('grocery (7, default) → cafe: hold follows back to 0', (await merchantRow(multi)).points_hold_days === 0);
+    await admin(c => c.query(`update merchants set sector_code='retail' where id=$1`, [multi]));
+    const rpc = (uid, days, mid = multi) => asUser(uid, async c => { try { const r = await c.query('select merchant_set_points_hold_days($1,$2) as d', [mid, days]); return { ok: true, d: r.rows[0].d }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const set3 = await rpc(owner, 3);
+    check('owner sets a custom hold (3) via merchant_set_points_hold_days', set3.ok && set3.d === 3 && (await merchantRow(multi)).points_hold_days === 3);
+    await asUser(kUid, c => c.query(`update branch_settings set sector_code='cafe' where branch_id=$1`, [branchA]));
+    check('a CUSTOMIZED hold (3) is NOT overwritten when the sector changes (retail → cafe), from any path', (await merchantRow(multi)).points_hold_days === 3 && (await merchantRow(multi)).sector_code === 'cafe');
+    const set0 = await rpc(owner, 0);
+    await admin(c => c.query(`update merchants set sector_code='grocery' where id=$1`, [multi]));
+    check('once the owner puts it back to the sector default (0), it follows sector changes again (→ 7)', set0.ok && (await merchantRow(multi)).points_hold_days === 7);
+    const staffRpc = await rpc(staff, 5);
+    const otherOwner = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [otherOwner]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ('20000000-0000-0000-0000-000000000001',$1,'owner')`, [otherOwner]));
+    const otherRpc = await rpc(otherOwner, 5);
+    const kioskRpc = await rpc(kUid, 5);
+    check('merchant_set_points_hold_days is owner-only: staff, another merchant\'s owner and a kiosk are refused',
+      [staffRpc, otherRpc, kioskRpc].every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)) && (await merchantRow(multi)).points_hold_days === 7);
+    const big = await rpc(owner, 366), neg = await rpc(owner, -1), nul = await rpc(owner, null);
+    check('hold days outside 0..365 (or null) are rejected with NOJ_INVALID_HOLD_DAYS', [big, neg, nul].every(x => !x.ok && /NOJ_INVALID_HOLD_DAYS/.test(x.msg)));
+    const grocerPending = async () => JSON.stringify((await admin(c => c.query(`select id, release_at, points_delta, status from point_transactions where merchant_id='20000000-0000-0000-0000-000000000002' and status='pending' order by id`))).rows);
+    const pendingBefore = await grocerPending();
+    await admin(c => c.query(`update merchants set points_hold_days = 30 where id='20000000-0000-0000-0000-000000000002'`));
+    check('changing a hold period is never retroactive: existing pending rows keep their release_at', pendingBefore !== '[]' && (await grocerPending()) === pendingBefore);
+    await admin(c => c.query(`update merchants set points_hold_days = 7 where id='20000000-0000-0000-0000-000000000002'`));
+
+    // ---- E) the hold default rule, in both files, and in merchant.html ----
+    const hd = async (v) => (await admin(c => c.query('select merchant_default_hold_days($1) as d', [v]))).rows[0].d;
+    let hdOk = true;
+    for (const s of SECTORS) if ((await hd(s)) !== (s === 'grocery' || s === 'retail' ? 7 : 0)) hdOk = false;
+    for (const [l, d] of [['بقالة', 7], ['تجزئة', 7], ['مقاهي', 0], ['مطاعم', 0], ['صحة', 0], ['خدمات', 0]]) if ((await hd(l)) !== d) hdOk = false;
+    check('merchant_default_hold_days: grocery/retail = 7, every other sector = 0 (codes and labels)', hdOk);
+    const src = async () => (await admin(c => c.query(`select prosrc from pg_proc where proname='merchant_default_hold_days'`))).rows[0].prosrc;
+    apply('supabase-migration-pending-points.sql');
+    const a1 = await src();
+    apply('supabase-migration-unified-sectors.sql');
+    check('merchant_default_hold_days has the IDENTICAL body in pending-points.sql and unified-sectors.sql (either order)', a1 === (await src()));
+    const html = fs.readFileSync(path.join(REPO_ROOT, 'merchant.html'), 'utf8');
+    const holdConst = html.match(/var SECTOR_HOLD_DEFAULTS=(\{[^}]*\})/);
+    const labelConst = html.match(/var SECTOR_LABELS=(\{[^}]*\})/);
+    const uiHold = holdConst ? Function('return ' + holdConst[1])() : {};
+    const uiLabels = labelConst ? Function('return ' + labelConst[1])() : {};
+    let uiOk = JSON.stringify(Object.keys(uiLabels).sort()) === JSON.stringify([...SECTORS].sort()) && JSON.stringify(Object.keys(uiHold).sort()) === JSON.stringify([...SECTORS].sort());
+    for (const s of SECTORS) if (uiHold[s] !== (await hd(s))) uiOk = false;
+    check('merchant.html offers exactly the six sectors and suggests the SAME default hold as the server for each', uiOk);
+
+    const idx = fs.readFileSync(path.join(REPO_ROOT, 'index.html'), 'utf8');
+    const catSrc = idx.match(/const CAT=(\{[^\n]*\});/);
+    const CATMAP = catSrc ? Function('return ' + catSrc[1])() : {};
+    const pBlock = idx.slice(idx.indexOf('const P={'), idx.indexOf('function ic('));
+    const icons = new Set([...pBlock.matchAll(/^ (\w+):'/gm)].map(m => m[1]));
+    const labels = (await admin(c => c.query(`select public.sector_label(s) as l from unnest($1::text[]) s`, [SECTORS]))).rows.map(r => r.l);
+    check('index.html CAT has an entry (colour + an icon that exists) for every label the server can produce, plus the legacy "أخرى"',
+      [...labels, 'أخرى'].every(l => CATMAP[l] && /^#[0-9A-Fa-f]{6}$/.test(CATMAP[l].c) && icons.has(CATMAP[l].i)) &&
+      CATMAP['تجزئة'] && CATMAP['خدمات'] && CATMAP['تجزئة'].c !== CATMAP['بقالة'].c);
+
+    // ---- F) access to the internals ----
+    const internals = ['sector_code_from_type(text)', 'sector_label(text)', 'merchants_sector_sync_trg()', 'merchants_sector_mirror_trg()', 'branch_settings_sector_sync_trg()'];
+    const priv = await admin(c => c.query(`select bool_or(has_function_privilege(r, ('public.' || f)::regprocedure, 'execute')) as any
+      from unnest($1::text[]) f, unnest(array['anon','authenticated']) r`, [internals]));
+    const rpcPriv = await admin(c => c.query(`select has_function_privilege('anon','public.merchant_set_points_hold_days(uuid,integer)','execute') as anon,
+      has_function_privilege('authenticated','public.merchant_set_points_hold_days(uuid,integer)','execute') as authed`));
+    check('the sector helpers and trigger functions are not executable by anon/authenticated; the RPC is authenticated-only',
+      priv.rows[0].any === false && rpcPriv.rows[0].anon === false && rpcPriv.rows[0].authed === true);
+
+    // ---- H) re-running the migration changes nothing ----
+    const snap = async () => {
+      const o = {};
+      for (const [k, q] of Object.entries(SECTOR_SNAPSHOT_SQL)) o[k] = (await admin(c => c.query(q))).rows;
+      o.bs = (await admin(c => c.query('select branch_id, sector_code from branch_settings order by branch_id'))).rows;
+      return JSON.stringify(o);
+    };
+    const s1 = await snap();
+    apply('supabase-migration-unified-sectors.sql');
+    check('migration is idempotent: a re-run changes no invoice, ledger row, balance, merchant or branch setting', s1 === (await snap()));
+    check('end state: no branch disagrees with its merchant, no merchant label disagrees with its code', (await divergent()) === 0);
+
+    await admin(c => c.query('delete from merchants where id = any($1)', [[r1.id, r2.id, r3.id, r4.id, r5.id]]));
   }
 
   // =========================================================================

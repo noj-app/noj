@@ -779,7 +779,10 @@ const Store={
   clearAll:function(){Object.keys(K).forEach(function(k){Store.remove(K[k])})}
 };
 
-const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'مقاهي':{c:'#22A87A',i:'coffee'},'صحة':{c:'#0F6E6E',i:'hospital'},'أخرى':{c:'#64748B',i:'dots'}};
+// الأقسام الستة (merchants.type، مشتق من merchants.sector_code — راجع
+// supabase-migration-unified-sectors.sql). 'أخرى' مفتاح قديم فقط: فواتير ما قبل
+// التوحيد تبقى بتصنيفها 'أخرى' (لا تُعدَّل الفواتير)، فتُعرض بنفس هيئة الخدمات.
+const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'تجزئة':{c:'#E07B39',i:'gift'},'مقاهي':{c:'#22A87A',i:'coffee'},'صحة':{c:'#0F6E6E',i:'hospital'},'خدمات':{c:'#64748B',i:'spark'},'أخرى':{c:'#64748B',i:'spark'}};
 // Invoices, category totals, and rewards all come from Supabase now (see
 // loadUserData below) — these start empty and are populated right after
 // login, instead of holding mock fixtures.
