@@ -720,6 +720,11 @@ function loadTurnstileScript(){
 }
 var turnstileToken=null;
 var turnstileWidgetId=null;
+// كل رمز سُلِّم لنداء مرة واحدة لا يُسلَّم ثانية أبداً (Cloudflare يستهلكه مرة
+// واحدة)، حتى لو أعاد الودجت القيمة نفسها بعد reset أو بقي حياً في متغيّر.
+var usedTurnstileTokens={};
+// فشل تحميل سكربت Cloudflare نفسه (حجب شبكة): لا ننتظر رمزاً لن يصل.
+var turnstileUnavailable=false;
 function renderTurnstileWidget(){
   loadTurnstileScript().then(function(){
     var el=document.getElementById('turnstile-container');
@@ -734,7 +739,7 @@ function renderTurnstileWidget(){
       'expired-callback':function(){turnstileToken=null},
       'error-callback':function(){turnstileToken=null}
     });
-  }).catch(function(e){console.error('NOJ: تعذّر تحميل Turnstile',e)});
+  }).catch(function(e){turnstileUnavailable=true;console.error('NOJ: تعذّر تحميل Turnstile',e)});
 }
 // يُستهلَك الرمز مرة واحدة لدى Cloudflare — بعد كل استخدام (ناجحاً أو
 // فاشلاً) نطلب رمزاً جديداً بدل ترك رمز قديم يُعاد استخدامه خطأً.
@@ -752,12 +757,15 @@ function resetTurnstileToken(){
 // فشل تحميل Cloudflare كلياً (حجب شبكة، إلخ)، رغم أن CAPTCHA قد تكون غير
 // مُفعَّلة في Supabase أصلاً فلا تحتاج توكناً على الإطلاق.
 function waitForTurnstileToken(maxMs){
-  if(turnstileToken)return Promise.resolve(turnstileToken);
+  var ready=function(){return turnstileToken&&!usedTurnstileTokens[turnstileToken]};
+  if(ready())return Promise.resolve(turnstileToken);
+  if(turnstileUnavailable)return Promise.resolve(null);
   return new Promise(function(resolve){
     var waited=0;
     var iv=setInterval(function(){
       waited+=150;
-      if(turnstileToken||waited>=maxMs){clearInterval(iv);resolve(turnstileToken)}
+      if(ready()){clearInterval(iv);resolve(turnstileToken)}
+      else if(waited>=maxMs||turnstileUnavailable){clearInterval(iv);resolve(null)}
     },150);
   });
 }
@@ -769,8 +777,19 @@ function waitForTurnstileToken(maxMs){
 // إرجاعه ويبدأ توليد رمز جديد للنداء التالي.
 async function freshTurnstileToken(maxMs){
   var token=await waitForTurnstileToken(maxMs);
+  if(token)usedTurnstileTokens[token]=true;
   resetTurnstileToken();
   return token;
+}
+// مهلة انتظار رمز جديد: وضع Managed قد يحتاج ثوانيَ بعد reset (أو نقرة من
+// العميل على الودجت الظاهر) — 2.5 ثانية كانت تنتهي غالباً بلا رمز فيُرسَل
+// الطلب بلا captchaToken ويُرفض captcha_failed.
+var TURNSTILE_WAIT_MS=window.__NOJ_TURNSTILE_WAIT_MS__||8000;
+// الأرقام العربية/الفارسية (٠-٩ / ۰-۹) → إنجليزية. \D في JavaScript لا يعرف إلا 0-9،
+// فكان "٥٠٠٠٠٠٠٠٠" يُمسح كله ويبقى الحقل فارغاً.
+function toAsciiDigits(v){
+  return String(v==null?'':v).replace(/[\u0660-\u0669]/g,function(d){return String(d.charCodeAt(0)-0x0660)})
+    .replace(/[\u06F0-\u06F9]/g,function(d){return String(d.charCodeAt(0)-0x06F0)});
 }
 
 const STORAGE_PREFIX='noj_';
@@ -2071,7 +2090,7 @@ function bindAuth(){
   var ph=document.getElementById('ph');
   if(ph){
     ph.oninput=function(){
-      this.value=this.value.replace(/\D/g,'').slice(0,9);
+      this.value=toAsciiDigits(this.value).replace(/\D/g,'').slice(0,9);
       A.phone=this.value;
       if(A.err){
         A.err='';
@@ -2097,7 +2116,7 @@ function bindAuth(){
   }
   [].forEach.call(otps,function(box,idx){
     box.oninput=function(){
-      var v=this.value.replace(/\D/g,'');
+      var v=toAsciiDigits(this.value).replace(/\D/g,'');
       // support pasting the whole code into one box
       if(v.length>1){
         for(var k=0;k<otps.length;k++){otps[k].value=v[k]||'';
@@ -2142,92 +2161,114 @@ function bindAuth(){
   };
 }
 
-// يُستدعى عند الضغط على "إرسال رمز التحقق" في شاشة الجوال. يُنشئ جلسة
-// مجهولة إن لم توجد بعد (CAPTCHA على signInAnonymously نفسها)، ثم يرقّيها
-// برقم حقيقي عبر updateUser (CAPTCHA أيضاً)، أو يتحوّل لتسجيل دخول
-// (signInWithOtp) إن كان الرقم مسجَّلاً مسبقاً بهوية Auth حقيقية أخرى
-// (جهاز/متصفح سابق لنفس العميل). كل نداء من هذه الثلاثة يطلب رمز Turnstile
-// طازجاً خاصاً به عبر freshTurnstileToken — مؤكَّد عملياً أن إعادة استخدام
-// نفس الرمز بين نداءين تفشل بصمت (راجع تعليق freshTurnstileToken).
+// يُستدعى عند الضغط على "إرسال رمز التحقق" في شاشة الجوال. الترتيب (بعد عطل حي:
+// عميل مسجَّل مسبقاً لا يستطيع الدخول من جهاز جديد):
+//   1) جلسة مجهولة إن لم توجد (signInAnonymously، CAPTCHA) — لازمة لـrecord_otp_request.
+//   2) **حساب موجود أولاً**: signInWithOtp({shouldCreateUser:false}) — إن كان الرقم
+//      مسجَّلاً يُرسَل الرمز ويُتحقَّق منه بنوع 'sms' فيدخل العميل حسابه نفسه، **دون
+//      أي updateUser** (كانت تُرجع phone_exists ثم يُعاد استخدام رمز Turnstile
+//      مستهلَك في /otp ⇒ captcha_failed).
+//   3) لا حساب لهذا الرقم (Supabase يرفض بـ"Signups not allowed for otp") ⇒ عميل جديد:
+//      updateUser({phone}) يرقّي الجلسة المجهولة نفسها ويُتحقَّق بنوع 'phone_change'.
+//      PUT /user لا يتحقق من CAPTCHA أصلاً (supabase-js لا يمرّر captchaToken فيه)،
+//      فلا نستهلك له رمزاً.
+// كل نداء يحتاج CAPTCHA يأخذ رمزاً طازجاً **لم يُستخدم من قبل** (freshTurnstileToken).
+// النوع المحفوظ في A.verifyType هو دائماً نوع المسار الذي أُرسل به الرمز فعلاً.
+// زر الإرسال يُعدَّل مكانه (لا renderAuth) كي لا يُهدَم ودجت Turnstile ورمزه الجاهز.
+function setAuthBtnBusy(id,busy,label){
+  var b=document.getElementById(id);
+  if(b){b.disabled=!!busy;b.textContent=label}
+}
+function isNoAccountError(err){
+  var code=(err&&err.code)||'';
+  var msg=((err&&err.message)||'').toLowerCase();
+  return code==='otp_disabled'||code==='user_not_found'||/signups? not allowed|user not found/.test(msg);
+}
+function otpSendErrorText(err,token){
+  var msg=((err&&err.message)||'').toLowerCase();
+  if(/captcha/.test(msg))return token?'تعذّر التحقق الأمني، حاول مرة أخرى بعد قليل.':'أكمل التحقق الأمني الظاهر أسفل الزر ثم حاول مرة أخرى.';
+  if(/rate|too many|for security purposes/.test(msg))return 'لقد تجاوزت الحد المسموح من المحاولات، حاول لاحقاً.';
+  return 'تعذّر إرسال رمز التحقق، تحقق من الرقم وحاول مرة أخرى.';
+}
 async function sendOtp(){
   if(A.phone.length<9||A.phone[0]!=='5'){
     A.err='أدخل رقم جوال سعودي صحيح يبدأ بـ 5 (9 أرقام).';
     renderAuth();return;
   }
-  A.sending=true;A.err='';renderAuth();
+  A.sending=true;A.err='';
+  setAuthBtnBusy('send',true,'جارٍ الإرسال...');
+  var fail=function(text){A.sending=false;A.err=text;renderAuth()};
 
   var sb=await getSb();
-  if(!sb){A.sending=false;A.err='تعذّر الاتصال بالخادم.';renderAuth();return}
+  if(!sb)return fail('تعذّر الاتصال بالخادم.');
 
   try{
     var sessionRes=await sb.auth.getSession();
     if(!sessionRes.data||!sessionRes.data.session){
-      var captchaToken1=await freshTurnstileToken(2500);
+      var captchaToken1=await freshTurnstileToken(TURNSTILE_WAIT_MS);
       var signInRes=await sb.auth.signInAnonymously({options:{captchaToken:captchaToken1||undefined}});
       if(signInRes.error)throw signInRes.error;
     }
   }catch(e){
-    A.sending=false;A.err='تعذّر إنشاء جلسة، أعد تحميل الصفحة وحاول مرة أخرى.';renderAuth();return;
+    return fail(/captcha/i.test((e&&e.message)||'')?otpSendErrorText(e,null):'تعذّر إنشاء جلسة، أعد تحميل الصفحة وحاول مرة أخرى.');
   }
 
   try{
     var otpLimitRes=await sb.rpc('record_otp_request');
     if(otpLimitRes.error)throw otpLimitRes.error;
   }catch(e){
-    A.sending=false;
-    A.err=/NOJ_OTP_RATE_LIMITED/.test((e&&e.message)||'')?'لقد تجاوزت الحد المسموح من المحاولات، حاول لاحقاً.':'تعذّر إرسال رمز التحقق، حاول مرة أخرى.';
-    renderAuth();return;
+    return fail(/NOJ_OTP_RATE_LIMITED/.test((e&&e.message)||'')?'لقد تجاوزت الحد المسموح من المحاولات، حاول لاحقاً.':'تعذّر إرسال رمز التحقق، حاول مرة أخرى.');
   }
 
   var fullPhone='+966'+A.phone;
-  var captchaToken2=await freshTurnstileToken(2500);
-  var res=await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken2||undefined});
-  if(res.error){
-    var msg=(res.error.message||'').toLowerCase();
-    if(/already|exists|registered/.test(msg)){
-      // الرقم مرتبط بهوية Auth حقيقية أخرى (جهاز/متصفح سابق) — تسجيل دخول
-      // بدل ترقية هذه الجلسة المجهولة. الكلمات المطابَقة هنا تقريبية؛
-      // راجع رسالة/رمز الخطأ الفعلي من Supabase قبل الاعتماد الحي.
-      var captchaToken3=await freshTurnstileToken(2500);
-      var signInOtpRes=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken3||undefined}});
-      if(signInOtpRes.error){
-        A.sending=false;A.err='تعذّر إرسال رمز التحقق، حاول مرة أخرى.';renderAuth();return;
-      }
-      A.verifyType='sms';
-    }else{
-      A.sending=false;
-      A.err=/captcha/i.test(msg)?'تعذّر التحقق الأمني، أعد تحميل الصفحة وحاول مرة أخرى.':'تعذّر إرسال رمز التحقق، تحقق من الرقم وحاول مرة أخرى.';
-      renderAuth();return;
-    }
-  }else{
+  var captchaToken2=await freshTurnstileToken(TURNSTILE_WAIT_MS);
+  var existing=await sb.auth.signInWithOtp({phone:fullPhone,options:{shouldCreateUser:false,captchaToken:captchaToken2||undefined}});
+  if(!existing.error){
+    A.verifyType='sms';
+  }else if(isNoAccountError(existing.error)){
+    var upgrade=await sb.auth.updateUser({phone:fullPhone});
+    if(upgrade.error)return fail(otpSendErrorText(upgrade.error,null));
     A.verifyType='phone_change';
+  }else{
+    return fail(otpSendErrorText(existing.error,captchaToken2));
   }
 
   A.sending=false;A.step='code';A.code='';A.err='';
   renderAuth();startTimer();
 }
 
-// نفس منطق sendOtp تقريباً لكن دون تغيير A.step (نحن أصلاً في شاشة الرمز)
-// — تُستدعى من زر "إعادة الإرسال" فقط، ولا تُستدعى تلقائياً أبداً.
+// إعادة الإرسال من شاشة الرمز بنفس المسار الذي أُرسل به الرمز الأول (A.verifyType)،
+// فيبقى نوع التحقق مطابقاً: 'sms' ⇒ signInWithOtp برمز Turnstile جديد؛ 'phone_change'
+// ⇒ updateUser (بلا CAPTCHA). لا تُستدعى تلقائياً أبداً.
 async function resendOtp(){
-  var captchaToken=await freshTurnstileToken(2500);
-
+  setAuthBtnBusy('resend',true,'جارٍ الإرسال...');
+  var restore=function(){var rb=document.getElementById('resend');if(rb){rb.disabled=false;rb.innerHTML='لم يصلك الرمز؟ <b>إعادة الإرسال</b>'}};
   var sb=await getSb();
-  if(!sb){toast('تعذّر الاتصال بالخادم');return}
+  if(!sb){toast('تعذّر الاتصال بالخادم');restore();return}
 
   try{
     var otpLimitRes=await sb.rpc('record_otp_request');
     if(otpLimitRes.error)throw otpLimitRes.error;
   }catch(e){
     toast(/NOJ_OTP_RATE_LIMITED/.test((e&&e.message)||'')?'لقد تجاوزت الحد المسموح من المحاولات، حاول لاحقاً.':'تعذّر إعادة الإرسال');
+    restore();
     return;
   }
 
   var fullPhone='+966'+A.phone;
-  var res=A.verifyType==='sms'
-    ?await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}})
-    :await sb.auth.updateUser({phone:fullPhone},{captchaToken:captchaToken||undefined});
-  if(res.error){toast('تعذّر إعادة الإرسال، حاول مرة أخرى لاحقاً.');return}
+  var captchaToken=null;
+  var res;
+  if(A.verifyType==='sms'){
+    captchaToken=await freshTurnstileToken(TURNSTILE_WAIT_MS);
+    res=await sb.auth.signInWithOtp({phone:fullPhone,options:{shouldCreateUser:false,captchaToken:captchaToken||undefined}});
+  }else{
+    res=await sb.auth.updateUser({phone:fullPhone});
+  }
+  if(res.error){
+    toast(otpSendErrorText(res.error,captchaToken));
+    restore();
+    return;
+  }
 
   A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
 }
