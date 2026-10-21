@@ -2918,15 +2918,19 @@ async function asServiceRole(fn) {
       (await alertsFor(r1.row.id)).length === 1 && (await alertsFor(r1.row.id))[0].merchant_id === MATAM && (await alertsFor(r2.row.id)).length === 1);
     check('a health appointment writes no alert', (await alertsFor(hAppt.rows[0].id)).length === 0);
     const setAlerts = (uid, mid, on) => tryAs(uid, 'select merchant_set_booking_alerts($1,$2) as v', [mid, on]);
-    const alOff = await setAlerts(matamStaff, MATAM, false);
+    const alStaff = await setAlerts(matamStaff, MATAM, false);
+    const flagNow = async () => (await admin(c => c.query('select booking_alerts_enabled from merchants where id=$1', [MATAM]))).rows[0].booking_alerts_enabled;
+    check('merchant_set_booking_alerts is OWNER-only: staff is refused and the switch stays on',
+      !alStaff.ok && /لا تملك صلاحية/.test(alStaff.msg) && (await flagNow()) === true);
+    const alOff = await setAlerts(matamOwner, MATAM, false);
     const quiet = await create(nora.uid, MATAM, inHours(70), 2, null, null);
     const alOn = await setAlerts(matamOwner, MATAM, true);
     const loud = await create(nora.uid, MATAM, inHours(71), 2, null, null);
-    check('merchant_set_booking_alerts (owner OR staff): off → a new reservation writes no alert; back on → it does',
+    check('merchant_set_booking_alerts (owner): off → a new reservation writes no alert; back on → it does',
       alOff.ok && alOff.row.v === false && (await alertsFor(quiet.row.id)).length === 0 && alOn.ok && alOn.row.v === true && (await alertsFor(loud.row.id)).length === 1);
     const alRefused = [await setAlerts(svcOwner, MATAM, false), await setAlerts(nora.uid, MATAM, false), await setAlerts(stranger, MATAM, false)];
     const alNull = await setAlerts(matamOwner, MATAM, null);
-    check('…another merchant, a customer or a stranger cannot switch it; NULL is refused', alRefused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)) && !alNull.ok && /NOJ_INVALID_BOOKING_FLAG/.test(alNull.msg));
+    check('…another merchant, a customer or a stranger cannot switch it either; NULL is refused', alRefused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)) && !alNull.ok && /NOJ_INVALID_BOOKING_FLAG/.test(alNull.msg) && (await flagNow()) === true);
     const readAlerts = async (uid) => (await tryAs(uid, 'select merchant_id, appointment_id from booking_alerts', [])).r.rows;
     const staffAlerts = await readAlerts(matamStaff);
     check('booking_alerts RLS: a member reads ONLY their merchant\'s alerts; another merchant\'s owner and a customer read none of them',

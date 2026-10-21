@@ -178,7 +178,7 @@
       }
       if (name === 'merchant_set_booking_alerts') {
         (state.alertsCalls = state.alertsCalls || []).push(args);
-        if (!isMemberOf(args.p_merchant_id)) return Promise.resolve(noAccess);
+        if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
         var am = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
         am.booking_alerts_enabled = !!args.p_enabled;
         return Promise.resolve({ data: am.booking_alerts_enabled, error: null });

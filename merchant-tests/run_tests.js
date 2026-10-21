@@ -1208,13 +1208,28 @@ async function loginFlow(page, phone, otp) {
     check('55) الموظف يرى سياسة الإلغاء نصاً فقط، بلا أدوات تعديلها', !!(await page.$('#bkPolicyText')) && (await page.$('#bkCancelAllowed')) === null && (await page.$('#bkPolicySave')) === null);
     const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_booking_policy', { p_merchant_id: 'merchant-1', p_cancel_allowed: false, p_cutoff_hours: 1 })).error);
     check('55) دفاع في العمق: نداء merchant_set_booking_policy بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    check('56) الموظف يرى حالة التنبيهات (مفعّلة) بلا زر تغييرها، مع "للمالك فقط"',
+      (await page.textContent('#bkAlertsBadge')) === 'مفعّلة' && (await page.$('#bkAlertsToggle')) === null &&
+      /للمالك فقط/.test(await page.textContent('#bkAlertsOwnerOnly')));
+    const directAl = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_booking_alerts', { p_merchant_id: 'merchant-1', p_enabled: false })).error);
+    check('56) دفاع في العمق: نداء merchant_set_booking_alerts بجلسة موظف يُرفض، والإعداد يبقى مفعّلاً',
+      directAl && /لا تملك صلاحية/.test(directAl.message) && (await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'))).booking_alerts_enabled === true);
+    await page.waitForFunction(() => BK_ALERT.status === 'SUBSCRIBED', null, { timeout: 3000 });
+    await page.click('#viewTabs [data-view="manage"]');
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 41, merchant_id: 'merchant-1', appointment_id: 'a-41', created_at: new Date(Date.now() + 1000).toISOString() }));
+    await page.waitForSelector('#bkBadge', { timeout: 2000 }).catch(() => {});
+    check('56) الموظف ما زال يستقبل التنبيه (صوت + عدّاد) ما دام مفعّلاً', (await page.textContent('#bkBadge').catch(() => '')) === '1' && (await page.evaluate(() => BK_ALERT.sounds)) === 1);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
     await page.click('#bkAlertsToggle');
-    await page.waitForFunction(() => (document.getElementById('bkAlertsBadge') || {}).textContent === 'متوقف', null, { timeout: 3000 });
+    await page.waitForFunction(() => (document.getElementById('bkAlertsBadge') || {}).textContent === 'موقفة', null, { timeout: 3000 });
     const ac = await page.evaluate(() => window.__TEST__.getAlertsCalls());
-    check('56) مفتاح التنبيهات (للموظف أيضاً): merchant_set_booking_alerts(false) ويُفصل الاستماع', ac.length === 1 && ac[0].p_enabled === false &&
+    check('56) المالك يوقف التنبيهات: merchant_set_booking_alerts(false) ويُفصل الاستماع', ac.length === 1 && ac[0].p_enabled === false &&
       (await page.evaluate(() => window.__TEST__.getChannels())).every((c) => c.removed));
     await page.click('#bkAlertsToggle');
-    await page.waitForFunction(() => (document.getElementById('bkAlertsBadge') || {}).textContent === 'يعمل', null, { timeout: 3000 });
+    await page.waitForFunction(() => (document.getElementById('bkAlertsBadge') || {}).textContent === 'مفعّلة', null, { timeout: 3000 });
     await page.waitForTimeout(100);
     check('56) …وإعادة التشغيل تعيد الاستماع', (await page.evaluate(() => window.__TEST__.getChannels())).some((c) => !c.removed));
     await context.close();

@@ -1161,13 +1161,18 @@ function bookingPolicyHtml(S){
       :'')+
   '</div>';
 }
+/* التنبيه نفسه (الصوت والعدّاد) يصل المالك والموظف ما دام مفعّلاً؛ تشغيله وإيقافه
+   للمالك فقط (merchant_set_booking_alerts تتحقق من الدور في الخادم أيضاً). */
 function bookingAlertsHtml(S){
   var on=S.alertsEnabled;
+  var owner=activeRole()==='owner';
   return '<div class="card" id="bkAlertsCard" style="margin-bottom:14px">'+
     '<div class="inv-top"><b>تنبيه الحجوزات الجديدة</b>'+
-      '<span class="badge '+(on?'active':'revoked')+'" id="bkAlertsBadge">'+(on?'يعمل':'متوقف')+'</span></div>'+
+      '<span class="badge '+(on?'active':'revoked')+'" id="bkAlertsBadge">'+(on?'مفعّلة':'موقفة')+'</span></div>'+
     '<p class="hint" style="margin:6px 0 10px">صوت وعدّاد على تبويب "الحجوزات" لحظة وصول طلب حجز جديد، لكل من يفتح اللوحة لهذا التاجر.</p>'+
-    '<button type="button" class="btn-outline" id="bkAlertsToggle"'+(S.alertsSaving?' disabled':'')+'>'+(on?'إيقاف التنبيهات':'تشغيل التنبيهات')+'</button>'+
+    (owner
+      ?'<button type="button" class="btn-outline" id="bkAlertsToggle"'+(S.alertsSaving?' disabled':'')+'>'+(on?'إيقاف التنبيهات':'تشغيل التنبيهات')+'</button>'
+      :'<p class="hint" id="bkAlertsOwnerOnly">تشغيل التنبيهات وإيقافها للمالك فقط.</p>')+
   '</div>';
 }
 function fmtPrice(p){return p===null||p===undefined||p===''?'بلا سعر':Number(p).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' ر.س'}
@@ -1312,7 +1317,7 @@ function bindBookingSettings(S){
   };
   var al=document.getElementById('bkAlertsToggle');
   if(al)al.onclick=async function(){
-    if(S.alertsSaving)return;
+    if(activeRole()!=='owner'||S.alertsSaving)return;
     var want=!S.alertsEnabled;
     S.alertsSaving=true;S.err='';renderApp();
     var sb=await getSb();

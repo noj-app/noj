@@ -51,9 +51,9 @@
 --   9. new-booking alerts: a trigger writes one booking_alerts row per new
 --      reservation (no customer data — just merchant + reservation id) when
 --      merchants.booking_alerts_enabled is on; merchant.html listens to it
---      through Realtime (sound + counter on the tab). Owner or staff switch
---      it with merchant_set_booking_alerts(); old alert rows are purged
---      daily by pg_cron.
+--      through Realtime (sound + counter on the tab — owner AND staff hear
+--      them). Only the OWNER switches it, with merchant_set_booking_alerts();
+--      old alert rows are purged daily by pg_cron.
 --
 -- PRIVACY: the merchant sees, per reservation, the customer's profile name
 -- and the LAST 4 digits of their phone only (enough to receive them at the
@@ -555,8 +555,9 @@ $$;
 revoke execute on function public.merchant_set_booking_policy(uuid, boolean, integer) from public, anon;
 grant execute on function public.merchant_set_booking_policy(uuid, boolean, integer) to authenticated;
 
--- New-booking alerts on/off — owner OR staff (an operational switch, like
--- silencing a phone at the counter), saved per merchant.
+-- New-booking alerts on/off — OWNER only (same check as
+-- merchant_set_booking_policy), saved per merchant. Staff still receive the
+-- alerts while they are on; they just cannot switch them.
 create or replace function public.merchant_set_booking_alerts(p_merchant_id uuid, p_enabled boolean)
 returns boolean
 language plpgsql
@@ -568,7 +569,7 @@ declare
 begin
   if not exists (
     select 1 from public.merchant_members
-    where merchant_id = p_merchant_id and auth_user_id = auth.uid()
+    where merchant_id = p_merchant_id and auth_user_id = auth.uid() and role = 'owner'
   ) then
     raise exception 'لا تملك صلاحية على هذا التاجر';
   end if;
