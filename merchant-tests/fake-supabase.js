@@ -347,9 +347,11 @@
             state.usedCaptchaTokens.push(token);
           }
           scenario.__pendingPhone = args.phone;
+          (state.otpSends = state.otpSends || []).push({ phone: args.phone, captchaToken: args.options && args.options.captchaToken });
           return Promise.resolve({ data: {}, error: null });
         },
         verifyOtp: function (args) {
+          (state.verifyCalls = state.verifyCalls || []).push({ phone: args.phone, token: args.token, type: args.type });
           if (args.token !== (scenario.validOtp || '123456')) {
             return Promise.resolve({ data: null, error: { message: 'توكن غير صحيح' } });
           }
@@ -405,6 +407,8 @@
       getPolicyCalls: function () { return (state.policyCalls || []).slice(); },
       getAlertsCalls: function () { return (state.alertsCalls || []).slice(); },
       getServiceCalls: function () { return (state.serviceCalls || []).slice(); },
+      getOtpSends: function () { return (state.otpSends || []).slice(); },
+      getVerifyCalls: function () { return (state.verifyCalls || []).slice(); },
       getBookingListCalls: function () { return (state.bookingListCalls || []).slice(); },
       getBookingStatusCalls: function () { return (state.bookingStatusCalls || []).slice(); },
       getBookingToggleCalls: function () { return (state.bookingToggleCalls || []).slice(); },

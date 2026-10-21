@@ -1345,6 +1345,47 @@ async function loginFlow(page, phone, otp) {
     await context.close();
   }
 
+  // =========================================================================
+  // 64-66) الأرقام العربية والرمز الطازج لكل طلب (بعد عطل دخول تطبيق نوج الحي)
+  // =========================================================================
+  {
+    const { context, page } = await openMerchant(browser, { scenario: baseScenario({ captchaEnabled: true }) });
+    await page.waitForTimeout(150);
+    await page.fill('#ph', '٥١٢٣٤٥٦٧٨');
+    check('64) خانة الجوال تحوّل الأرقام العربية إلى إنجليزية', (await page.inputValue('#ph')) === '512345678');
+    await page.click('#send');
+    await page.waitForSelector('[data-otp="0"]', { timeout: 10000 }).catch(() => {});
+    const boxes = await page.$$('[data-otp]');
+    const code = '١٢٣٤٥٦';
+    for (let i = 0; i < Math.min(6, boxes.length); i++) await boxes[i].fill(code[i]);
+    await page.waitForSelector('#app', { state: 'visible', timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const sends = await page.evaluate(() => window.__TEST__.getOtpSends());
+    const ver = await page.evaluate(() => window.__TEST__.getVerifyCalls());
+    check('64) الرقم المُرسَل بأرقام إنجليزية، والرمز العربي يُتحقَّق منه 123456 بنوع sms',
+      sends.length === 1 && sends[0].phone === '+966512345678' && ver.length === 1 && ver[0].token === '123456' && ver[0].type === 'sms');
+    const inApp = await page.waitForSelector('#pairCode', { timeout: 5000 }).then(() => true, () => false);
+    if (inApp) await page.fill('#pairCode', '٦٥٤٣٢١');
+    check('65) رمز إقران شاشة نوج بأرقام عربية يُحوَّل', inApp && (await page.inputValue('#pairCode')) === '654321');
+    if (inApp) await page.fill('#pinInput', '١٢٣٤');
+    check('65) رمز PIN بأرقام عربية يُحوَّل', inApp && (await page.inputValue('#pinInput')) === '1234');
+    await context.close();
+  }
+  {
+    // ودجت أبطأ من مهلة 2.5 ثانية القديمة: الإرسال وإعادة الإرسال ينتظران رمزاً جديداً ولا يرسلان بلا رمز
+    const { context, page } = await openMerchant(browser, { scenario: baseScenario({ captchaEnabled: true, turnstileVerifyMs: 3500 }) });
+    await page.waitForTimeout(3700);
+    await page.fill('#ph', '512345678');
+    await page.click('#send');
+    await page.waitForSelector('[data-otp="0"]', { timeout: 10000 }).catch(() => {});
+    await page.evaluate(() => resendOtp());
+    await page.waitForFunction(() => window.__TEST__.getOtpSends().length === 2, null, { timeout: 12000 }).catch(() => {});
+    const sends = await page.evaluate(() => window.__TEST__.getOtpSends());
+    check('66) ودجت بطيء (3.5 ثانية): الإرسال وإعادة الإرسال نجحا برمزين مختلفين (لا captcha_failed)',
+      sends.length === 2 && sends.every((x) => x.captchaToken) && sends[0].captchaToken !== sends[1].captchaToken);
+    await context.close();
+  }
+
   await browser.close();
   console.log('\n=== MERCHANT E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));

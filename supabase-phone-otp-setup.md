@@ -105,8 +105,9 @@ OAuth فقط. صفحة [Identity Linking](https://supabase.com/docs/guides/auth/
   *"When a test phone number requests an OTP, the Auth service skips SMS delivery and accepts only
   the mapped code"* — أي طلب OTP لهذا الرقم **لا يستدعي الـ Hook إطلاقاً ولا يُرسَل عبر Unifonic**،
   Auth نفسها تتجاوز خطوة الإرسال بالكامل قبل الوصول لأي مزوّد (ولذلك لا يختبر مسألة أولوية Twilio
-  مقابل الـ hook المذكورة في القسم ٣). يُستخدم لاختبار مسار `updateUser`/`verifyOtp` و
-  `claim_or_create_verified_profile()` كاملاً بتكلفة صفر.
+  مقابل الـ hook المذكورة في القسم ٣). يُستخدم لاختبار مساري الدخول كليهما بتكلفة صفر: رقم بلا
+  حساب (`updateUser` ثم `verifyOtp` بنوع `phone_change`) ورقم له حساب مسبقاً من جهاز جديد (`signInWithOtp`
+  بـ`shouldCreateUser:false` ثم `verifyOtp` بنوع `sms`)، ثم `claim_or_create_verified_profile()`.
 - اختبار الـ Hook **نفسه** (التوقيع، الرفض قبل +966، استدعاء Unifonic) جرى محلياً عبر
   `deno test` (انظر `supabase/functions/send-sms-hook/hook.test.ts`) — أرقام الاختبار هنا لا تغطيه
   لأنها لا تصل إليه أصلاً (نفس المصدر أعلاه).

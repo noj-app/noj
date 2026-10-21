@@ -242,6 +242,10 @@ function loadTurnstileScript(){
 }
 var turnstileToken=null;
 var turnstileWidgetId=null;
+// نفس قاعدة index.html: الرمز يُسلَّم لنداء واحد فقط ولا يُعاد أبداً، ولا ننتظر
+// رمزاً لن يصل إن فشل تحميل سكربت Cloudflare نفسه.
+var usedTurnstileTokens={};
+var turnstileUnavailable=false;
 function renderTurnstileWidget(){
   loadTurnstileScript().then(function(){
     var el=document.getElementById('turnstile-container');
@@ -254,26 +258,37 @@ function renderTurnstileWidget(){
       'expired-callback':function(){turnstileToken=null},
       'error-callback':function(){turnstileToken=null}
     });
-  }).catch(function(e){console.error('NOJ merchant: تعذّر تحميل Turnstile',e)});
+  }).catch(function(e){turnstileUnavailable=true;console.error('NOJ merchant: تعذّر تحميل Turnstile',e)});
 }
 function resetTurnstileToken(){
   turnstileToken=null;
   if(turnstileWidgetId!==null&&window.turnstile){try{turnstile.reset(turnstileWidgetId)}catch(e){}}
 }
 function waitForTurnstileToken(maxMs){
-  if(turnstileToken)return Promise.resolve(turnstileToken);
+  var ready=function(){return turnstileToken&&!usedTurnstileTokens[turnstileToken]};
+  if(ready())return Promise.resolve(turnstileToken);
+  if(turnstileUnavailable)return Promise.resolve(null);
   return new Promise(function(resolve){
     var waited=0;
     var iv=setInterval(function(){
       waited+=150;
-      if(turnstileToken||waited>=maxMs){clearInterval(iv);resolve(turnstileToken)}
+      if(ready()){clearInterval(iv);resolve(turnstileToken)}
+      else if(waited>=maxMs||turnstileUnavailable){clearInterval(iv);resolve(null)}
     },150);
   });
 }
 async function freshTurnstileToken(maxMs){
   var token=await waitForTurnstileToken(maxMs);
+  if(token)usedTurnstileTokens[token]=true;
   resetTurnstileToken();
   return token;
+}
+// وضع Managed قد يحتاج ثوانيَ لإصدار رمز جديد بعد reset — 2.5 ثانية كانت قصيرة.
+var TURNSTILE_WAIT_MS=window.__NOJ_TURNSTILE_WAIT_MS__||8000;
+// الأرقام العربية/الفارسية → إنجليزية (\D لا يعرف إلا 0-9 فكانت تُمسح).
+function toAsciiDigits(v){
+  return String(v==null?'':v).replace(/[\u0660-\u0669]/g,function(d){return String(d.charCodeAt(0)-0x0660)})
+    .replace(/[\u06F0-\u06F9]/g,function(d){return String(d.charCodeAt(0)-0x06F0)});
 }
 
 function toast(m){
@@ -348,7 +363,7 @@ function bindAuth(){
   var ph=document.getElementById('ph');
   if(ph){
     ph.oninput=function(){
-      this.value=this.value.replace(/\D/g,'').slice(0,9);
+      this.value=toAsciiDigits(this.value).replace(/\D/g,'').slice(0,9);
       A.phone=this.value;
       if(A.err){
         A.err='';
@@ -370,7 +385,7 @@ function bindAuth(){
   function readCode(){var s='';[].forEach.call(otps,function(b){s+=(b.value||'')});return s}
   [].forEach.call(otps,function(box,idx){
     box.oninput=function(){
-      var v=this.value.replace(/\D/g,'');
+      var v=toAsciiDigits(this.value).replace(/\D/g,'');
       if(v.length>1){
         for(var k=0;k<otps.length;k++){
           otps[k].value=v[k]||'';
@@ -443,7 +458,7 @@ async function sendOtp(){
   }
 
   var fullPhone='+966'+A.phone;
-  var captchaToken=await freshTurnstileToken(2500);
+  var captchaToken=await freshTurnstileToken(TURNSTILE_WAIT_MS);
   var res=await sb.auth.signInWithOtp({phone:fullPhone,options:{captchaToken:captchaToken||undefined}});
   if(res.error){
     A.err=captchaErrorMessage(res.error,captchaToken);
@@ -470,7 +485,7 @@ async function resendOtp(){
   var rs=document.getElementById('resend');
   if(rs){rs.disabled=true;rs.innerHTML='<span class="spinner"></span> جارٍ الإرسال...';}
 
-  var captchaToken=await freshTurnstileToken(2500);
+  var captchaToken=await freshTurnstileToken(TURNSTILE_WAIT_MS);
   var sb=await getSb();
   if(!sb){toast('تعذّر الاتصال بالخادم');if(rs)rs.disabled=false;return}
 
@@ -1515,7 +1530,7 @@ function bindApp(){
   if(logout)logout.onclick=doLogout;
 
   var pairCode=document.getElementById('pairCode');
-  if(pairCode)pairCode.oninput=function(){this.value=this.value.replace(/\D/g,'').slice(0,6)};
+  if(pairCode)pairCode.oninput=function(){this.value=toAsciiDigits(this.value).replace(/\D/g,'').slice(0,6)};
 
   var approveBtn=document.getElementById('approveBtn');
   if(approveBtn)approveBtn.onclick=async function(){
@@ -1697,7 +1712,7 @@ function bindApp(){
 
   var pinInput=document.getElementById('pinInput');
   if(pinInput)pinInput.oninput=function(){
-    this.value=this.value.replace(/\D/g,'').slice(0,4);
+    this.value=toAsciiDigits(this.value).replace(/\D/g,'').slice(0,4);
     M.pinInput=this.value;
   };
   var pinSaveBtn=document.getElementById('pinSaveBtn');
