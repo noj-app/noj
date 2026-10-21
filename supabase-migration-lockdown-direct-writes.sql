@@ -165,6 +165,10 @@ grant execute on function public.redeem_reward(uuid) to authenticated;
 drop policy if exists "update own appointments" on public.appointments;
 revoke update on public.appointments from anon, authenticated;
 
+-- The body below is IDENTICAL to the one in supabase-migration-
+-- reservations.sql (which also lets a customer withdraw a 'pending'
+-- reservation request) — compared by db-tests, so re-running this older file
+-- never takes that back. Health appointments are never 'pending'.
 create or replace function public.cancel_appointment(p_appointment_id uuid)
 returns public.appointments
 language plpgsql
@@ -174,6 +178,7 @@ as $$
 declare
   v_profile_id uuid;
   v_row public.appointments;
+  v_policy jsonb;
 begin
   select id into v_profile_id from public.profiles where auth_user_id = auth.uid();
   if v_profile_id is null then
@@ -189,8 +194,25 @@ begin
     raise exception 'الموعد غير موجود أو لا يخصّك';
   end if;
 
-  if v_row.status <> 'confirmed' then
+  -- 'pending' = a reservation request not yet accepted by the merchant
+  -- (supabase-migration-reservations.sql); health appointments are never pending
+  if v_row.status not in ('confirmed', 'pending') then
     raise exception 'لا يمكن إلغاء موعد ليس بحالة مؤكَّدة';
+  end if;
+
+  -- a reservation (table/service) follows its merchant's cancellation policy
+  -- (merchants.booking_cancel_allowed / booking_cancel_cutoff_hours). Read
+  -- through to_jsonb() so this SAME body also runs where those columns do not
+  -- exist yet (supabase-migration-lockdown-direct-writes.sql alone): there a
+  -- row has no booking_kind, i.e. it is a health appointment, unchanged.
+  if coalesce(to_jsonb(v_row)->>'booking_kind', 'appointment') in ('table', 'service') then
+    select to_jsonb(m) into v_policy from public.merchants m where m.id = v_row.merchant_id;
+    if coalesce((v_policy->>'booking_cancel_allowed')::boolean, true) = false then
+      raise exception 'NOJ_CANCEL_NOT_ALLOWED';
+    end if;
+    if v_row.scheduled_at < now() + make_interval(hours => coalesce((v_policy->>'booking_cancel_cutoff_hours')::integer, 0)) then
+      raise exception 'NOJ_CANCEL_WINDOW_CLOSED';
+    end if;
   end if;
 
   update public.appointments

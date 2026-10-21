@@ -38,6 +38,12 @@
           if (limitN != null) rows = rows.slice(0, limitN);
           return Promise.resolve({ data: rows, error: null });
         }
+        if (table === 'merchant_services') {
+          state.servicesQueries = (state.servicesQueries || 0) + 1;
+          var srows = (scenario.services || []).filter(function (r) { return matchesFilters(r, filters); })
+            .sort(function (a, b) { return a.sort_order - b.sort_order; });
+          return Promise.resolve({ data: srows, error: null });
+        }
         return Promise.resolve({ data: isUpdate ? null : [], error: null });
       }
       var builder = {
@@ -125,6 +131,7 @@
     };
 
     window.__TEST__ = {
+      getServicesQueries: function () { return state.servicesQueries || 0; },
       pushRealtimeInsert: function (row) { if (state.channelCb) state.channelCb({ new: row }); },
       setChannelStatus: function (status) { if (state.channelStatusCb) state.channelStatusCb(status); },
       setPendingTxns: function (rows) { scenario.pendingTxns = rows; },

@@ -112,6 +112,7 @@ async function asServiceRole(fn) {
     'supabase-migration-pos-refunds.sql',
     'supabase-migration-unified-sectors.sql',
     'supabase-migration-sector-owner-only.sql',
+    'supabase-migration-reservations.sql',
   ].map(f => path.join(REPO_ROOT, f));
   // a byte-level snapshot of everything the sector unification must NOT touch,
   // taken right before that migration runs (checked in section 21e)
@@ -122,7 +123,11 @@ async function asServiceRole(fn) {
     merchants: `select id, name, type, points_hold_days, points_rate from merchants order by id`,
   };
   let preSectorSnapshot = null, postSectorSnapshot = null;
+  // every appointments row (health) as it was right before / after the reservations migration (section 23)
+  const APPT_SNAPSHOT_SQL = `select id, user_id, merchant_id, clinic_id, scheduled_at, status, created_at from appointments order by id`;
+  let preApptSnapshot = null, postApptSnapshot = null;
   for (const f of filesFromPhoneFormat) {
+    if (f.endsWith('supabase-migration-reservations.sql')) preApptSnapshot = (await admin(c => c.query(APPT_SNAPSHOT_SQL))).rows;
     if (f.endsWith('supabase-migration-unified-sectors.sql')) {
       preSectorSnapshot = {};
       for (const [k, q] of Object.entries(SECTOR_SNAPSHOT_SQL)) {
@@ -131,6 +136,7 @@ async function asServiceRole(fn) {
       preSectorSnapshot.branchSectors = (await admin(c => c.query(`select branch_id, sector_code from branch_settings order by branch_id`))).rows;
     }
     execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${f}'"`, { stdio: 'pipe' });
+    if (f.endsWith('supabase-migration-reservations.sql')) postApptSnapshot = (await admin(c => c.query(APPT_SNAPSHOT_SQL))).rows;
     if (f.endsWith('supabase-migration-unified-sectors.sql')) {
       postSectorSnapshot = {};
       for (const [k, q] of Object.entries(SECTOR_SNAPSHOT_SQL)) {
@@ -2627,6 +2633,335 @@ async function asServiceRole(fn) {
     check('end state: no branch disagrees with its merchant, no merchant label disagrees with its code', (await divergent()) === 0);
 
     await admin(c => c.query('delete from merchants where id = any($1)', [[r1.id, r2.id, r3.id, r4.id, r5.id]]));
+  }
+
+  // =========================================================================
+  // 23) RESERVATIONS (supabase-migration-reservations.sql): restaurant tables
+  //     and service bookings, built on the health appointments table.
+  // =========================================================================
+  {
+    const apply = (f) => execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    // earlier sections re-ran older migrations → re-apply (twice: idempotent) to test the real final state
+    apply('supabase-migration-reservations.sql');
+    apply('supabase-migration-reservations.sql');
+
+    const HEALTH = '20000000-0000-0000-0000-00000000000d';
+    const SERVICES = '20000000-0000-0000-0000-00000000000c'; // غسيل السيارات السريع (services, booking off)
+    const tryAs = (uid, sql, params) => asUser(uid, async c => { try { const r = await c.query(sql, params); return { ok: true, r, row: r.rows[0] }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const tryAdmin = (sql, params) => admin(async c => { try { const r = await c.query(sql, params); return { ok: true, r }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const newCustomer = async (phone) => {
+      const uid = crypto.randomUUID();
+      await admin(c => c.query('insert into auth.users (id) values ($1)', [uid]));
+      const p = await admin(c => c.query(`insert into profiles (phone, auth_user_id, name) values ($1,$2,'سارة') returning id`, [phone, uid]));
+      return { uid, profileId: p.rows[0].id };
+    };
+    const inHours = (h) => new Date(Date.now() + h * 3600 * 1000).toISOString();
+    const create = (uid, mid, at, party, service, note) => tryAs(uid,
+      'select * from create_reservation($1,$2,$3,$4,$5)', [mid, at, party, service, note]);
+
+    // ---- A) the generalization is additive: health rows are untouched ----
+    check('migration: every pre-existing appointments row is byte-identical across the reservations migration',
+      preApptSnapshot && preApptSnapshot.length > 0 && JSON.stringify(preApptSnapshot) === JSON.stringify(postApptSnapshot));
+    const kinds = await admin(c => c.query(`select booking_kind, count(*)::int n, bool_and(clinic_id is not null) clinic from appointments group by 1`));
+    check('existing health rows read booking_kind = appointment (column default, no UPDATE) and all keep their clinic',
+      kinds.rows.length === 1 && kinds.rows[0].booking_kind === 'appointment' && kinds.rows[0].clinic === true);
+    const shapes = [
+      [`insert into appointments (user_id, merchant_id, scheduled_at) values ($1,$2, now())`, 'an appointment without a clinic'],
+      [`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind) values ($1,$2, now(), 'table')`, 'a table without party_size'],
+      [`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size) values ($1,$2, now(), 'service', 2)`, 'a service without service_type'],
+      [`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, booking_kind, party_size) values ($1,$2,'21000000-0000-0000-0000-000000000001', now(), 'table', 2)`, 'a table at a clinic'],
+      [`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size) values ($1,$2, now(), 'table', 51)`, 'a party of 51'],
+      [`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size, status) values ($1,$2, now(), 'table', 2, 'bogus')`, 'an unknown status'],
+      [`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size, note) values ($1,$2, now(), 'table', 2, repeat('x', 301))`, 'a 301-char note'],
+    ];
+    let shapeOk = true;
+    for (const [sql, what] of shapes) {
+      const r = await tryAdmin(sql, [DEMO_PROFILE, MATAM]);
+      if (r.ok) { shapeOk = false; console.log('  shape check accepted', what); }
+    }
+    check('shape CHECKs: a health appointment still needs a clinic; a table needs 1..50 people; a service needs a type; status/note are bounded', shapeOk);
+
+    // ---- B) create_reservation ----
+    const sara = await newCustomer('561234567');
+    const ali = await newCustomer('569876543');
+    const r1 = await create(sara.uid, MATAM, inHours(26), 4, crypto.randomUUID(), '  طاولة قرب النافذة  ');
+    check('create_reservation: a restaurant request is a PENDING "table" row of the CALLER, note trimmed, service ignored, no clinic',
+      r1.ok && r1.row.status === 'pending' && r1.row.booking_kind === 'table' && r1.row.party_size === 4 &&
+      r1.row.service_type === null && r1.row.service_id === null && r1.row.clinic_id === null && r1.row.note === 'طاولة قرب النافذة' && r1.row.user_id === sara.profileId);
+    const svcOff = await create(sara.uid, SERVICES, inHours(30), null, null, null);
+    check('create_reservation: a services merchant with booking OFF is refused (NOJ_BOOKING_DISABLED)', !svcOff.ok && /NOJ_BOOKING_DISABLED/.test(svcOff.msg));
+
+    const svcOwner = crypto.randomUUID(), svcStaff = crypto.randomUUID(), matamOwner = crypto.randomUUID(), matamStaff = crypto.randomUUID(), healthOwner = crypto.randomUUID(), stranger = crypto.randomUUID();
+    for (const u of [svcOwner, svcStaff, matamOwner, matamStaff, healthOwner, stranger]) await admin(c => c.query('insert into auth.users (id) values ($1)', [u]));
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner'),($1,$3,'staff'),($4,$5,'owner'),($4,$6,'staff'),($7,$8,'owner')`,
+      [SERVICES, svcOwner, svcStaff, MATAM, matamOwner, matamStaff, HEALTH, healthOwner]));
+    const setBooking = (uid, mid, on) => tryAs(uid, 'select merchant_set_booking_enabled($1,$2) as v', [mid, on]);
+    const enable = await setBooking(svcOwner, SERVICES, true);
+    check('merchant_set_booking_enabled: the owner turns bookings on for a services merchant', enable.ok && enable.row.v === true &&
+      (await admin(c => c.query('select booking_enabled from merchants where id=$1', [SERVICES]))).rows[0].booking_enabled === true);
+
+    // ---- the services merchant's own list (merchant_save_service) ----
+    const saveSvc = (uid, mid, id, name, price, active, booking) => tryAs(uid, 'select merchant_save_service($1,$2,$3,$4,$5,$6) as s', [mid, id, name, price, active, booking]);
+    const wash = await saveSvc(svcOwner, SERVICES, null, '  غسيل داخلي  ', 45.5, true, true);
+    const polish = await saveSvc(svcOwner, SERVICES, null, 'تلميع', null, true, true);
+    const closedSvc = await saveSvc(svcOwner, SERVICES, null, 'تظليل', 300, true, false);
+    const hiddenSvc = await saveSvc(svcOwner, SERVICES, null, 'خدمة قديمة', 10, false, true);
+    const WASH = wash.ok && wash.row.s.id, POLISH = polish.ok && polish.row.s.id, CLOSED = closedSvc.ok && closedSvc.row.s.id, HIDDEN = hiddenSvc.ok && hiddenSvc.row.s.id;
+    check('merchant_save_service: the owner adds services (name trimmed, price optional, rounded), in order',
+      wash.ok && wash.row.s.name === 'غسيل داخلي' && Number(wash.row.s.price) === 45.5 && polish.ok && polish.row.s.price === null &&
+      closedSvc.ok && hiddenSvc.ok && polish.row.s.sort_order === wash.row.s.sort_order + 1);
+    const svcRefused = [await saveSvc(svcStaff, SERVICES, null, 'x', null, true, true), await saveSvc(matamOwner, SERVICES, null, 'x', null, true, true), await saveSvc(sara.uid, SERVICES, null, 'x', null, true, true)];
+    check('merchant_save_service is owner-only (staff, another merchant\'s owner, a customer refused)', svcRefused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)));
+    const notServices = await saveSvc(matamOwner, MATAM, null, 'طاولة', null, true, true);
+    check('merchant_save_service: only a services merchant has a services list (NOJ_SERVICES_NOT_AVAILABLE)', !notServices.ok && /NOJ_SERVICES_NOT_AVAILABLE/.test(notServices.msg));
+    const badSvc = [await saveSvc(svcOwner, SERVICES, null, '   ', null, true, true), await saveSvc(svcOwner, SERVICES, null, 'x'.repeat(81), null, true, true)];
+    const badPrice = [await saveSvc(svcOwner, SERVICES, null, 'سعر سالب', -1, true, true), await saveSvc(svcOwner, SERVICES, null, 'سعر كبير', 1000001, true, true)];
+    const dup = await saveSvc(svcOwner, SERVICES, null, 'تلميع', 5, true, true);
+    const ghost = await saveSvc(svcOwner, SERVICES, crypto.randomUUID(), 'شبح', 5, true, true);
+    check('merchant_save_service validates: name 1..80 (NOJ_INVALID_SERVICE_NAME), price 0..1,000,000, a duplicate name (NOJ_SERVICE_NAME_TAKEN), an unknown id (NOJ_SERVICE_NOT_FOUND)',
+      badSvc.every(x => !x.ok && /NOJ_INVALID_SERVICE_NAME/.test(x.msg)) && badPrice.every(x => !x.ok && /NOJ_INVALID_SERVICE_PRICE/.test(x.msg)) &&
+      !dup.ok && /NOJ_SERVICE_NAME_TAKEN/.test(dup.msg) && !ghost.ok && /NOJ_SERVICE_NOT_FOUND/.test(ghost.msg));
+    const svcRead = async (uid) => (await tryAs(uid, 'select name from merchant_services where merchant_id=$1 order by sort_order', [SERVICES])).r.rows.map(r => r.name);
+    check('merchant_services RLS: customers see only ACTIVE services; the merchant\'s members also see the inactive one',
+      JSON.stringify(await svcRead(sara.uid)) === JSON.stringify(['غسيل داخلي', 'تلميع', 'تظليل']) &&
+      JSON.stringify(await svcRead(svcStaff)) === JSON.stringify(['غسيل داخلي', 'تلميع', 'تظليل', 'خدمة قديمة']));
+    const svcDirect = [await tryAs(svcOwner, `insert into merchant_services (merchant_id, name) values ($1,'مباشر')`, [SERVICES]),
+      await tryAs(svcOwner, `update merchant_services set price = 1 where id=$1`, [WASH])];
+    check('merchant_services: no direct client write, even by the owner (only merchant_save_service)', svcDirect.every(x => !x.ok));
+
+    const r2 = await create(sara.uid, SERVICES, inHours(30), 9, WASH, null);
+    check('create_reservation: a services request is a PENDING "service" row for the chosen service (its name copied), party_size ignored, empty note = NULL',
+      r2.ok && r2.row.status === 'pending' && r2.row.booking_kind === 'service' && r2.row.service_id === WASH && r2.row.service_type === 'غسيل داخلي' && r2.row.party_size === null && r2.row.note === null);
+    const renamed = await saveSvc(svcOwner, SERVICES, WASH, 'غسيل داخلي شامل', 50, true, true);
+    check('renaming a service later never rewrites a reservation (the booked name is kept)', renamed.ok && renamed.row.s.name === 'غسيل داخلي شامل' &&
+      (await admin(c => c.query('select service_type from appointments where id=$1', [r2.row.id]))).rows[0].service_type === 'غسيل داخلي');
+
+    const healthTry = await create(sara.uid, HEALTH, inHours(30), 2, null, null);
+    const cafeTry = await create(sara.uid, '20000000-0000-0000-0000-000000000003', inHours(30), 2, null, null);
+    const cafeSector = (await admin(c => c.query(`select sector_code from merchants where id='20000000-0000-0000-0000-000000000003'`))).rows[0];
+    check('create_reservation: health (and any other sector) is NOJ_BOOKING_NOT_AVAILABLE — health booking is untouched',
+      !healthTry.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(healthTry.msg) && cafeSector && cafeSector.sector_code !== 'restaurant' && cafeSector.sector_code !== 'services' &&
+      !cafeTry.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(cafeTry.msg));
+    const missing = await create(sara.uid, crypto.randomUUID(), inHours(30), 2, null, null);
+    check('create_reservation: an unknown merchant is NOJ_MERCHANT_NOT_FOUND', !missing.ok && /NOJ_MERCHANT_NOT_FOUND/.test(missing.msg));
+    const times = [await create(sara.uid, MATAM, inHours(-1), 2, null, null), await create(sara.uid, MATAM, inHours(0.1), 2, null, null),
+      await create(sara.uid, MATAM, inHours(24 * 91), 2, null, null), await create(sara.uid, MATAM, null, 2, null, null)];
+    check('create_reservation: past, < 15 minutes ahead, > 90 days ahead, or no time → NOJ_INVALID_BOOKING_TIME', times.every(x => !x.ok && /NOJ_INVALID_BOOKING_TIME/.test(x.msg)));
+    const parties = [await create(sara.uid, MATAM, inHours(5), 0, null, null), await create(sara.uid, MATAM, inHours(5), 51, null, null), await create(sara.uid, MATAM, inHours(5), null, WASH, null)];
+    check('create_reservation: a table needs 1..50 people (NOJ_INVALID_PARTY_SIZE)', parties.every(x => !x.ok && /NOJ_INVALID_PARTY_SIZE/.test(x.msg)));
+    const services = [await create(sara.uid, SERVICES, inHours(5), 2, null, null), await create(sara.uid, SERVICES, inHours(5), 2, CLOSED, null),
+      await create(sara.uid, SERVICES, inHours(5), 2, HIDDEN, null), await create(sara.uid, SERVICES, inHours(5), 2, crypto.randomUUID(), null)];
+    check('create_reservation: a service must be one of the merchant\'s own, active AND open for booking — none, closed, inactive or foreign → NOJ_SERVICE_NOT_AVAILABLE (no free text at all)',
+      services.every(x => !x.ok && /NOJ_SERVICE_NOT_AVAILABLE/.test(x.msg)));
+    const longNote = await create(sara.uid, MATAM, inHours(5), 2, null, 'x'.repeat(301));
+    check('create_reservation: a note over 300 chars is NOJ_INVALID_BOOKING_NOTE', !longNote.ok && /NOJ_INVALID_BOOKING_NOTE/.test(longNote.msg));
+    const noProfileUid = crypto.randomUUID();
+    await admin(c => c.query('insert into auth.users (id) values ($1)', [noProfileUid]));
+    const noProfile = await create(noProfileUid, MATAM, inHours(5), 2, null, null);
+    const gone = await newCustomer('561112223');
+    await admin(c => c.query('update profiles set deleted_at = now() where id=$1', [gone.profileId]));
+    const deleted = await create(gone.uid, MATAM, inHours(5), 2, null, null);
+    check('create_reservation: a session without a profile, or with an erased one, is refused', !noProfile.ok && !deleted.ok && /ملفك الشخصي/.test(noProfile.msg + deleted.msg));
+
+    // limit: 3 upcoming per customer per merchant, serialized
+    await create(sara.uid, MATAM, inHours(27), 2, null, null);
+    const third = await create(sara.uid, MATAM, inHours(28), 2, null, null);
+    const fourth = await create(sara.uid, MATAM, inHours(29), 2, null, null);
+    check('create_reservation: a 4th upcoming request at the same merchant is NOJ_BOOKING_LIMIT', third.ok && !fourth.ok && /NOJ_BOOKING_LIMIT/.test(fourth.msg));
+    const otherMerchantStillOk = await create(sara.uid, SERVICES, inHours(31), null, POLISH, null);
+    check('the limit is per merchant (another merchant still accepts)', otherMerchantStillOk.ok);
+    await create(ali.uid, MATAM, inHours(40), 2, null, null);
+    await create(ali.uid, MATAM, inHours(41), 2, null, null);
+    const race = await Promise.all([create(ali.uid, MATAM, inHours(42), 2, null, null), create(ali.uid, MATAM, inHours(43), 2, null, null)]);
+    check('create_reservation: two concurrent requests at the limit edge → exactly one succeeds',
+      race.filter(x => x.ok).length === 1 && race.filter(x => !x.ok && /NOJ_BOOKING_LIMIT/.test(x.msg)).length === 1);
+
+    // ---- C) the customer's side: RLS read + cancel_appointment ----
+    const mine = await tryAs(sara.uid, `select id, status, booking_kind from appointments order by scheduled_at`, []);
+    check('the customer reads their own reservations through the EXISTING "select own appointments" policy (and nobody else\'s)',
+      mine.ok && mine.r.rows.length === 5 && mine.r.rows.every(x => x.booking_kind !== 'appointment'));
+    const steal = await tryAs(ali.uid, 'select * from cancel_appointment($1)', [r1.row.id]);
+    check('cancel_appointment: another customer cannot cancel it', !steal.ok && (await admin(c => c.query('select status from appointments where id=$1', [r1.row.id]))).rows[0].status === 'pending');
+    const withdraw = await tryAs(sara.uid, 'select * from cancel_appointment($1)', [third.row.id]);
+    const again = await tryAs(sara.uid, 'select * from cancel_appointment($1)', [third.row.id]);
+    check('cancel_appointment: the customer withdraws a PENDING request; a second cancel is refused', withdraw.ok && withdraw.row.status === 'cancelled' && !again.ok);
+    const afterWithdraw = await create(sara.uid, MATAM, inHours(29), 2, null, null);
+    check('a cancelled request frees its slot under the limit', afterWithdraw.ok);
+    const directIns = await tryAs(sara.uid, `insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size) values ($1,$2, now() + interval '1 day', 'table', 2)`, [sara.profileId, MATAM]);
+    const directUpd = await tryAs(sara.uid, `update appointments set status='confirmed' where id=$1`, [r1.row.id]);
+    check('no direct client write: inserting or confirming a reservation directly is denied', !directIns.ok && !(directUpd.ok && directUpd.r.rowCount === 1) &&
+      (await admin(c => c.query('select status from appointments where id=$1', [r1.row.id]))).rows[0].status === 'pending');
+    const cancelSrc = async () => (await admin(c => c.query(`select prosrc from pg_proc where proname='cancel_appointment'`))).rows[0].prosrc;
+    apply('supabase-migration-lockdown-direct-writes.sql');
+    const fromOld = await cancelSrc();
+    apply('supabase-migration-reservations.sql');
+    const fromNew = await cancelSrc();
+    apply('supabase-migration-lockdown-direct-writes.sql');
+    check('cancel_appointment has the IDENTICAL body in lockdown-direct-writes.sql and reservations.sql (either order)',
+      fromOld === fromNew && fromNew === (await cancelSrc()) && /'pending'/.test(fromNew));
+    apply('supabase-migration-reservations.sql');
+
+    // ---- D) merchant_list_reservations ----
+    const list = (uid, mid, from, to) => tryAs(uid, 'select merchant_list_reservations($1,$2,$3) as r', [mid, from || null, to || null]);
+    const ownerList = await list(matamOwner, MATAM);
+    const staffList = await list(matamStaff, MATAM);
+    const ROW_KEYS = ['created_at', 'customer_name', 'customer_phone_last4', 'id', 'kind', 'note', 'party_size', 'scheduled_at', 'scheduled_at_riyadh', 'service_type', 'status'];
+    const rowsOf = (x) => x.row.r.rows;
+    check('merchant_list_reservations: owner AND staff read the merchant\'s reservations, soonest first, every status',
+      ownerList.ok && staffList.ok && rowsOf(ownerList).length === rowsOf(staffList).length && rowsOf(ownerList).length >= 7 &&
+      rowsOf(ownerList).every((x, i, a) => i === 0 || a[i - 1].scheduled_at <= x.scheduled_at) && rowsOf(ownerList).some(x => x.status === 'cancelled'));
+    const sr = rowsOf(ownerList).find(x => x.id === r1.row.id);
+    check('a listed reservation carries a CLOSED set of keys: name + last 4 phone digits, no user/profile id, no full phone',
+      sr && JSON.stringify(Object.keys(sr).sort()) === JSON.stringify(ROW_KEYS) && sr.customer_name === 'سارة' && sr.customer_phone_last4 === '4567' &&
+      sr.party_size === 4 && sr.note === 'طاولة قرب النافذة' && !JSON.stringify(ownerList.row.r).includes('561234567') &&
+      !JSON.stringify(ownerList.row.r).includes(sara.profileId));
+    check('the list also reports the merchant\'s booking flag and sector', ownerList.row.r.booking_enabled === true && ownerList.row.r.sector_code === 'restaurant');
+    const healthList = await list(healthOwner, HEALTH, '2000-01-01', '2100-01-01');
+    check('health appointments never appear in the merchant reservations list', healthList.ok && rowsOf(healthList).length === 0);
+    const refused = [await list(svcOwner, MATAM), await list(stranger, MATAM), await list(sara.uid, MATAM)];
+    check('merchant_list_reservations: another merchant\'s owner, a stranger and a customer are refused', refused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)));
+    const badRange = await list(matamOwner, MATAM, '2030-01-02', '2030-01-01');
+    check('an end date before the start date is NOJ_INVALID_DATE_RANGE', !badRange.ok && /NOJ_INVALID_DATE_RANGE/.test(badRange.msg));
+    // Riyadh calendar days: 2030-03-11 00:30 Riyadh = 2030-03-10 21:30 UTC
+    await admin(c => c.query(`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size, status) values ($1,$2,'2030-03-10T21:30:00Z','table',2,'confirmed')`, [ali.profileId, MATAM]));
+    const day11 = await list(matamOwner, MATAM, '2030-03-11', '2030-03-11');
+    const day10 = await list(matamOwner, MATAM, '2030-03-10', '2030-03-10');
+    check('dates are Riyadh calendar days: 00:30 Riyadh on the 11th is listed on the 11th (not the 10th, as in UTC)',
+      rowsOf(day11).length === 1 && rowsOf(day11)[0].scheduled_at_riyadh === '2030-03-11 00:30' && rowsOf(day10).length === 0);
+    const deletedSara = await newCustomer('561119999');
+    const delRes = await create(deletedSara.uid, MATAM, inHours(50), 2, null, null);
+    await admin(c => c.query(`update profiles set deleted_at = now(), phone = 'deleted-' || id::text where id=$1`, [deletedSara.profileId]));
+    const afterErase = rowsOf(await list(matamOwner, MATAM)).find(x => x.id === delRes.row.id);
+    check('an erased customer\'s reservation shows no name and no phone digits', afterErase && afterErase.customer_name === null && afterErase.customer_phone_last4 === null);
+
+    // ---- E) merchant_set_reservation_status ----
+    const setStatus = (uid, id, st) => tryAs(uid, 'select merchant_set_reservation_status($1,$2) as r', [id, st]);
+    const accept = await setStatus(matamStaff, r1.row.id, 'confirmed');
+    check('staff accepts a pending reservation (→ confirmed), and the customer sees it confirmed',
+      accept.ok && accept.row.r.status === 'confirmed' && accept.row.r.id === r1.row.id &&
+      (await tryAs(sara.uid, 'select status from appointments where id=$1', [r1.row.id])).row.status === 'confirmed');
+    const reAccept = await setStatus(matamOwner, r1.row.id, 'confirmed');
+    check('accepting again is NOJ_INVALID_TRANSITION', !reAccept.ok && /NOJ_INVALID_TRANSITION/.test(reAccept.msg));
+    const foreign = [await setStatus(svcOwner, r1.row.id, 'cancelled'), await setStatus(stranger, r1.row.id, 'cancelled'), await setStatus(sara.uid, r1.row.id, 'cancelled')];
+    check('another merchant\'s owner, a stranger or the customer cannot use the merchant RPC', foreign.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)));
+    const mCancel = await setStatus(matamOwner, r1.row.id, 'cancelled');
+    const mCancel2 = await setStatus(matamOwner, r1.row.id, 'cancelled');
+    check('the merchant cancels a confirmed reservation; cancelling a cancelled one is NOJ_INVALID_TRANSITION', mCancel.ok && mCancel.row.r.status === 'cancelled' && !mCancel2.ok && /NOJ_INVALID_TRANSITION/.test(mCancel2.msg));
+    const pendCancel = await setStatus(svcStaff, r2.row.id, 'cancelled');
+    check('the merchant can decline a pending request directly (pending → cancelled)', pendCancel.ok && pendCancel.row.r.status === 'cancelled');
+    const badSt = [await setStatus(matamOwner, afterWithdraw.row.id, 'done'), await setStatus(matamOwner, afterWithdraw.row.id, 'pending'), await setStatus(matamOwner, afterWithdraw.row.id, null)];
+    check('only confirmed/cancelled can be requested (NOJ_INVALID_STATUS)', badSt.every(x => !x.ok && /NOJ_INVALID_STATUS/.test(x.msg)));
+    const healthAppt = await setStatus(healthOwner, '22000000-0000-0000-0000-000000000001', 'cancelled');
+    check('a HEALTH appointment cannot be touched through the merchant reservation RPC (NOJ_RESERVATION_NOT_FOUND) and stays as it was',
+      !healthAppt.ok && /NOJ_RESERVATION_NOT_FOUND/.test(healthAppt.msg) &&
+      (await admin(c => c.query(`select status from appointments where id='22000000-0000-0000-0000-000000000001'`))).rows[0].status === 'confirmed');
+
+    // ---- F) merchant_set_booking_enabled ----
+    const staffToggle = await setBooking(svcStaff, SERVICES, false);
+    const otherToggle = await setBooking(matamOwner, SERVICES, false);
+    check('merchant_set_booking_enabled is owner-only (staff and another merchant\'s owner refused)',
+      [staffToggle, otherToggle].every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)));
+    const healthToggle = await setBooking(healthOwner, HEALTH, false);
+    check('it cannot touch a health merchant\'s flag (NOJ_BOOKING_NOT_AVAILABLE) — health booking unchanged',
+      !healthToggle.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(healthToggle.msg) &&
+      (await admin(c => c.query('select booking_enabled from merchants where id=$1', [HEALTH]))).rows[0].booking_enabled === true);
+    const nullToggle = await setBooking(svcOwner, SERVICES, null);
+    check('a NULL flag is NOJ_INVALID_BOOKING_FLAG', !nullToggle.ok && /NOJ_INVALID_BOOKING_FLAG/.test(nullToggle.msg));
+    const off = await setBooking(svcOwner, SERVICES, false);
+    const afterOff = await create(sara.uid, SERVICES, inHours(60), null, POLISH, null);
+    const stillListed = rowsOf(await list(svcOwner, SERVICES)).find(x => x.id === otherMerchantStillOk.row.id);
+    const stillCancellable = await tryAs(sara.uid, 'select * from cancel_appointment($1)', [otherMerchantStillOk.row.id]);
+    check('turning bookings OFF stops new requests but keeps existing ones (listed for the merchant, cancellable by the customer)',
+      off.ok && off.row.v === false && !afterOff.ok && /NOJ_BOOKING_DISABLED/.test(afterOff.msg) && stillListed && stillListed.status === 'pending' && stillCancellable.ok);
+
+    // ---- F2) the merchant's cancellation policy (cancel_appointment) ----
+    const nora = await newCustomer('561230000');
+    const setPolicy = (uid, mid, allowed, hours) => tryAs(uid, 'select merchant_set_booking_policy($1,$2,$3) as p', [mid, allowed, hours]);
+    const cancelAs = (uid, id) => tryAs(uid, 'select * from cancel_appointment($1)', [id]);
+    const statusOf = async (id) => (await admin(c => c.query('select status from appointments where id=$1', [id]))).rows[0].status;
+    const polOff = await setPolicy(matamOwner, MATAM, false, 0);
+    check('merchant_set_booking_policy: the owner turns customer cancellation off', polOff.ok && polOff.row.p.cancel_allowed === false && polOff.row.p.cancel_cutoff_hours === 0);
+    const n1 = await create(nora.uid, MATAM, inHours(48), 2, null, null);
+    const n1c = await cancelAs(nora.uid, n1.row.id);
+    check('cancellation not allowed: the customer\'s cancel is REFUSED by the server (NOJ_CANCEL_NOT_ALLOWED), the reservation stays', !n1c.ok && /NOJ_CANCEL_NOT_ALLOWED/.test(n1c.msg) && (await statusOf(n1.row.id)) === 'pending');
+    const n1m = await setStatus(matamStaff, n1.row.id, 'cancelled');
+    check('…while the merchant can still cancel it (always)', n1m.ok && n1m.row.r.status === 'cancelled');
+    const pol24 = await setPolicy(matamOwner, MATAM, true, 24);
+    const far = await create(nora.uid, MATAM, inHours(48), 2, null, null);
+    const near = await create(nora.uid, MATAM, inHours(10), 2, null, null);
+    const farC = await cancelAs(nora.uid, far.row.id);
+    const nearC = await cancelAs(nora.uid, near.row.id);
+    check('cutoff 24 h: cancelling 48 h ahead works; 10 h ahead is REFUSED (NOJ_CANCEL_WINDOW_CLOSED) and stays',
+      pol24.ok && farC.ok && farC.row.status === 'cancelled' && !nearC.ok && /NOJ_CANCEL_WINDOW_CLOSED/.test(nearC.msg) && (await statusOf(near.row.id)) === 'pending');
+    const nearAccept = await setStatus(matamOwner, near.row.id, 'confirmed');
+    const nearM = await setStatus(matamOwner, near.row.id, 'cancelled');
+    check('…inside the cutoff the merchant can still accept and cancel', nearAccept.ok && nearM.ok && nearM.row.r.status === 'cancelled');
+    const listPol = (await list(matamStaff, MATAM)).row.r;
+    check('merchant_list_reservations reports the cancellation policy and the alerts switch', listPol.cancel_allowed === true && listPol.cancel_cutoff_hours === 24 && listPol.alerts_enabled === true);
+    const polRefused = [await setPolicy(matamStaff, MATAM, true, 1), await setPolicy(svcOwner, MATAM, true, 1), await setPolicy(nora.uid, MATAM, true, 1)];
+    check('merchant_set_booking_policy is owner-only', polRefused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)));
+    const polBad = [await setPolicy(matamOwner, MATAM, true, 169), await setPolicy(matamOwner, MATAM, true, -1), await setPolicy(matamOwner, MATAM, null, 1), await setPolicy(matamOwner, MATAM, true, null)];
+    check('merchant_set_booking_policy validates 0..168 hours and both values (NOJ_INVALID_CANCEL_POLICY)', polBad.every(x => !x.ok && /NOJ_INVALID_CANCEL_POLICY/.test(x.msg)));
+    const polHealth = await setPolicy(healthOwner, HEALTH, false, 5);
+    check('merchant_set_booking_policy: restaurant/services only in this PR (health → NOJ_BOOKING_NOT_AVAILABLE)', !polHealth.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(polHealth.msg));
+    // health appointments ignore the reservation policy entirely
+    await admin(c => c.query(`update merchants set booking_cancel_allowed = false, booking_cancel_cutoff_hours = 100 where id=$1`, [HEALTH]));
+    const hAppt = await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status) values ($1,$2,'21000000-0000-0000-0000-000000000001', now() + interval '1 hour', 'confirmed') returning id`, [nora.profileId, HEALTH]));
+    const hCancel = await cancelAs(nora.uid, hAppt.rows[0].id);
+    check('a HEALTH appointment is cancelled exactly as before, whatever the merchant\'s policy columns say', hCancel.ok && hCancel.row.status === 'cancelled');
+    await admin(c => c.query(`update merchants set booking_cancel_allowed = true, booking_cancel_cutoff_hours = 0 where id=$1`, [HEALTH]));
+    await setPolicy(matamOwner, MATAM, true, 0);
+
+    // ---- F3) new-booking alerts (booking_alerts + Realtime) ----
+    const alertsFor = async (apptId) => (await admin(c => c.query('select merchant_id from booking_alerts where appointment_id=$1', [apptId]))).rows;
+    check('a new reservation writes ONE alert row for its merchant (table and service)',
+      (await alertsFor(r1.row.id)).length === 1 && (await alertsFor(r1.row.id))[0].merchant_id === MATAM && (await alertsFor(r2.row.id)).length === 1);
+    check('a health appointment writes no alert', (await alertsFor(hAppt.rows[0].id)).length === 0);
+    const setAlerts = (uid, mid, on) => tryAs(uid, 'select merchant_set_booking_alerts($1,$2) as v', [mid, on]);
+    const alStaff = await setAlerts(matamStaff, MATAM, false);
+    const flagNow = async () => (await admin(c => c.query('select booking_alerts_enabled from merchants where id=$1', [MATAM]))).rows[0].booking_alerts_enabled;
+    check('merchant_set_booking_alerts is OWNER-only: staff is refused and the switch stays on',
+      !alStaff.ok && /لا تملك صلاحية/.test(alStaff.msg) && (await flagNow()) === true);
+    const alOff = await setAlerts(matamOwner, MATAM, false);
+    const quiet = await create(nora.uid, MATAM, inHours(70), 2, null, null);
+    const alOn = await setAlerts(matamOwner, MATAM, true);
+    const loud = await create(nora.uid, MATAM, inHours(71), 2, null, null);
+    check('merchant_set_booking_alerts (owner): off → a new reservation writes no alert; back on → it does',
+      alOff.ok && alOff.row.v === false && (await alertsFor(quiet.row.id)).length === 0 && alOn.ok && alOn.row.v === true && (await alertsFor(loud.row.id)).length === 1);
+    const alRefused = [await setAlerts(svcOwner, MATAM, false), await setAlerts(nora.uid, MATAM, false), await setAlerts(stranger, MATAM, false)];
+    const alNull = await setAlerts(matamOwner, MATAM, null);
+    check('…another merchant, a customer or a stranger cannot switch it either; NULL is refused', alRefused.every(x => !x.ok && /لا تملك صلاحية/.test(x.msg)) && !alNull.ok && /NOJ_INVALID_BOOKING_FLAG/.test(alNull.msg) && (await flagNow()) === true);
+    const readAlerts = async (uid) => (await tryAs(uid, 'select merchant_id, appointment_id from booking_alerts', [])).r.rows;
+    const staffAlerts = await readAlerts(matamStaff);
+    check('booking_alerts RLS: a member reads ONLY their merchant\'s alerts; another merchant\'s owner and a customer read none of them',
+      staffAlerts.length > 0 && staffAlerts.every(a => a.merchant_id === MATAM) && (await readAlerts(svcOwner)).every(a => a.merchant_id === SERVICES) && (await readAlerts(nora.uid)).length === 0);
+    const alertCols = await admin(c => c.query(`select string_agg(column_name, ',' order by column_name) s from information_schema.columns where table_name='booking_alerts'`));
+    check('an alert row carries no customer data (id, merchant, reservation id, time only)', alertCols.rows[0].s === 'appointment_id,created_at,id,merchant_id');
+    const alDirect = await tryAs(matamOwner, `insert into booking_alerts (merchant_id, appointment_id) values ($1,$2)`, [MATAM, loud.row.id]);
+    check('no client writes booking_alerts directly', !alDirect.ok);
+    await admin(c => c.query(`insert into booking_alerts (merchant_id, appointment_id, created_at) values ($1,$2, now() - interval '8 days')`, [MATAM, loud.row.id]));
+    const purged = await admin(c => c.query('select purge_old_booking_alerts() n'));
+    check('purge_old_booking_alerts() removes alerts older than 7 days and keeps the recent ones', purged.rows[0].n === 1 && (await alertsFor(loud.row.id)).length === 1);
+
+    // ---- G) access: explicit revokes ----
+    const RPCS = ['create_reservation(uuid,timestamptz,integer,uuid,text)', 'merchant_list_reservations(uuid,date,date)',
+      'merchant_set_booking_policy(uuid,boolean,integer)', 'merchant_set_booking_alerts(uuid,boolean)', 'merchant_save_service(uuid,uuid,text,numeric,boolean,boolean)',
+      'merchant_set_reservation_status(uuid,text)', 'merchant_set_booking_enabled(uuid,boolean)', 'cancel_appointment(uuid)'];
+    const privs = await admin(c => c.query(`select f, has_function_privilege('anon', ('public.' || f)::regprocedure, 'execute') anon,
+      has_function_privilege('authenticated', ('public.' || f)::regprocedure, 'execute') authed from unnest($1::text[]) f`, [RPCS]));
+    check('every reservation RPC: NOT executable by anon, executable by authenticated', privs.rows.every(r => r.anon === false && r.authed === true));
+    const helperPriv = await admin(c => c.query(`select bool_or(has_function_privilege(r, f::regprocedure, 'execute')) any
+      from unnest(array['anon','authenticated','service_role']) r,
+           unnest(array['public.reservation_json_for_merchant(public.appointments)','public.booking_alert_on_reservation_trg()','public.purge_old_booking_alerts()']) f`));
+    check('the row-to-JSON helper, the alert trigger function and the alert purge are not executable by anon, authenticated or service_role', helperPriv.rows[0].any === false);
+    const oldSig = await admin(c => c.query(`select count(*)::int n from pg_proc where proname='create_reservation' and pg_get_function_identity_arguments(oid) like '%p_service_type%'`));
+    check('the first draft\'s free-text create_reservation(…, text, text) does not exist', oldSig.rows[0].n === 0);
+
+    // ---- H) re-running the migration changes nothing ----
+    const all = async () => JSON.stringify((await admin(c => c.query('select * from appointments order by id'))).rows);
+    const before = await all();
+    apply('supabase-migration-reservations.sql');
+    check('migration is idempotent: a re-run changes no appointment or reservation row', before === (await all()));
   }
 
   // =========================================================================

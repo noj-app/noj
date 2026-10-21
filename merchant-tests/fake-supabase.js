@@ -41,6 +41,7 @@
         var f = filters[i];
         if (f.op === 'eq' && row[f.col] !== f.val) return false;
         if (f.op === 'in' && f.vals.indexOf(row[f.col]) === -1) return false;
+        if (f.op === 'gt' && !(String(row[f.col]) > String(f.val))) return false;
       }
       return true;
     }
@@ -93,12 +94,25 @@
           var srows = (scenario.branchSettings || []).filter(function (r) { return matchesFilters(r, filters); });
           return Promise.resolve({ data: srows, error: null });
         }
+        if (table === 'merchant_services') {
+          if (scenario.servicesError) return Promise.resolve({ data: null, error: { message: 'boom' } });
+          var vrows = (scenario.services || []).filter(function (r) { return matchesFilters(r, filters); })
+            .sort(function (a, b) { return a.sort_order - b.sort_order; })
+            .map(function (r) { var o = Object.assign({}, r); delete o.merchant_id; return o; });
+          return Promise.resolve({ data: vrows, error: null });
+        }
+        if (table === 'booking_alerts') {
+          state.alertPolls = (state.alertPolls || 0) + 1;
+          var arows = (scenario.bookingAlerts || []).filter(function (r) { return matchesFilters(r, filters); });
+          return Promise.resolve({ data: arows, error: null });
+        }
         return Promise.resolve({ data: [], error: null });
       }
       var builder = {
         select: function () { return builder; },
         eq: function (col, val) { filters.push({ op: 'eq', col: col, val: val }); return builder; },
         in: function (col, vals) { filters.push({ op: 'in', col: col, vals: vals }); return builder; },
+        gt: function (col, val) { filters.push({ op: 'gt', col: col, val: val }); return builder; },
         order: function () { return builder; },
         update: function (payload) { updatePayload = payload; return builder; },
         single: function () { singleRequested = true; return builder; },
@@ -139,6 +153,76 @@
     }
 
     function rpc(name, args) {
+      var isMemberOf = function (mid, ownerOnly) {
+        return (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === mid && (!ownerOnly || mm.role === 'owner'); });
+      };
+      var noAccess = { data: null, error: { message: 'لا تملك صلاحية على هذا التاجر' } };
+      if (name === 'merchant_list_reservations') {
+        (state.bookingListCalls = state.bookingListCalls || []).push(args);
+        if (scenario.bookingsError) return Promise.resolve({ data: null, error: { message: 'boom' } });
+        if (!isMemberOf(args.p_merchant_id)) return Promise.resolve(noAccess);
+        var bm = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; }) || {};
+        var brows = (scenario.reservations || []).filter(function (r) { return r.merchant_id === args.p_merchant_id; })
+          .map(function (r) { var o = Object.assign({}, r); delete o.merchant_id; return o; });
+        return Promise.resolve({ data: { booking_enabled: !!bm.booking_enabled, sector_code: bm.sector_code,
+          cancel_allowed: bm.booking_cancel_allowed !== false, cancel_cutoff_hours: bm.booking_cancel_cutoff_hours || 0,
+          alerts_enabled: bm.booking_alerts_enabled !== false, rows: brows }, error: null });
+      }
+      if (name === 'merchant_set_booking_policy') {
+        (state.policyCalls = state.policyCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
+        if (typeof args.p_cutoff_hours !== 'number' || args.p_cutoff_hours < 0 || args.p_cutoff_hours > 168) return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_CANCEL_POLICY' } });
+        var pm = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
+        pm.booking_cancel_allowed = !!args.p_cancel_allowed; pm.booking_cancel_cutoff_hours = args.p_cutoff_hours;
+        return Promise.resolve({ data: { cancel_allowed: pm.booking_cancel_allowed, cancel_cutoff_hours: pm.booking_cancel_cutoff_hours }, error: null });
+      }
+      if (name === 'merchant_set_booking_alerts') {
+        (state.alertsCalls = state.alertsCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
+        var am = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
+        am.booking_alerts_enabled = !!args.p_enabled;
+        return Promise.resolve({ data: am.booking_alerts_enabled, error: null });
+      }
+      if (name === 'merchant_save_service') {
+        (state.serviceCalls = state.serviceCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
+        var list = (scenario.services = scenario.services || []);
+        var nm = String(args.p_name || '').trim();
+        if (list.some(function (v) { return v.merchant_id === args.p_merchant_id && v.name === nm && v.id !== args.p_service_id; })) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_SERVICE_NAME_TAKEN' } });
+        }
+        var row;
+        if (args.p_service_id) {
+          row = list.find(function (v) { return v.id === args.p_service_id; });
+          if (!row) return Promise.resolve({ data: null, error: { message: 'NOJ_SERVICE_NOT_FOUND' } });
+        } else {
+          row = { id: 'svc-new-' + list.length, merchant_id: args.p_merchant_id, sort_order: list.length };
+          list.push(row);
+        }
+        Object.assign(row, { name: nm, price: args.p_price, is_active: args.p_is_active, booking_enabled: args.p_booking_enabled });
+        var outRow = Object.assign({}, row); delete outRow.merchant_id;
+        return Promise.resolve({ data: outRow, error: null });
+      }
+      if (name === 'merchant_set_reservation_status') {
+        (state.bookingStatusCalls = state.bookingStatusCalls || []).push(args);
+        var res = (scenario.reservations || []).find(function (r) { return r.id === args.p_reservation_id; });
+        if (!res) return Promise.resolve({ data: null, error: { message: 'NOJ_RESERVATION_NOT_FOUND' } });
+        if (!isMemberOf(res.merchant_id)) return Promise.resolve(noAccess);
+        if ((args.p_status === 'confirmed' && res.status !== 'pending') || (args.p_status === 'cancelled' && ['pending', 'confirmed'].indexOf(res.status) === -1)) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_TRANSITION' } });
+        }
+        res.status = args.p_status;
+        var out = Object.assign({}, res); delete out.merchant_id;
+        return Promise.resolve({ data: out, error: null });
+      }
+      if (name === 'merchant_set_booking_enabled') {
+        (state.bookingToggleCalls = state.bookingToggleCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
+        var tm = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
+        if (!tm || ['restaurant', 'services'].indexOf(tm.sector_code) === -1) return Promise.resolve({ data: null, error: { message: 'NOJ_BOOKING_NOT_AVAILABLE' } });
+        tm.booking_enabled = !!args.p_enabled;
+        return Promise.resolve({ data: tm.booking_enabled, error: null });
+      }
       if (name === 'merchant_set_sector') {
         (state.sectorCalls = state.sectorCalls || []).push(args);
         var owner = (scenario.merchantMembers || []).some(function (mm) { return mm.merchant_id === args.p_merchant_id && mm.role === 'owner'; });
@@ -277,6 +361,19 @@
       },
       rpc: rpc,
       from: function (table) { return makeBuilder(table); },
+      realtime: { setAuth: function (t) { (state.setAuthCalls = state.setAuthCalls || []).push(t); } },
+      channel: function (name) {
+        var ch = { name: name, handlers: [], removed: false, statusCb: null };
+        ch.on = function (type, filter, cb) { ch.handlers.push({ type: type, filter: filter, cb: cb }); return ch; };
+        ch.subscribe = function (cb) {
+          ch.statusCb = cb;
+          setTimeout(function () { if (cb) cb(scenario.alertChannelStatus || 'SUBSCRIBED'); }, 10);
+          return ch;
+        };
+        (state.channels = state.channels || []).push(ch);
+        return ch;
+      },
+      removeChannel: function (ch) { ch.removed = true; return Promise.resolve('ok'); },
     };
 
     window.__TEST__ = {
@@ -293,6 +390,24 @@
       getHoldCalls: function () { return (state.holdCalls || []).slice(); },
       getSectorCalls: function () { return (state.sectorCalls || []).slice(); },
       branchSectorWriteAttempted: function () { return !!state.branchSectorWriteAttempted; },
+      getChannels: function () { return (state.channels || []).map(function (c) { return { name: c.name, removed: c.removed, filter: c.handlers[0] && c.handlers[0].filter }; }); },
+      emitBookingAlert: function (row) {
+        (state.channels || []).forEach(function (c) {
+          if (c.removed) return;
+          c.handlers.forEach(function (h) {
+            if (h.filter && h.filter.table === 'booking_alerts' && h.filter.filter === 'merchant_id=eq.' + row.merchant_id) h.cb({ new: row });
+          });
+        });
+      },
+      setChannelStatus: function (st) { (state.channels || []).forEach(function (c) { if (!c.removed && c.statusCb) c.statusCb(st); }); },
+      getAlertPolls: function () { return state.alertPolls || 0; },
+      getSetAuthCalls: function () { return (state.setAuthCalls || []).slice(); },
+      getPolicyCalls: function () { return (state.policyCalls || []).slice(); },
+      getAlertsCalls: function () { return (state.alertsCalls || []).slice(); },
+      getServiceCalls: function () { return (state.serviceCalls || []).slice(); },
+      getBookingListCalls: function () { return (state.bookingListCalls || []).slice(); },
+      getBookingStatusCalls: function () { return (state.bookingStatusCalls || []).slice(); },
+      getBookingToggleCalls: function () { return (state.bookingToggleCalls || []).slice(); },
       getMerchant: function (id) { return (scenario.merchants || []).find(function (m) { return m.id === id; }) || null; },
     };
     return client;

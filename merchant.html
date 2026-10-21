@@ -158,6 +158,12 @@
   .num{direction:ltr;unicode-bidi:isolate;display:inline-block}
   b.num{text-align:right}
   .badge.warn{color:#B45309;background:rgba(245,158,11,.14)}
+  .bk-actions{display:flex;gap:8px;margin-top:10px}
+  .bk-actions .approve-btn{max-width:120px;padding:9px 14px;font-size:12.5px}
+  .sec-h .btn-outline{padding:6px 12px}
+  .tab-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-inline-start:6px;border-radius:99px;background:var(--red);color:#fff;font-size:11px;font-weight:800;line-height:16px}
+  .bk-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}
+  .bk-actions .btn-outline{font-size:12px}
   .owner-only-note{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 </style>
 </head>
@@ -508,7 +514,7 @@ var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
   holdServer:null,holdSector:null,loadedSector:null,
   posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
-  view:'manage',inv:null};
+  view:'manage',inv:null,bk:null,bkConfirmCancelId:null};
 
 /* الأقسام الستة بأسمائها العربية للعرض فقط. القسم واحد لكل تاجر
    (merchants.sector_code، راجع supabase-migration-unified-sectors.sql)؛
@@ -608,6 +614,7 @@ async function loadDashboardData(){
   M.posToken=null;M.posTokenConfirm=false;M.posTokenErr='';M.posConnections=null;
   renderApp();
   if(M.settingsBranchId)await loadBranchSettings(M.settingsBranchId);
+  setupBookingAlerts(false);
 }
 
 /* يحمِّل صف branch_settings الحقيقي للفرع المختار في قسم "إعدادات الفرع" —
@@ -1018,6 +1025,8 @@ function bindInvoices(){
       if(v===M.view)return;
       M.view=v;
       if(v==='invoices'&&!M.inv){M.inv=newInvState();renderApp();loadInvoices(false);return}
+      if(v==='bookings'){BK_ALERT.count=0}
+      if(v==='bookings'&&!M.bk){M.bk=newBkState();renderApp();loadBookings();return}
       renderApp();
     };
   });
@@ -1047,6 +1056,421 @@ function bindInvoices(){
   if(retry)retry.onclick=function(){loadInvoices(false)};
 }
 
+/* ================= الحجوزات (المطعم والخدمات) =================
+   مبنية على نظام المواعيد الصحي نفسه (جدول appointments، راجع supabase-
+   migration-reservations.sql): merchant_list_reservations() للقراءة (مالك
+   وموظف — لا جوال كامل، فقط اسم العميل وآخر 4 أرقام)، merchant_set_
+   reservation_status() للقبول/الإلغاء (مالك وموظف)، وmerchant_set_booking_
+   enabled() لتفعيل/إيقاف استقبال الحجوزات (المالك فقط، وتتحقق الدالة من ذلك
+   أيضاً). التبويب يظهر فقط لتاجر قسمه مطعم أو خدمات. لا يُحمَّل شيء قبل فتحه. */
+var BOOKING_SECTORS=['restaurant','services'];
+var BK_STATUS_LABELS={pending:'بانتظار القبول',confirmed:'مؤكَّد',cancelled:'ملغى',done:'منتهٍ'};
+function bookingsTabVisible(){return BOOKING_SECTORS.indexOf(M.loadedSector)!==-1||M.view==='bookings'}
+function newBkState(){return {loading:false,err:'',rows:null,bookingEnabled:null,sector:null,busyId:null,toggling:false,req:0,
+  cancelAllowed:true,cutoffHours:0,polAllowed:true,polHours:'0',polSaving:false,polMsg:'',alertsEnabled:true,alertsSaving:false,
+  services:null,svcEditId:null,svcName:'',svcPrice:'',svcSaving:false,svcErr:'',svcBusyId:null}}
+function bkErrorText(msg){
+  msg=msg||'';
+  if(/NOJ_INVALID_TRANSITION/.test(msg))return 'تغيّرت حالة هذا الحجز، حدّث القائمة.';
+  if(/NOJ_BOOKING_NOT_AVAILABLE/.test(msg))return 'الحجوزات متاحة لقسمي المطعم والخدمات فقط.';
+  if(/لا تملك صلاحية/.test(msg))return 'لا تملك صلاحية على هذا التاجر.';
+  if(/NOJ_INVALID_CANCEL_POLICY/.test(msg))return 'مهلة الإلغاء يجب أن تكون من 0 إلى 168 ساعة.';
+  if(/NOJ_INVALID_SERVICE_NAME/.test(msg))return 'اكتب اسم الخدمة (80 حرفاً كحد أقصى).';
+  if(/NOJ_INVALID_SERVICE_PRICE/.test(msg))return 'السعر غير صحيح.';
+  if(/NOJ_SERVICE_NAME_TAKEN/.test(msg))return 'توجد خدمة بنفس الاسم.';
+  if(/NOJ_SERVICE_LIMIT/.test(msg))return 'وصلت للحد الأقصى من الخدمات (100).';
+  return 'تعذّر تنفيذ العملية، حاول مرة أخرى.';
+}
+async function loadBookings(){
+  var S=M.bk;
+  if(!S||!M.activeMerchantId)return;
+  var myReq=++S.req;
+  S.loading=true;S.err='';renderApp();
+  var sb=await getSb();
+  var res=sb?await sb.rpc('merchant_list_reservations',{p_merchant_id:M.activeMerchantId}):{error:{message:'no-client'}};
+  if(M.bk!==S||myReq!==S.req)return;
+  S.loading=false;
+  if(res.error||!res.data){S.err='تعذّر تحميل الحجوزات، حاول مرة أخرى.';renderApp();return}
+  S.rows=res.data.rows||[];
+  S.bookingEnabled=!!res.data.booking_enabled;
+  S.sector=res.data.sector_code;
+  S.cancelAllowed=res.data.cancel_allowed!==false;
+  S.cutoffHours=Number(res.data.cancel_cutoff_hours||0);
+  S.polAllowed=S.cancelAllowed;S.polHours=String(S.cutoffHours);
+  S.alertsEnabled=res.data.alerts_enabled!==false;
+  if(S.sector==='services')await loadServices(S);
+  if(M.bk!==S)return;
+  renderApp();
+}
+/* قائمة خدمات التاجر ("خدماتنا") — قراءة مباشرة بسياسة "merchant members read
+   their services" (تشمل غير المفعّلة)؛ الكتابة عبر merchant_save_service فقط. */
+async function loadServices(S){
+  var sb=await getSb();
+  var r=sb?await sb.from('merchant_services').select('id,name,price,is_active,booking_enabled,sort_order').eq('merchant_id',M.activeMerchantId).order('sort_order',{ascending:true}):{error:{}};
+  S.services=r.error?null:(r.data||[]);
+  if(r.error)S.svcErr='تعذّر تحميل قائمة الخدمات.';
+}
+function bookingRowHtml(r){
+  var detail=r.kind==='table'?'عدد الأشخاص: <b class="num">'+fmtNum(r.party_size)+'</b>':'الخدمة: <b>'+escAttr(r.service_type||'')+'</b>';
+  var who=(r.customer_name?escAttr(r.customer_name):'عميل')+(r.customer_phone_last4?' · جوال ينتهي بـ <span class="num">'+escAttr(r.customer_phone_last4)+'</span>':'');
+  var busy=M.bk&&M.bk.busyId===r.id;
+  var actions='';
+  if(r.status==='pending'){
+    actions='<button type="button" class="approve-btn bk-accept" data-bk-accept="'+r.id+'"'+(busy?' disabled':'')+'>قبول</button>'+
+      '<button type="button" class="btn-outline bk-cancel" data-bk-cancel="'+r.id+'"'+(busy?' disabled':'')+'>إلغاء</button>';
+  }else if(r.status==='confirmed'){
+    actions='<button type="button" class="btn-outline bk-cancel" data-bk-cancel="'+r.id+'"'+(busy?' disabled':'')+'>إلغاء</button>';
+  }
+  return '<div class="inv-row bk-row" data-bk-row="'+r.id+'">'+
+    '<div class="inv-top"><b class="num">'+escAttr(r.scheduled_at_riyadh)+'</b>'+
+      '<span class="badge '+(r.status==='confirmed'?'active':r.status==='pending'?'warn':'revoked')+'" data-bk-status>'+escAttr(BK_STATUS_LABELS[r.status]||r.status)+'</span></div>'+
+    '<div class="inv-sub">'+detail+'</div>'+
+    '<div class="inv-sub">'+who+'</div>'+
+    (r.note?'<div class="inv-sub bk-note">ملاحظة: '+escAttr(r.note)+'</div>':'')+
+    (actions?'<div class="bk-actions">'+actions+'</div>':'')+
+  '</div>';
+}
+function bookingToggleHtml(S){
+  if(S.bookingEnabled===null)return '';
+  var on=S.bookingEnabled;
+  var owner=activeRole()==='owner';
+  var tables=S.sector==='restaurant';
+  return '<div class="card" id="bkToggleCard" style="margin-bottom:14px">'+
+    '<div class="inv-top"><b>'+(tables?'حجز الطاولات من تطبيق نوج':'استقبال الحجوزات من تطبيق نوج')+'</b>'+
+      '<span class="badge '+(on?'active':'revoked')+'" id="bkEnabledBadge">'+(on?'مفعّل':'متوقف')+'</span></div>'+
+    (owner
+      ?'<p class="hint" style="margin:6px 0 10px">'+(on?'إيقافه يمنع الطلبات الجديدة فقط؛ الحجوزات القائمة تبقى هنا.':'عند التفعيل يستطيع عملاؤك طلب حجز من تطبيق نوج، ويظهر هنا لتقبله أو تلغيه.')+
+        (tables?'':' يُفتح الحجز ويُغلق لكل خدمة أيضاً من قائمة الخدمات أدناه.')+'</p>'+
+        '<button type="button" class="btn-outline" id="bkToggleBtn"'+(S.toggling?' disabled':'')+'>'+(S.toggling?'<span class="spinner" style="border-color:rgba(18,35,92,.25);border-top-color:var(--navy)"></span> جارٍ الحفظ...':(on?'إيقاف الحجوزات':'تفعيل الحجوزات'))+'</button>'
+      :'<p class="hint" id="bkToggleOwnerOnly" style="margin-top:6px">تفعيل الحجوزات وإيقافها وسياسة الإلغاء للمالك فقط.</p>')+
+  '</div>'+bookingPolicyHtml(S)+bookingAlertsHtml(S);
+}
+function cutoffText(h){return h===0?'حتى موعد الحجز نفسه':'حتى '+h+' ساعة قبل الموعد'}
+function bookingPolicyHtml(S){
+  var owner=activeRole()==='owner';
+  var summary=S.cancelAllowed?'يستطيع العميل الإلغاء '+cutoffText(S.cutoffHours)+'.':'لا يستطيع العميل الإلغاء من تطبيق نوج.';
+  return '<div class="card" id="bkPolicyCard" style="margin-bottom:14px">'+
+    '<div class="inv-top"><b>إلغاء العميل للحجز</b></div>'+
+    '<p class="hint" id="bkPolicyText" style="margin:6px 0 10px">'+summary+' أنت تستطيع إلغاء أي حجز دائماً.</p>'+
+    (owner
+      ?'<label class="bk-check"><input type="checkbox" id="bkCancelAllowed"'+(S.polAllowed?' checked':'')+'> السماح للعميل بالإلغاء</label>'+
+        '<label class="form-f" style="margin:10px 0 0"><label>يُقفل الإلغاء قبل الموعد بـ (ساعة، 0 = حتى الموعد)</label>'+
+          '<input type="number" inputmode="numeric" min="0" max="168" id="bkCutoff" value="'+escAttr(S.polHours)+'"'+(S.polAllowed?'':' disabled')+'></label>'+
+        '<button type="button" class="btn-outline" id="bkPolicySave" style="margin-top:10px"'+(S.polSaving?' disabled':'')+'>'+(S.polSaving?'جارٍ الحفظ...':'حفظ سياسة الإلغاء')+'</button>'+
+        (S.polMsg?'<div class="form-warn" id="bkPolicyErr">'+escAttr(S.polMsg)+'</div>':'')
+      :'')+
+  '</div>';
+}
+/* التنبيه نفسه (الصوت والعدّاد) يصل المالك والموظف ما دام مفعّلاً؛ تشغيله وإيقافه
+   للمالك فقط (merchant_set_booking_alerts تتحقق من الدور في الخادم أيضاً). */
+function bookingAlertsHtml(S){
+  var on=S.alertsEnabled;
+  var owner=activeRole()==='owner';
+  return '<div class="card" id="bkAlertsCard" style="margin-bottom:14px">'+
+    '<div class="inv-top"><b>تنبيه الحجوزات الجديدة</b>'+
+      '<span class="badge '+(on?'active':'revoked')+'" id="bkAlertsBadge">'+(on?'مفعّلة':'موقفة')+'</span></div>'+
+    '<p class="hint" style="margin:6px 0 10px">صوت وعدّاد على تبويب "الحجوزات" لحظة وصول طلب حجز جديد، لكل من يفتح اللوحة لهذا التاجر.</p>'+
+    (owner
+      ?'<button type="button" class="btn-outline" id="bkAlertsToggle"'+(S.alertsSaving?' disabled':'')+'>'+(on?'إيقاف التنبيهات':'تشغيل التنبيهات')+'</button>'
+      :'<p class="hint" id="bkAlertsOwnerOnly">تشغيل التنبيهات وإيقافها للمالك فقط.</p>')+
+  '</div>';
+}
+function fmtPrice(p){return p===null||p===undefined||p===''?'بلا سعر':Number(p).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' ر.س'}
+function servicesHtml(S){
+  if(S.sector!=='services')return '';
+  var owner=activeRole()==='owner';
+  var html='<div class="sec-h"><h2>قائمة الخدمات</h2></div>'+
+    '<p class="hint" style="margin:-6px 2px 10px">هي نفسها قائمة "خدماتنا" في شاشة نوج، ومنها فقط يختار العميل خدمته عند الحجز.</p>';
+  if(S.services===null)return html+'<div class="card"><div class="form-warn" id="svcErr">'+escAttr(S.svcErr||'تعذّر تحميل قائمة الخدمات.')+'</div></div>';
+  html+='<div class="card" id="svcList">'+(S.services.length?S.services.map(function(v){
+    var busy=S.svcBusyId===v.id;
+    return '<div class="inv-row" data-svc-row="'+v.id+'">'+
+      '<div class="inv-top"><b>'+escAttr(v.name)+'</b><span class="num">'+escAttr(fmtPrice(v.price))+'</span></div>'+
+      '<div class="inv-sub"><span class="badge '+(v.is_active?'active':'revoked')+'">'+(v.is_active?'مفعّلة':'غير مفعّلة')+'</span> '+
+        '<span class="badge '+(v.booking_enabled?'active':'warn')+'">'+(v.booking_enabled?'الحجز مفتوح':'الحجز مغلق')+'</span></div>'+
+      (owner?'<div class="bk-actions">'+
+        '<button type="button" class="btn-outline" data-svc-edit="'+v.id+'"'+(busy?' disabled':'')+'>تعديل</button>'+
+        '<button type="button" class="btn-outline" data-svc-active="'+v.id+'"'+(busy?' disabled':'')+'>'+(v.is_active?'إيقاف الخدمة':'تفعيل الخدمة')+'</button>'+
+        '<button type="button" class="btn-outline" data-svc-booking="'+v.id+'"'+(busy?' disabled':'')+'>'+(v.booking_enabled?'إغلاق الحجز':'فتح الحجز')+'</button>'+
+      '</div>':'')+
+    '</div>';
+  }).join(''):'<div class="empty" id="svcEmpty">لا خدمات بعد.</div>')+'</div>';
+  if(owner){
+    html+='<div class="card" id="svcForm" style="margin-top:12px">'+
+      '<div class="inv-top"><b>'+(S.svcEditId?'تعديل خدمة':'إضافة خدمة')+'</b></div>'+
+      '<label class="form-f" style="margin-top:8px"><label>اسم الخدمة</label><input type="text" id="svcName" maxlength="80" value="'+escAttr(S.svcName)+'"></label>'+
+      '<label class="form-f"><label>السعر بالريال (اختياري)</label><input type="number" inputmode="decimal" min="0" step="0.01" id="svcPrice" value="'+escAttr(S.svcPrice)+'"></label>'+
+      (S.svcErr?'<div class="form-warn" id="svcFormErr">'+escAttr(S.svcErr)+'</div>':'')+
+      '<div class="bk-actions"><button type="button" class="approve-btn" id="svcSave"'+(S.svcSaving?' disabled':'')+'>'+(S.svcSaving?'جارٍ الحفظ...':(S.svcEditId?'حفظ التعديل':'إضافة'))+'</button>'+
+      (S.svcEditId?'<button type="button" class="btn-outline" id="svcCancelEdit">إلغاء التعديل</button>':'')+'</div>'+
+    '</div>';
+  }else{
+    html+='<p class="hint" id="svcOwnerOnly">إدارة قائمة الخدمات للمالك فقط.</p>';
+  }
+  return html;
+}
+function bookingsViewHtml(){
+  var S=M.bk;
+  if(!S)return '';
+  var html='<div class="sec-h"><h2>الحجوزات</h2><button type="button" class="btn-outline" id="bkRefresh">تحديث</button></div>';
+  if(S.loading&&!S.rows)return html+'<div class="loading-row" id="bkLoading">جارٍ التحميل...</div>';
+  if(S.err&&!S.rows){
+    return html+'<div class="card"><div class="form-warn" id="bkErr">'+escAttr(S.err)+'</div>'+
+      '<button type="button" class="btn-outline" id="bkRetry" style="margin-top:10px">إعادة المحاولة</button></div>';
+  }
+  if(!S.rows)return html;
+  if(BOOKING_SECTORS.indexOf(S.sector)===-1){
+    return html+'<div class="card"><div class="empty" id="bkNotAvailable">الحجوزات متاحة لقسمي المطعم والخدمات فقط.</div></div>';
+  }
+  html+=bookingToggleHtml(S);
+  if(S.err)html+='<div class="form-warn" id="bkErr" style="margin-bottom:10px">'+escAttr(S.err)+'</div>';
+  var groups=[['pending','بانتظار القبول'],['confirmed','المؤكَّدة'],['cancelled','الملغاة']];
+  var any=false;
+  groups.forEach(function(g){
+    var rows=S.rows.filter(function(r){return r.status===g[0]});
+    if(!rows.length)return;
+    any=true;
+    html+='<div class="bk-group" id="bkGroup-'+g[0]+'"><div class="hint" style="margin:6px 2px 6px">'+g[1]+' (<span class="num">'+rows.length+'</span>)</div>'+
+      '<div class="card">'+rows.map(bookingRowHtml).join('')+'</div></div>';
+  });
+  if(!any)html+='<div class="card"><div class="empty" id="bkEmpty">لا حجوزات قادمة.</div></div>';
+  return html+servicesHtml(S);
+}
+function bookingCancelConfirmHtml(){
+  if(!M.bkConfirmCancelId)return '';
+  return '<div class="ov" id="bkCancelOv"><div class="confirm-box">'+
+    '<h3>إلغاء هذا الحجز؟</h3>'+
+    '<p>سيظهر للعميل في تطبيق نوج أن الحجز أُلغي.</p>'+
+    '<div class="confirm-row">'+
+      '<button class="confirm-cancel" id="bkCancelBack">تراجع</button>'+
+      '<button class="confirm-ok" id="bkCancelOk">إلغاء الحجز</button>'+
+    '</div>'+
+  '</div></div>';
+}
+async function setBookingStatus(id,status){
+  var S=M.bk;
+  if(!S)return;
+  S.busyId=id;S.err='';renderApp();
+  var sb=await getSb();
+  var res=sb?await sb.rpc('merchant_set_reservation_status',{p_reservation_id:id,p_status:status}):{error:{message:'no-client'}};
+  if(M.bk!==S)return;
+  S.busyId=null;
+  if(res.error||!res.data){S.err=bkErrorText(res.error&&res.error.message);renderApp();return}
+  S.rows=S.rows.map(function(r){return r.id===id?res.data:r});
+  renderApp();
+  toast(status==='confirmed'?'تم قبول الحجز':'تم إلغاء الحجز');
+}
+function bindBookings(){
+  var S=M.bk;
+  if(!S||M.view!=='bookings')return;
+  var refresh=document.getElementById('bkRefresh');
+  if(refresh)refresh.onclick=function(){loadBookings()};
+  var retry=document.getElementById('bkRetry');
+  if(retry)retry.onclick=function(){loadBookings()};
+  [].forEach.call(document.querySelectorAll('[data-bk-accept]'),function(b){
+    b.onclick=function(){setBookingStatus(b.getAttribute('data-bk-accept'),'confirmed')};
+  });
+  [].forEach.call(document.querySelectorAll('[data-bk-cancel]'),function(b){
+    b.onclick=function(){M.bkConfirmCancelId=b.getAttribute('data-bk-cancel');renderApp()};
+  });
+  var back=document.getElementById('bkCancelBack');
+  if(back)back.onclick=function(){M.bkConfirmCancelId=null;renderApp()};
+  var ok=document.getElementById('bkCancelOk');
+  if(ok)ok.onclick=function(){var id=M.bkConfirmCancelId;M.bkConfirmCancelId=null;setBookingStatus(id,'cancelled')};
+  bindBookingSettings(S);
+  var toggle=document.getElementById('bkToggleBtn');
+  if(toggle)toggle.onclick=async function(){
+    if(activeRole()!=='owner'||S.toggling)return;
+    var want=!S.bookingEnabled;
+    S.toggling=true;S.err='';renderApp();
+    var sb=await getSb();
+    var res=sb?await sb.rpc('merchant_set_booking_enabled',{p_merchant_id:M.activeMerchantId,p_enabled:want}):{error:{message:'no-client'}};
+    if(M.bk!==S)return;
+    S.toggling=false;
+    if(res.error){S.err=bkErrorText(res.error.message);renderApp();return}
+    S.bookingEnabled=!!res.data;
+    renderApp();
+    toast(S.bookingEnabled?'تم تفعيل الحجوزات':'تم إيقاف الحجوزات');
+  };
+}
+
+function bindBookingSettings(S){
+  var allowed=document.getElementById('bkCancelAllowed');
+  if(allowed)allowed.onchange=function(){S.polAllowed=allowed.checked;renderApp()};
+  var cut=document.getElementById('bkCutoff');
+  if(cut)cut.oninput=function(){S.polHours=cut.value};
+  var pol=document.getElementById('bkPolicySave');
+  if(pol)pol.onclick=async function(){
+    if(activeRole()!=='owner'||S.polSaving)return;
+    var h=String(S.polHours).trim();
+    if(!/^\d{1,3}$/.test(h)||Number(h)>168){S.polMsg=bkErrorText('NOJ_INVALID_CANCEL_POLICY');renderApp();return}
+    S.polSaving=true;S.polMsg='';renderApp();
+    var sb=await getSb();
+    var res=sb?await sb.rpc('merchant_set_booking_policy',{p_merchant_id:M.activeMerchantId,p_cancel_allowed:!!S.polAllowed,p_cutoff_hours:Number(h)}):{error:{message:'no-client'}};
+    if(M.bk!==S)return;
+    S.polSaving=false;
+    if(res.error||!res.data){S.polMsg=bkErrorText(res.error&&res.error.message);renderApp();return}
+    S.cancelAllowed=res.data.cancel_allowed!==false;S.cutoffHours=Number(res.data.cancel_cutoff_hours||0);
+    S.polAllowed=S.cancelAllowed;S.polHours=String(S.cutoffHours);
+    renderApp();
+    toast('تم حفظ سياسة الإلغاء');
+  };
+  var al=document.getElementById('bkAlertsToggle');
+  if(al)al.onclick=async function(){
+    if(activeRole()!=='owner'||S.alertsSaving)return;
+    var want=!S.alertsEnabled;
+    S.alertsSaving=true;S.err='';renderApp();
+    var sb=await getSb();
+    var res=sb?await sb.rpc('merchant_set_booking_alerts',{p_merchant_id:M.activeMerchantId,p_enabled:want}):{error:{message:'no-client'}};
+    if(M.bk!==S)return;
+    S.alertsSaving=false;
+    if(res.error){S.err=bkErrorText(res.error.message);renderApp();return}
+    S.alertsEnabled=!!res.data;
+    if(S.alertsEnabled)setupBookingAlerts(true);else stopBookingAlerts();
+    renderApp();
+    toast(S.alertsEnabled?'تم تشغيل التنبيهات':'تم إيقاف التنبيهات');
+  };
+
+  var nm=document.getElementById('svcName');
+  if(nm)nm.oninput=function(){S.svcName=nm.value};
+  var pr=document.getElementById('svcPrice');
+  if(pr)pr.oninput=function(){S.svcPrice=pr.value};
+  var saveService=async function(id,name,price,active,booking){
+    var sb=await getSb();
+    return sb?await sb.rpc('merchant_save_service',{p_merchant_id:M.activeMerchantId,p_service_id:id,p_name:name,p_price:price,p_is_active:active,p_booking_enabled:booking}):{error:{message:'no-client'}};
+  };
+  var save=document.getElementById('svcSave');
+  if(save)save.onclick=async function(){
+    if(activeRole()!=='owner'||S.svcSaving)return;
+    var name=String(S.svcName||'').trim(),priceTxt=String(S.svcPrice||'').trim();
+    if(!name||name.length>80){S.svcErr=bkErrorText('NOJ_INVALID_SERVICE_NAME');renderApp();return}
+    var price=priceTxt===''?null:Number(priceTxt);
+    if(price!==null&&(!isFinite(price)||price<0||price>1000000)){S.svcErr=bkErrorText('NOJ_INVALID_SERVICE_PRICE');renderApp();return}
+    var cur=S.svcEditId&&(S.services||[]).find(function(v){return v.id===S.svcEditId});
+    S.svcSaving=true;S.svcErr='';renderApp();
+    var res=await saveService(S.svcEditId||null,name,price,cur?cur.is_active:true,cur?cur.booking_enabled:true);
+    if(M.bk!==S)return;
+    S.svcSaving=false;
+    if(res.error||!res.data){S.svcErr=bkErrorText(res.error&&res.error.message);renderApp();return}
+    if(cur)S.services=S.services.map(function(v){return v.id===res.data.id?res.data:v});
+    else S.services=(S.services||[]).concat([res.data]);
+    S.svcEditId=null;S.svcName='';S.svcPrice='';
+    renderApp();
+    toast(cur?'تم حفظ الخدمة':'تمت إضافة الخدمة');
+  };
+  var cancelEdit=document.getElementById('svcCancelEdit');
+  if(cancelEdit)cancelEdit.onclick=function(){S.svcEditId=null;S.svcName='';S.svcPrice='';S.svcErr='';renderApp()};
+  [].forEach.call(document.querySelectorAll('[data-svc-edit]'),function(b){b.onclick=function(){
+    var v=(S.services||[]).find(function(x){return x.id===b.getAttribute('data-svc-edit')});
+    if(!v)return;
+    S.svcEditId=v.id;S.svcName=v.name;S.svcPrice=v.price===null||v.price===undefined?'':String(Number(v.price));S.svcErr='';renderApp();
+  }});
+  var flip=function(attr,key){
+    [].forEach.call(document.querySelectorAll('['+attr+']'),function(b){b.onclick=async function(){
+      var v=(S.services||[]).find(function(x){return x.id===b.getAttribute(attr)});
+      if(!v||S.svcBusyId)return;
+      S.svcBusyId=v.id;S.svcErr='';renderApp();
+      var res=await saveService(v.id,v.name,v.price===null||v.price===undefined?null:Number(v.price),key==='is_active'?!v.is_active:v.is_active,key==='booking_enabled'?!v.booking_enabled:v.booking_enabled);
+      if(M.bk!==S)return;
+      S.svcBusyId=null;
+      if(res.error||!res.data){S.svcErr=bkErrorText(res.error&&res.error.message);renderApp();return}
+      S.services=S.services.map(function(x){return x.id===res.data.id?res.data:x});
+      renderApp();
+    }});
+  };
+  flip('data-svc-active','is_active');
+  flip('data-svc-booking','booking_enabled');
+}
+
+/* ================= تنبيه الحجوزات الجديدة (Realtime) =================
+   صف booking_alerts واحد لكل حجز جديد (بلا أي بيانات عميل) يكتبه مشغّل في
+   الخادم حين booking_alerts_enabled مفعّل للتاجر. اللوحة تستمع له عبر Realtime
+   (سياسة RLS "merchant members read their booking alerts")، مع استعلام احتياطي
+   دوري عند انقطاع القناة — نفس نمط شاشة نوج. عند كل تنبيه: صوت + عدّاد على تبويب
+   "الحجوزات" (يُصفَّر عند فتحه)، وإن كان التبويب مفتوحاً تُحدَّث القائمة. فشل قراءة
+   الإعداد (ملف SQL لم يُطبَّق بعد مثلاً) = لا تنبيهات، ولا يتعطل شيء آخر. */
+var BK_ALERT={merchantId:null,channel:null,pollTimer:null,since:null,seen:{},count:0,sounds:0,status:''};
+var ALERT_POLL_MS=window.__NOJ_ALERT_POLL_MS__||30000;
+async function setupBookingAlerts(force){
+  var mid=M.activeMerchantId;
+  if(!force&&BK_ALERT.merchantId===mid&&BK_ALERT.channel)return;
+  stopBookingAlerts();
+  var sb=await getSb();
+  if(!sb||!mid||!sb.channel)return;
+  var r=await sb.from('merchants').select('sector_code,booking_alerts_enabled').eq('id',mid).single();
+  if(mid!==M.activeMerchantId||r.error||!r.data)return;
+  if(BOOKING_SECTORS.indexOf(r.data.sector_code)===-1||r.data.booking_alerts_enabled!==true)return;
+  BK_ALERT.merchantId=mid;BK_ALERT.since=new Date().toISOString();
+  try{
+    var ss=await sb.auth.getSession();
+    var tok=ss&&ss.data&&ss.data.session&&ss.data.session.access_token;
+    if(tok&&sb.realtime&&sb.realtime.setAuth)sb.realtime.setAuth(tok);
+  }catch(e){}
+  BK_ALERT.channel=sb.channel('booking-alerts-'+mid)
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'booking_alerts',filter:'merchant_id=eq.'+mid},function(p){onBookingAlert(p&&p.new)})
+    .subscribe(function(status){
+      BK_ALERT.status=status;
+      if(status==='SUBSCRIBED')stopAlertPoll();
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')startAlertPoll();
+    });
+}
+function stopBookingAlerts(){
+  stopAlertPoll();
+  if(BK_ALERT.channel){
+    var ch=BK_ALERT.channel;
+    getSb().then(function(sb){try{if(sb&&sb.removeChannel)sb.removeChannel(ch)}catch(e){}});
+  }
+  BK_ALERT.channel=null;BK_ALERT.merchantId=null;BK_ALERT.count=0;BK_ALERT.seen={};
+  updateBookingBadge();
+}
+function startAlertPoll(){
+  if(BK_ALERT.pollTimer)return;
+  BK_ALERT.pollTimer=setInterval(async function(){
+    var mid=BK_ALERT.merchantId;
+    if(!mid)return;
+    var sb=await getSb();
+    var r=await sb.from('booking_alerts').select('id,merchant_id,appointment_id,created_at').eq('merchant_id',mid).gt('created_at',BK_ALERT.since).order('created_at',{ascending:true});
+    if(r.error||mid!==BK_ALERT.merchantId)return;
+    (r.data||[]).forEach(onBookingAlert);
+  },ALERT_POLL_MS);
+}
+function stopAlertPoll(){clearInterval(BK_ALERT.pollTimer);BK_ALERT.pollTimer=null}
+function onBookingAlert(row){
+  if(!row||row.merchant_id!==BK_ALERT.merchantId||BK_ALERT.seen[row.id])return;
+  BK_ALERT.seen[row.id]=true;
+  if(row.created_at&&row.created_at>BK_ALERT.since)BK_ALERT.since=row.created_at;
+  playAlertSound();
+  if(M.view==='bookings'&&M.bk){loadBookings();return}
+  BK_ALERT.count++;
+  updateBookingBadge();
+}
+function updateBookingBadge(){
+  var tab=document.querySelector('#viewTabs [data-view="bookings"]');
+  if(!tab)return;
+  var b=document.getElementById('bkBadge');
+  if(BK_ALERT.count>0){
+    if(!b){b=document.createElement('span');b.id='bkBadge';b.className='tab-badge';tab.appendChild(b)}
+    b.textContent=String(BK_ALERT.count);
+  }else if(b){b.remove()}
+}
+function playAlertSound(){
+  BK_ALERT.sounds++;
+  try{
+    var Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    var ctx=playAlertSound.ctx||(playAlertSound.ctx=new Ctx());
+    [0,0.22].forEach(function(t){
+      var o=ctx.createOscillator(),g=ctx.createGain();
+      o.type='sine';o.frequency.value=880;
+      g.gain.setValueAtTime(0.0001,ctx.currentTime+t);
+      g.gain.exponentialRampToValueAtTime(0.25,ctx.currentTime+t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+t+0.18);
+      o.connect(g);g.connect(ctx.destination);
+      o.start(ctx.currentTime+t);o.stop(ctx.currentTime+t+0.2);
+    });
+  }catch(e){}
+}
+
 function renderApp(){
   var el=document.getElementById('app');
   el.innerHTML=
@@ -1059,8 +1483,9 @@ function renderApp(){
     '<div class="tabs" id="viewTabs">'+
       '<button type="button" data-view="manage" class="'+(M.view==='manage'?'on':'')+'">الإدارة</button>'+
       '<button type="button" data-view="invoices" class="'+(M.view==='invoices'?'on':'')+'">الفواتير</button>'+
+      (bookingsTabVisible()?'<button type="button" data-view="bookings" class="'+(M.view==='bookings'?'on':'')+'">الحجوزات'+(BK_ALERT.count>0?'<span id="bkBadge" class="tab-badge">'+BK_ALERT.count+'</span>':'')+'</button>':'')+
     '</div>'+
-    (M.view==='invoices'?invoicesViewHtml():
+    (M.view==='invoices'?invoicesViewHtml():M.view==='bookings'?bookingsViewHtml():
     '<div class="sec-h"><h2>الأجهزة</h2></div>'+
     '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
     '<div class="sec-h"><h2>اعتماد شاشة نوج جديدة</h2></div>'+
@@ -1069,7 +1494,7 @@ function renderApp(){
     branchSettingsHtml()+
     adminPinHtml()+
     posTokenHtml())+
-  confirmRevokeHtml()+modeConfirmHtml()+posTokenConfirmHtml();
+  confirmRevokeHtml()+modeConfirmHtml()+posTokenConfirmHtml()+bookingCancelConfirmHtml();
   bindApp();
 }
 
@@ -1077,12 +1502,14 @@ function bindApp(){
   var ms=document.getElementById('merchantSelect');
   if(ms)ms.onchange=async function(){
     M.activeMerchantId=ms.value;
-    M.inv=null;
+    M.inv=null;M.bk=null;M.bkConfirmCancelId=null;
     await loadDashboardData();
     if(M.view==='invoices'){M.inv=newInvState();loadInvoices(false)}
+    if(M.view==='bookings'){M.bk=newBkState();loadBookings()}
   };
 
   bindInvoices();
+  bindBookings();
 
   var logout=document.getElementById('logoutBtn');
   if(logout)logout.onclick=doLogout;
@@ -1323,6 +1750,7 @@ function bindApp(){
 
 async function doLogout(){
   var sb=await getSb();
+  stopBookingAlerts();
   if(sb)await sb.auth.signOut();
   stopIdleTimer();
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
@@ -1330,7 +1758,7 @@ async function doLogout(){
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
     holdServer:null,holdSector:null,loadedSector:null,
     posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
-    view:'manage',inv:null};
+    view:'manage',inv:null,bk:null,bkConfirmCancelId:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';

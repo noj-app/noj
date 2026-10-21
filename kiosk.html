@@ -397,6 +397,10 @@
   .menu-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fff;text-align:center;padding:0 20px}
   .menu-empty b{font-size:18px}
   .menu-empty small{font-size:14px;opacity:.75}
+  .svc-list{flex:1;overflow:auto;padding:70px 28px 28px;color:#fff}
+  .svc-list h2{font-size:22px;margin-bottom:16px}
+  .svc-row{display:flex;justify-content:space-between;gap:16px;padding:14px 4px;border-bottom:1px solid rgba(255,255,255,.15);font-size:17px}
+  .svc-row span{direction:ltr;opacity:.85;white-space:nowrap}
 
   /* ===== MENU FILE (رفع ملف المنيو داخل إعدادات الجهاز) ===== */
   .adm-f select{display:block;width:100%;margin-top:6px;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px;font-weight:700;color:var(--ink);font-family:inherit;direction:rtl;transition:background-color .3s ease,border-color .3s ease,color .3s ease}
@@ -577,7 +581,7 @@ var T={
   topCard:{kind:'unit',label:'نوع العيادة',icon:'tooth',value:'أسنان',subLabel:'رقم العيادة',subValue:'3'},
   // right small cards
   small2:{id:'nextAppt',icon:'calchk',title:'حجز موعدك القادم',note:'احجز، عدّل أو ألغِ موعدك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>'},
-  // بطاقة يمنى ثالثة اختيارية (القطاع الطبي فقط): "عروضنا" لكل الأقسام —
+  // بطاقة يمنى ثالثة اختيارية (small3؛ هنا وفي المطعم والخدمات): "عروضنا" لكل الأقسام —
   // small2 هنا مشغول أصلاً ببطاقة الموعد، فتأتي العروض بعدها.
   small3:{id:'offers',icon:'tag',title:'عروضنا',note:'تابع صفحتنا من تطبيق <span class="brandblue">NOJ</span>'},
   footer:[
@@ -652,6 +656,9 @@ var T={
   idleNote:{ar:'انتظر حتى إصدار الفاتورة، ثم مرّر جوالك أو أدخل رقمك لتُحتسب نقاط ولائك',
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points.'},
   idleMenuBtn:{label:'المنيو',sub:'اطلع على قائمتنا',icon:'cutlery'},
+  // "حجزك القادم" — كبطاقة الموعد في الصحي، لكنها تظهر فقط لتاجر فعّل
+  // الحجوزات فعلاً (merchants.booking_enabled، راجع small3On)
+  small3:{id:'nextBooking',icon:'calchk',title:'حجزك القادم',note:'احجز طاولتك أو ألغِ حجزك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>',needsBooking:true},
   hasPoints:true, hasQueue:false,
   showInvoiceAmount:true, invoiceAmount:'86.00',
   showCouponBtn:true, showDigitalInvoice:true,
@@ -720,6 +727,7 @@ T.services={
         en:'Wait until the invoice is issued, then tap your phone or enter your number to earn your loyalty points and receive your invoice digitally.'},
   // زر "خدماتنا" يعرض نفس عارض الصفحات المرفوعة (قائمة الخدمات والأسعار)
   idleMenuBtn:{label:'خدماتنا',sub:'قائمة الخدمات والأسعار',icon:'receipt',fileLabel:'قائمة الخدمات والأسعار',emptyTitle:'لم تُرفَع قائمة الخدمات بعد'},
+  small3:{id:'nextBooking',icon:'calchk',title:'حجزك القادم',note:'احجز خدمتك أو ألغِ حجزك<br>بسهولة من تطبيق <span class="brandblue">NOJ</span>',needsBooking:true},
   hasPoints:true, hasQueue:false,
   showInvoiceAmount:true, invoiceAmount:'45.00',
   showCouponBtn:true, showDigitalInvoice:true,
@@ -747,8 +755,14 @@ function sectorCardToggles(key){
   var inOkItems=c.okItems.some(function(o){return c.small2&&o.id===c.small2.id});
   if(c.small2&&!inOkItems)list.push({id:c.small2.id,label:c.small2.title});
   c.okItems.slice(1).forEach(function(o){list.push({id:o.id,label:o.b})});
-  if(c.small3)list.push({id:c.small3.id,label:c.small3.title});
+  if(small3On(c))list.push({id:c.small3.id,label:c.small3.title});
   return list;
+}
+/* البطاقة اليمنى الثالثة موجودة لهذا القسم؟ small3 بـneedsBooking (بطاقة
+   "حجزك القادم" للمطعم والخدمات) تتبع merchants.booking_enabled لتاجر الجهاز:
+   تاجر لم يفعّل الحجوزات لا يرى البطاقة ولا مفتاحها — فلا مفتاح بلا بطاقة. */
+function small3On(c){
+  return !!c.small3&&(!c.small3.needsBooking||DEVICE.bookingEnabled===true);
 }
 /* عنصر okItems "الفائض" — أول عنصر بعد فاتورتك (index 0) وليس هو نفسه
    small2 — إن وُجد. يمثّل بطاقة إضافية واحدة يجب أن تكون مرئية فعلياً
@@ -859,7 +873,7 @@ function getTurnstileToken(containerId,timeoutMs){
    "آخر سياق فرع معروف" (DEVICE_CACHE) للعمل حين ينقطع الاتصال لحظياً،
    مع بقاء قاعدة البيانات المصدر الرسمي دائماً (تُستدعى من جديد في كل
    إقلاع، لا تُقرأ من الكاش إلا عند فشل الاتصال فعلاً). */
-var DEVICE={branchId:null,merchantId:null,merchantName:null,merchantType:null,pointsRate:null,connError:false};
+var DEVICE={branchId:null,merchantId:null,merchantName:null,merchantType:null,pointsRate:null,bookingEnabled:false,connError:false};
 var DEVICE_CACHE_KEY='noj_kiosk_device_cache';
 function loadDeviceCache(){
   try{
@@ -1366,7 +1380,7 @@ function rightCol(){
   var extra=(extraItem&&cardOn(extraItem.id))?
    '<div class="rb"><div class="rb-i">'+ic(extraItem.i,26,extraItem.c)+'</div>'+
    '<b>'+extraItem.b+'</b><small>'+extraItem.s+'</small></div>':'';
-  var small3=(c.small3&&cardOn(c.small3.id))?
+  var small3=(small3On(c)&&cardOn(c.small3.id))?
    '<div class="rb"><div class="rb-i">'+ic(c.small3.icon,26,'#2D7BF4')+'</div>'+
    '<b>'+c.small3.title+'</b><small>'+c.small3.note+'</small></div>':'';
   var boxes=digitalInvoice+small2+extra+small3;
@@ -1538,8 +1552,19 @@ function goToCheckoutScreen(){
    المنيو من شاشة الخمول (bindIdle) لا داخل menuOverlay نفسها، لتبقى
    الدالة قابلة لإعادة الاستدعاء بأمان (مثلاً بعد الحفظ من الإعدادات). */
 var menuIdx=0;
+/* قسم الخدمات: زر "خدماتنا" يعرض قائمة خدمات التاجر نفسها (merchant_services،
+   يديرها من لوحة التاجر، ومنها وحدها يحجز العميل في تطبيق نوج) — الاسم والسعر.
+   الصفحات المرفوعة تبقى بديلاً فقط حين لا خدمات في القائمة بعد. */
+function servicesListOverlay(list){
+  return '<div class="ov menu-ov" id="menuOv">'+
+   '<button class="close" id="menuClose">'+ic('close',16,'#8A93AD')+' إغلاق</button>'+
+   '<div class="svc-list" id="svcList"><h2>خدماتنا</h2>'+list.map(function(v){
+     return '<div class="svc-row"><b>'+escAttr(v.name)+'</b><span>'+(v.price!==null&&v.price!==undefined?Number(v.price).toFixed(2)+' ر.س':'')+'</span></div>';
+   }).join('')+'</div></div>';
+}
 function menuOverlay(){
   var imgs=SETTINGS.menuImages||[];
+  if(SETTINGS.sector==='services'&&DEVICE.services&&DEVICE.services.length)return servicesListOverlay(DEVICE.services);
   if(!imgs.length){
     return '<div class="ov menu-ov" id="menuOv">'+
      '<button class="close" id="menuClose">'+ic('close',16,'#8A93AD')+' إغلاق</button>'+
@@ -1901,14 +1926,23 @@ async function loadDeviceContext(branchId){
     var br=await sb.from('branches').select('merchant_id').eq('id',branchId).single();
     if(br.error)throw br.error;
     DEVICE.merchantId=br.data.merchant_id;
-    var mr=await sb.from('merchants').select('name,type,points_rate').eq('id',DEVICE.merchantId).single();
+    var mr=await sb.from('merchants').select('name,type,points_rate,booking_enabled').eq('id',DEVICE.merchantId).single();
     if(mr.error)throw mr.error;
     DEVICE.merchantName=mr.data.name;DEVICE.merchantType=mr.data.type;DEVICE.pointsRate=Number(mr.data.points_rate);
+    DEVICE.bookingEnabled=mr.data.booking_enabled===true;
     var sr=await sb.from('branch_settings').select('*').eq('branch_id',branchId).single();
     if(sr.error)throw sr.error;
     applyBranchSettingsToLocal(sr.data);
+    // قائمة الخدمات (قسم الخدمات فقط) — أفضل جهد: فشلها لا يُسقط سياق الجهاز
+    DEVICE.services=null;
+    if(sr.data.sector_code==='services'){
+      try{
+        var sv=await sb.from('merchant_services').select('name,price').eq('merchant_id',DEVICE.merchantId).eq('is_active',true).order('sort_order',{ascending:true});
+        if(!sv.error)DEVICE.services=sv.data||[];
+      }catch(e){console.error('NOJ kiosk: services list error',e)}
+    }
     DEVICE.connError=false;
-    saveDeviceCache({branchId:DEVICE.branchId,merchantId:DEVICE.merchantId,merchantName:DEVICE.merchantName,merchantType:DEVICE.merchantType,pointsRate:DEVICE.pointsRate,branchSettings:sr.data});
+    saveDeviceCache({branchId:DEVICE.branchId,merchantId:DEVICE.merchantId,merchantName:DEVICE.merchantName,merchantType:DEVICE.merchantType,pointsRate:DEVICE.pointsRate,bookingEnabled:DEVICE.bookingEnabled,services:DEVICE.services,branchSettings:sr.data});
   }catch(e){
     console.error('NOJ kiosk: loadDeviceContext error',e);
     var cached=loadDeviceCache();

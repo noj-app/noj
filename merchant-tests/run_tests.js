@@ -46,7 +46,7 @@ function baseScenario(overrides) {
   }, overrides);
 }
 
-async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp }) {
+async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp, alertPollMs }) {
   const context = await browser.newContext();
   const page = await context.newPage();
   // no live network at all — fail fast instead of waiting out real timeouts
@@ -64,6 +64,9 @@ async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp }) {
   await page.addInitScript((s) => { window.__NOJ_SCENARIO__ = s; }, scenario);
   if (idleMs) {
     await page.addInitScript((ms) => { window.__NOJ_IDLE_MS__ = ms; }, idleMs);
+  }
+  if (alertPollMs) {
+    await page.addInitScript((ms) => { window.__NOJ_ALERT_POLL_MS__ = ms; }, alertPollMs);
   }
   await page.addInitScript({ path: FAKE_SB_PATH });
   // fake-turnstile.js يقرأ window.__NOJ_SCENARIO__ عند التنفيذ أيضاً — مُسجَّل
@@ -1034,6 +1037,311 @@ async function loginFlow(page, phone, otp) {
     const txt = await page.textContent('#app');
     check('43) لوحة التاجر تسمّي الجهاز "شاشة نوج" (اعتماد/رمز إعدادات/رمز الإقران)، بلا "كشك"',
       /اعتماد شاشة نوج جديدة/.test(txt) && /رمز إعدادات شاشة نوج/.test(txt) && /الظاهر على شاشة نوج/.test(txt) && !/كشك|أكشاك/.test(txt));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 44-53) الحجوزات (supabase-migration-reservations.sql) — المطعم والخدمات
+  // =========================================================================
+  const bkScenario = (over, sector) => {
+    const sec = sector || 'restaurant';
+    return baseScenario(Object.assign({
+      merchants: [{ id: 'merchant-1', name: 'مطعم مذاق', sector_code: sec, points_hold_days: 0, booking_enabled: true, booking_alerts_enabled: true, booking_cancel_allowed: true, booking_cancel_cutoff_hours: 0 }],
+      branchSettings: [{ branch_id: 'branch-1', sector_code: sec, biz_name: 'مطعم مذاق', biz_branch: 'فرع الملقا', biz_slogan: '', biz_logo: '', pos_mode: 'demo' }],
+      reservations: [
+        { id: 'r-1', merchant_id: 'merchant-1', kind: 'table', status: 'pending', scheduled_at: '2030-03-11T17:00:00Z', scheduled_at_riyadh: '2030-03-11 20:00', party_size: 4, service_type: null, note: 'قرب النافذة', created_at: '2030-03-01T10:00:00Z', customer_name: 'سارة', customer_phone_last4: '4567' },
+        { id: 'r-2', merchant_id: 'merchant-1', kind: 'table', status: 'confirmed', scheduled_at: '2030-03-12T17:00:00Z', scheduled_at_riyadh: '2030-03-12 20:00', party_size: 2, service_type: null, note: null, created_at: '2030-03-01T10:00:00Z', customer_name: 'علي', customer_phone_last4: '6543' },
+        { id: 'r-3', merchant_id: 'merchant-1', kind: 'table', status: 'cancelled', scheduled_at: '2030-03-13T17:00:00Z', scheduled_at_riyadh: '2030-03-13 20:00', party_size: 6, service_type: null, note: null, created_at: '2030-03-01T10:00:00Z', customer_name: null, customer_phone_last4: null },
+      ],
+    }, over || {}));
+  };
+  const openBookings = async (scenario) => {
+    const { context, page } = await openMerchant(browser, { scenario });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    await page.click('#viewTabs [data-view="bookings"]');
+    await page.waitForFunction(() => !document.getElementById('bkLoading'), null, { timeout: 3000 });
+    return { context, page };
+  };
+  {
+    const { context, page } = await openMerchant(browser, { scenario: bkScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    check('44) تاجر مطعم: تبويب "الحجوزات" ظاهر، ولا يُحمَّل شيء قبل فتحه',
+      (await page.textContent('#viewTabs')).includes('الحجوزات') && (await page.evaluate(() => window.__TEST__.getBookingListCalls())).length === 0);
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: holdScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#sectorSw', { timeout: 3000 });
+    check('44) تاجر صحي: لا تبويب حجوزات (مواعيد الصحي لا تمر بهذه الشاشة)', (await page.$('#viewTabs [data-view="bookings"]')) === null);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    const calls = await page.evaluate(() => window.__TEST__.getBookingListCalls());
+    const pending = await page.textContent('#bkGroup-pending');
+    check('45) فتح التبويب يستدعي merchant_list_reservations مرة واحدة للتاجر النشط',
+      calls.length === 1 && calls[0].p_merchant_id === 'merchant-1');
+    check('45) الحجوزات مجمَّعة: بانتظار القبول ثم المؤكَّدة ثم الملغاة، بأعدادها',
+      /بانتظار القبول \(1\)/.test(pending) && /المؤكَّدة \(1\)/.test(await page.textContent('#bkGroup-confirmed')) && /الملغاة \(1\)/.test(await page.textContent('#bkGroup-cancelled')));
+    check('45) سطر الحجز: الوقت بتوقيت الرياض، عدد الأشخاص، الاسم، آخر 4 أرقام فقط، والملاحظة',
+      /2030-03-11 20:00/.test(pending) && /عدد الأشخاص: 4/.test(pending) && /سارة/.test(pending) && /ينتهي بـ 4567/.test(pending) && /قرب النافذة/.test(pending));
+    check('45) الملغى بلا أزرار، المؤكَّد بزر إلغاء فقط، المعلَّق بقبول وإلغاء',
+      (await page.$$('#bkGroup-cancelled button')).length === 0 && (await page.$$('#bkGroup-confirmed [data-bk-accept]')).length === 0 &&
+      (await page.$$('#bkGroup-confirmed [data-bk-cancel]')).length === 1 && (await page.$$('#bkGroup-pending [data-bk-accept]')).length === 1);
+    await page.click('[data-bk-accept="r-1"]');
+    await page.waitForFunction(() => !document.getElementById('bkGroup-pending'), null, { timeout: 3000 });
+    const sc = await page.evaluate(() => window.__TEST__.getBookingStatusCalls());
+    check('46) "قبول" يستدعي merchant_set_reservation_status(confirmed) وينقل الحجز للمؤكَّدة',
+      sc.length === 1 && sc[0].p_reservation_id === 'r-1' && sc[0].p_status === 'confirmed' && /المؤكَّدة \(2\)/.test(await page.textContent('#bkGroup-confirmed')));
+    await page.click('[data-bk-cancel="r-2"]');
+    await page.waitForSelector('#bkCancelOv', { timeout: 2000 });
+    await page.click('#bkCancelBack');
+    check('47) "إلغاء" يفتح تأكيداً؛ "تراجع" لا يستدعي شيئاً', (await page.$('#bkCancelOv')) === null && (await page.evaluate(() => window.__TEST__.getBookingStatusCalls())).length === 1);
+    await page.click('[data-bk-cancel="r-2"]');
+    await page.click('#bkCancelOk');
+    await page.waitForFunction(() => /الملغاة \(2\)/.test((document.getElementById('bkGroup-cancelled') || {}).textContent || ''), null, { timeout: 3000 });
+    const sc2 = await page.evaluate(() => window.__TEST__.getBookingStatusCalls());
+    check('47) التأكيد يستدعي merchant_set_reservation_status(cancelled) وينقله للملغاة', sc2.length === 2 && sc2[1].p_reservation_id === 'r-2' && sc2[1].p_status === 'cancelled');
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    check('48) المالك يرى حالة الاستقبال "مفعّل" وزر "إيقاف الحجوزات"', (await page.textContent('#bkEnabledBadge')) === 'مفعّل' && /إيقاف الحجوزات/.test(await page.textContent('#bkToggleBtn')));
+    await page.click('#bkToggleBtn');
+    await page.waitForFunction(() => (document.getElementById('bkEnabledBadge') || {}).textContent === 'متوقف', null, { timeout: 3000 });
+    const tc = await page.evaluate(() => window.__TEST__.getBookingToggleCalls());
+    check('48) الضغط يستدعي merchant_set_booking_enabled(false) للتاجر الصحيح، والقائمة تبقى كما هي',
+      tc.length === 1 && tc[0].p_merchant_id === 'merchant-1' && tc[0].p_enabled === false &&
+      (await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'))).booking_enabled === false && (await page.$$('.bk-row')).length === 3);
+    await page.click('#bkToggleBtn');
+    await page.waitForFunction(() => (document.getElementById('bkEnabledBadge') || {}).textContent === 'مفعّل', null, { timeout: 3000 });
+    check('48) والضغط مرة أخرى يعيد التفعيل', (await page.evaluate(() => window.__TEST__.getBookingToggleCalls()))[1].p_enabled === true);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    check('49) الموظف يرى حالة الاستقبال بلا زر تفعيل/إيقاف، مع تنبيه "للمالك فقط"',
+      (await page.$('#bkToggleBtn')) === null && /للمالك فقط/.test(await page.textContent('#bkToggleOwnerOnly')));
+    await page.click('[data-bk-accept="r-1"]');
+    await page.waitForFunction(() => !document.getElementById('bkGroup-pending'), null, { timeout: 3000 });
+    check('49) الموظف يقبل الحجوزات ويلغيها (مالك وموظف معاً)', (await page.evaluate(() => window.__TEST__.getBookingStatusCalls())).length === 1);
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_booking_enabled', { p_merchant_id: 'merchant-1', p_enabled: false })).error);
+    check('49) دفاع في العمق: نداء merchant_set_booking_enabled مباشرة بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+  {
+    const sc = bkScenario({}, 'services');
+    sc.reservations = [{ id: 's-1', merchant_id: 'merchant-1', kind: 'service', status: 'pending', scheduled_at: '2030-03-11T07:00:00Z', scheduled_at_riyadh: '2030-03-11 10:00', party_size: null, service_type: 'غسيل داخلي', note: null, created_at: '2030-03-01T10:00:00Z', customer_name: 'سارة', customer_phone_last4: '4567' }];
+    const { context, page } = await openBookings(sc);
+    const t = await page.textContent('#bkGroup-pending');
+    check('50) تاجر خدمات: التبويب ظاهر، وسطر الحجز يعرض نوع الخدمة لا عدد الأشخاص', /الخدمة: غسيل داخلي/.test(t) && !/عدد الأشخاص/.test(t));
+    await context.close();
+  }
+  {
+    const sc = bkScenario({ bookingsError: true });
+    const { context, page } = await openBookings(sc);
+    check('51) فشل التحميل: رسالة خطأ صريحة مع إعادة محاولة، بلا بيانات مختلقة', /تعذّر تحميل الحجوزات/.test(await page.textContent('#bkErr')) && (await page.$$('.bk-row')).length === 0);
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.bookingsError = false; });
+    await page.click('#bkRetry');
+    await page.waitForSelector('.bk-row', { timeout: 3000 });
+    check('51) "إعادة المحاولة" تحمّل القائمة', (await page.$$('.bk-row')).length === 3);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario({ reservations: [] }));
+    check('52) لا حجوزات: حالة فارغة صريحة', /لا حجوزات قادمة/.test(await page.textContent('#bkEmpty')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    // الحجز تغيّر في الخادم (ألغاه العميل) بعد تحميل القائمة
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.reservations[0].status = 'cancelled'; });
+    await page.click('[data-bk-accept="r-1"]');
+    await page.waitForSelector('#bkErr', { timeout: 3000 });
+    check('53) قبول حجز تغيّرت حالته: رسالة واضحة "حدّث القائمة"، والسطر لا يتغيّر محلياً',
+      /تغيّرت حالة هذا الحجز/.test(await page.textContent('#bkErr')) && (await page.$('[data-bk-accept="r-1"]')) !== null);
+    await page.click('#bkRefresh');
+    await page.waitForFunction(() => !document.querySelector('[data-bk-accept="r-1"]'), null, { timeout: 3000 });
+    check('53) "تحديث" يعيد الجلب ويعرض الحالة الفعلية', /الملغاة \(2\)/.test(await page.textContent('#bkGroup-cancelled')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 54-63) تحكم التاجر في الحجز: سياسة الإلغاء، قائمة الخدمات، والتنبيه (Realtime)
+  // =========================================================================
+  const svcScenario = (over) => {
+    const sc = bkScenario(over, 'services');
+    sc.reservations = [];
+    sc.services = sc.services || [
+      { id: 'svc-1', merchant_id: 'merchant-1', name: 'غسيل داخلي', price: 45, is_active: true, booking_enabled: true, sort_order: 0 },
+      { id: 'svc-2', merchant_id: 'merchant-1', name: 'تظليل', price: null, is_active: true, booking_enabled: false, sort_order: 1 },
+      { id: 'svc-3', merchant_id: 'merchant-1', name: 'خدمة قديمة', price: 10, is_active: false, booking_enabled: true, sort_order: 2 },
+    ];
+    return sc;
+  };
+  {
+    const { context, page } = await openBookings(bkScenario());
+    check('54) المطعم: البطاقة باسم "حجز الطاولات"، ولا قسم خدمات', /حجز الطاولات/.test(await page.textContent('#bkToggleCard')) && (await page.$('#svcList')) === null);
+    check('54) سياسة الإلغاء الحالية معروضة (يستطيع العميل الإلغاء حتى موعد الحجز نفسه)، مع "أنت تستطيع إلغاء أي حجز دائماً"',
+      /يستطيع العميل الإلغاء حتى موعد الحجز نفسه/.test(await page.textContent('#bkPolicyText')) && /أنت تستطيع إلغاء أي حجز دائماً/.test(await page.textContent('#bkPolicyText')));
+    await page.fill('#bkCutoff', '200');
+    await page.click('#bkPolicySave');
+    check('54) مهلة خارج 0..168 تُرفض محلياً بلا نداء', /من 0 إلى 168/.test(await page.textContent('#bkPolicyErr')) && (await page.evaluate(() => window.__TEST__.getPolicyCalls())).length === 0);
+    await page.fill('#bkCutoff', '6');
+    await page.click('#bkPolicySave');
+    await page.waitForFunction(() => /حتى 6 ساعة قبل الموعد/.test((document.getElementById('bkPolicyText') || {}).textContent || ''), null, { timeout: 3000 });
+    let pc = await page.evaluate(() => window.__TEST__.getPolicyCalls());
+    check('54) حفظ مهلة 6 ساعات: merchant_set_booking_policy(true, 6) والملخص يتحدّث', pc.length === 1 && pc[0].p_cancel_allowed === true && pc[0].p_cutoff_hours === 6 && pc[0].p_merchant_id === 'merchant-1');
+    await page.click('#bkCancelAllowed');
+    check('54) منع الإلغاء يعطّل حقل المهلة', await page.$eval('#bkCutoff', (e) => e.disabled));
+    await page.click('#bkPolicySave');
+    await page.waitForFunction(() => /لا يستطيع العميل الإلغاء/.test((document.getElementById('bkPolicyText') || {}).textContent || ''), null, { timeout: 3000 });
+    pc = await page.evaluate(() => window.__TEST__.getPolicyCalls());
+    check('54) …والحفظ يرسل cancel_allowed=false', pc.length === 2 && pc[1].p_cancel_allowed === false);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    check('55) الموظف يرى سياسة الإلغاء نصاً فقط، بلا أدوات تعديلها', !!(await page.$('#bkPolicyText')) && (await page.$('#bkCancelAllowed')) === null && (await page.$('#bkPolicySave')) === null);
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_booking_policy', { p_merchant_id: 'merchant-1', p_cancel_allowed: false, p_cutoff_hours: 1 })).error);
+    check('55) دفاع في العمق: نداء merchant_set_booking_policy بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    check('56) الموظف يرى حالة التنبيهات (مفعّلة) بلا زر تغييرها، مع "للمالك فقط"',
+      (await page.textContent('#bkAlertsBadge')) === 'مفعّلة' && (await page.$('#bkAlertsToggle')) === null &&
+      /للمالك فقط/.test(await page.textContent('#bkAlertsOwnerOnly')));
+    const directAl = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_booking_alerts', { p_merchant_id: 'merchant-1', p_enabled: false })).error);
+    check('56) دفاع في العمق: نداء merchant_set_booking_alerts بجلسة موظف يُرفض، والإعداد يبقى مفعّلاً',
+      directAl && /لا تملك صلاحية/.test(directAl.message) && (await page.evaluate(() => window.__TEST__.getMerchant('merchant-1'))).booking_alerts_enabled === true);
+    await page.waitForFunction(() => BK_ALERT.status === 'SUBSCRIBED', null, { timeout: 3000 });
+    await page.click('#viewTabs [data-view="manage"]');
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 41, merchant_id: 'merchant-1', appointment_id: 'a-41', created_at: new Date(Date.now() + 1000).toISOString() }));
+    await page.waitForSelector('#bkBadge', { timeout: 2000 }).catch(() => {});
+    check('56) الموظف ما زال يستقبل التنبيه (صوت + عدّاد) ما دام مفعّلاً', (await page.textContent('#bkBadge').catch(() => '')) === '1' && (await page.evaluate(() => BK_ALERT.sounds)) === 1);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(bkScenario());
+    await page.click('#bkAlertsToggle');
+    await page.waitForFunction(() => (document.getElementById('bkAlertsBadge') || {}).textContent === 'موقفة', null, { timeout: 3000 });
+    const ac = await page.evaluate(() => window.__TEST__.getAlertsCalls());
+    check('56) المالك يوقف التنبيهات: merchant_set_booking_alerts(false) ويُفصل الاستماع', ac.length === 1 && ac[0].p_enabled === false &&
+      (await page.evaluate(() => window.__TEST__.getChannels())).every((c) => c.removed));
+    await page.click('#bkAlertsToggle');
+    await page.waitForFunction(() => (document.getElementById('bkAlertsBadge') || {}).textContent === 'مفعّلة', null, { timeout: 3000 });
+    await page.waitForTimeout(100);
+    check('56) …وإعادة التشغيل تعيد الاستماع', (await page.evaluate(() => window.__TEST__.getChannels())).some((c) => !c.removed));
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: bkScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    await page.waitForFunction(() => BK_ALERT.status === 'SUBSCRIBED', null, { timeout: 3000 });
+    const ch = await page.evaluate(() => window.__TEST__.getChannels());
+    check('57) بعد الدخول: استماع Realtime لتنبيهات هذا التاجر فقط (INSERT على booking_alerts بفلتر التاجر) وتمرير توكن الجلسة',
+      ch.length === 1 && ch[0].filter.event === 'INSERT' && ch[0].filter.table === 'booking_alerts' && ch[0].filter.filter === 'merchant_id=eq.merchant-1' &&
+      (await page.evaluate(() => window.__TEST__.getSetAuthCalls())).length >= 1);
+    check('57) لا تحميل للحجوزات قبل فتح التبويب', (await page.evaluate(() => window.__TEST__.getBookingListCalls())).length === 0);
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 1, merchant_id: 'merchant-1', appointment_id: 'a-1', created_at: new Date(Date.now() + 1000).toISOString() }));
+    await page.waitForSelector('#bkBadge', { timeout: 2000 });
+    check('57) حجز جديد: صوت + عدّاد "1" على تبويب الحجوزات', (await page.textContent('#bkBadge')) === '1' && (await page.evaluate(() => BK_ALERT.sounds)) === 1);
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 2, merchant_id: 'merchant-1', appointment_id: 'a-2', created_at: new Date(Date.now() + 2000).toISOString() }));
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 2, merchant_id: 'merchant-1', appointment_id: 'a-2', created_at: new Date(Date.now() + 2000).toISOString() }));
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 9, merchant_id: 'merchant-other', appointment_id: 'a-9', created_at: new Date(Date.now() + 2000).toISOString() }));
+    await page.waitForTimeout(100);
+    check('57) تنبيه ثانٍ ⇒ "2"؛ تكرار نفس التنبيه وتنبيه تاجر آخر لا يُحتسبان', (await page.textContent('#bkBadge')) === '2' && (await page.evaluate(() => BK_ALERT.sounds)) === 2);
+    await page.click('#viewTabs [data-view="bookings"]');
+    await page.waitForFunction(() => !document.getElementById('bkLoading'), null, { timeout: 3000 });
+    check('58) فتح التبويب يصفّر العدّاد', (await page.$('#bkBadge')) === null);
+    const before = (await page.evaluate(() => window.__TEST__.getBookingListCalls())).length;
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 3, merchant_id: 'merchant-1', appointment_id: 'a-3', created_at: new Date(Date.now() + 3000).toISOString() }));
+    await page.waitForFunction((n) => window.__TEST__.getBookingListCalls().length > n, before, { timeout: 3000 });
+    check('58) تنبيه والتبويب مفتوح: صوت + تحديث القائمة فوراً، بلا عدّاد', (await page.evaluate(() => BK_ALERT.sounds)) === 3 && (await page.$('#bkBadge')) === null);
+    await page.click('#logoutBtn');
+    await page.waitForTimeout(150);
+    check('58) الخروج يفصل الاستماع', (await page.evaluate(() => window.__TEST__.getChannels())).every((c) => c.removed));
+    await context.close();
+  }
+  {
+    const sc = bkScenario();
+    sc.merchants[0].booking_alerts_enabled = false;
+    const { context, page } = await openMerchant(browser, { scenario: sc });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    await page.waitForTimeout(150);
+    check('59) التنبيهات متوقفة في القاعدة: لا استماع إطلاقاً', (await page.evaluate(() => window.__TEST__.getChannels())).length === 0);
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: holdScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#sectorSw', { timeout: 3000 });
+    await page.waitForTimeout(150);
+    check('59) تاجر صحي (في هذا الـPR): لا استماع لتنبيهات الحجوزات', (await page.evaluate(() => window.__TEST__.getChannels())).length === 0);
+    await context.close();
+  }
+  {
+    const sc = bkScenario({ alertChannelStatus: 'CHANNEL_ERROR' });
+    const { context, page } = await openMerchant(browser, { scenario: sc, alertPollMs: 100 });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    await page.waitForFunction(() => window.__TEST__.getAlertPolls() > 0, null, { timeout: 3000 });
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.bookingAlerts = [{ id: 7, merchant_id: 'merchant-1', appointment_id: 'a-7', created_at: new Date(Date.now() + 60000).toISOString() }]; });
+    await page.waitForSelector('#bkBadge', { timeout: 3000 });
+    await page.waitForTimeout(300);
+    check('60) انقطاع Realtime: استعلام احتياطي دوري يلتقط الحجز الجديد مرة واحدة فقط (عدّاد "1")', (await page.textContent('#bkBadge')) === '1' && (await page.evaluate(() => BK_ALERT.sounds)) === 1);
+    await page.evaluate(() => window.__TEST__.setChannelStatus('SUBSCRIBED'));
+    const polls = await page.evaluate(() => window.__TEST__.getAlertPolls());
+    await page.waitForTimeout(350);
+    check('60) عودة القناة توقف الاستعلام الاحتياطي', (await page.evaluate(() => window.__TEST__.getAlertPolls())) === polls);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(svcScenario());
+    const list = await page.textContent('#svcList');
+    check('61) الخدمات: البطاقة باسم "استقبال الحجوزات"، وقائمة الخدمات (كلها، حتى غير المفعّلة) بأسعارها وحالتها',
+      /استقبال الحجوزات/.test(await page.textContent('#bkToggleCard')) && /غسيل داخلي/.test(list) && /45\.00 ر\.س/.test(list) && /بلا سعر/.test(list) &&
+      /خدمة قديمة/.test(list) && /غير مفعّلة/.test(list) && /الحجز مغلق/.test(list) && /هي نفسها قائمة "خدماتنا"/.test(await page.textContent('#app')));
+    await page.fill('#svcName', '  تلميع  ');
+    await page.fill('#svcPrice', '80');
+    await page.click('#svcSave');
+    await page.waitForFunction(() => /تلميع/.test((document.getElementById('svcList') || {}).textContent || ''), null, { timeout: 3000 });
+    let calls = await page.evaluate(() => window.__TEST__.getServiceCalls());
+    check('61) "إضافة": merchant_save_service(بلا معرّف، الاسم مقصوصاً، 80، مفعّلة ومفتوحة للحجز)',
+      calls.length === 1 && calls[0].p_service_id === null && calls[0].p_name === 'تلميع' && calls[0].p_price === 80 && calls[0].p_is_active === true && calls[0].p_booking_enabled === true &&
+      (await page.inputValue('#svcName')) === '');
+    await page.fill('#svcName', 'غسيل داخلي');
+    await page.click('#svcSave');
+    await page.waitForSelector('#svcFormErr', { timeout: 3000 });
+    check('61) اسم مكرر: رسالة "توجد خدمة بنفس الاسم"', /توجد خدمة بنفس الاسم/.test(await page.textContent('#svcFormErr')));
+    await page.fill('#svcName', '');
+    await page.click('#svcSave');
+    check('61) اسم فارغ: رسالة بلا نداء', /اكتب اسم الخدمة/.test(await page.textContent('#svcFormErr')) && (await page.evaluate(() => window.__TEST__.getServiceCalls())).length === 2);
+    await page.click('[data-svc-edit="svc-1"]');
+    check('62) "تعديل" يملأ النموذج بقيم الخدمة', (await page.inputValue('#svcName')) === 'غسيل داخلي' && (await page.inputValue('#svcPrice')) === '45' && /حفظ التعديل/.test(await page.textContent('#svcSave')));
+    await page.fill('#svcPrice', '50');
+    await page.click('#svcSave');
+    await page.waitForFunction(() => /50\.00 ر\.س/.test((document.getElementById('svcList') || {}).textContent || ''), null, { timeout: 3000 });
+    calls = await page.evaluate(() => window.__TEST__.getServiceCalls());
+    check('62) حفظ التعديل يرسل معرّف الخدمة والسعر الجديد ويُبقي حالتها', calls[calls.length - 1].p_service_id === 'svc-1' && calls[calls.length - 1].p_price === 50 && calls[calls.length - 1].p_is_active === true);
+    await page.click('[data-svc-booking="svc-2"]');
+    await page.waitForFunction(() => /فتح الحجز/.test(((document.querySelector('[data-svc-row="svc-2"]') || {}).textContent) || '') === false, null, { timeout: 3000 });
+    calls = await page.evaluate(() => window.__TEST__.getServiceCalls());
+    check('62) "فتح الحجز" لخدمة مغلقة: يقلب booking_enabled فقط', calls[calls.length - 1].p_service_id === 'svc-2' && calls[calls.length - 1].p_booking_enabled === true && calls[calls.length - 1].p_is_active === true);
+    await page.click('[data-svc-active="svc-1"]');
+    await page.waitForFunction(() => /تفعيل الخدمة/.test(((document.querySelector('[data-svc-row="svc-1"]') || {}).textContent) || ''), null, { timeout: 3000 });
+    calls = await page.evaluate(() => window.__TEST__.getServiceCalls());
+    check('62) "إيقاف الخدمة": يقلب is_active فقط', calls[calls.length - 1].p_service_id === 'svc-1' && calls[calls.length - 1].p_is_active === false && calls[calls.length - 1].p_booking_enabled === true);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(svcScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    check('63) الموظف يرى قائمة الخدمات قراءة فقط: بلا نموذج ولا أزرار، مع "للمالك فقط"',
+      !!(await page.$('#svcList')) && (await page.$('#svcForm')) === null && (await page.$('[data-svc-edit]')) === null && /للمالك فقط/.test(await page.textContent('#svcOwnerOnly')));
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_save_service', { p_merchant_id: 'merchant-1', p_service_id: null, p_name: 'x', p_price: null, p_is_active: true, p_booking_enabled: true })).error);
+    check('63) دفاع في العمق: نداء merchant_save_service بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
     await context.close();
   }
 
