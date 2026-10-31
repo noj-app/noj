@@ -51,6 +51,12 @@ Deno.test('buildOtpMessage: short Arabic message containing the exact code', () 
   assertEquals(msg.length <= 70, true);
 });
 
+Deno.test('buildOtpMessage: last line is the domain-bound "@noj-app.github.io #code" (WebOTP / iOS autofill)', () => {
+  const msg = buildOtpMessage('135790');
+  const lines = msg.split('\n');
+  assertEquals(lines[lines.length - 1], '@noj-app.github.io #135790');
+});
+
 // ---------------------------------------------------------------------------
 // verifyWebhookSignature()
 // ---------------------------------------------------------------------------

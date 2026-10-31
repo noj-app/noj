@@ -32,6 +32,9 @@
 الذي استُخدم (القسم ٣) أبسط من ذلك على أي حال.
 
 1. انشر الدالة: `supabase functions deploy send-sms-hook`.
+   **نص الرسالة** (buildOtpMessage في hook.ts) ينتهي بسطر `@noj-app.github.io #<الرمز>` — صيغة WebOTP التي
+   يحتاجها Chrome أندرويد ليُعبِّئ الرمز تلقائياً في تطبيق نوج ولوحة التاجر (الآيفون يكتفي بـone-time-code). أي
+   تعديل على النص أو النطاق يحتاج إعادة نشر الدالة (workflow deploy-edge-functions.yml) ليصل للحي.
 2. **Authentication → Hooks → Send SMS hook**: اختر نوع الـ Hook **HTTP**، والصق رابط الدالة
    المنشورة (يبدو عادة كـ `https://<project-ref>.supabase.co/functions/v1/send-sms-hook`).
 3. عند الحفظ، تعرض لك اللوحة **سرّ التوقيع (Hook Secret)** — يُعرض **مرة واحدة فقط**، انسخه فوراً.

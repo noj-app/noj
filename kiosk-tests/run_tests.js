@@ -8,7 +8,10 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const KIOSK_URL = 'file://' + path.join(REPO_ROOT, 'kiosk.html');
-const CHROMIUM_PATH = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// the pre-installed Chromium: /opt/pw-browsers/chromium is the stable link (its build number changes
+// between containers); NOJ_CHROMIUM_PATH overrides, and the old fixed path stays as a fallback.
+const CHROMIUM_PATH = process.env.NOJ_CHROMIUM_PATH ||
+  ['/opt/pw-browsers/chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => require('fs').existsSync(p));
 const FAKE_SB_PATH = path.join(__dirname, 'fake-supabase.js');
 
 let pass = 0, fail = 0;

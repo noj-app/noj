@@ -9,7 +9,10 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const INDEX_URL = 'file://' + path.join(REPO_ROOT, 'index.html');
-const CHROMIUM_PATH = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// the pre-installed Chromium: /opt/pw-browsers/chromium is the stable link (its build number changes
+// between containers); NOJ_CHROMIUM_PATH overrides, and the old fixed path stays as a fallback.
+const CHROMIUM_PATH = process.env.NOJ_CHROMIUM_PATH ||
+  ['/opt/pw-browsers/chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => require('fs').existsSync(p));
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -162,6 +165,110 @@ const allDistinct = (a) => new Set(a).size === a.length;
     check('5) رمز مكرَّر من الودجت لا يُرسَل مرتين أبداً (يُرسَل الطلب بلا رمز فيُرفض برسالة واضحة)',
       allDistinct(tokensSent(cs)) && cs.filter((c) => c.name === 'signInWithOtp').length === 1 && !(cs.find((c) => c.name === 'signInWithOtp') || {}).captchaToken &&
       /أكمل التحقق الأمني/.test(await page.textContent('#auth')));
+    await context.close();
+  }
+
+  // 6) the whole code at once: SMS autofill (one-time-code), paste, WebOTP (Android Chrome)
+  const toCode = async (page) => { await sendCode(page, '500000000'); };
+  const loggedIn = (page) => page.waitForFunction(() => document.getElementById('auth').style.display === 'none', null, { timeout: 8000 }).then(() => true, () => false);
+  const verified = async (page) => ((await calls(page)).find((c) => c.name === 'verifyOtp') || {});
+  {
+    const { context, page } = await openAuth(browser, { users: {} });
+    await toCode(page);
+    const attrs = await page.$$eval('[data-otp]', (bs) => bs.map((b) => [b.getAttribute('autocomplete'), b.maxLength]));
+    check('6) خانات الرمز: autocomplete="one-time-code" وبلا maxlength=1 (كان يقصّ الرمز إلى رقم واحد)',
+      attrs.length === 6 && attrs.every(([a, m]) => a === 'one-time-code' && m === 6));
+    await page.locator('[data-otp="0"]').fill('123456'); // what iOS/Android autofill does: the whole code into the focused box
+    check('6) تعبئة تلقائية للرمز كاملاً في الخانة الأولى: يتوزّع على الخانات الست ويُتحقَّق منه ويدخل',
+      (await loggedIn(page)) && (await verified(page)).token === '123456');
+    await context.close();
+  }
+  {
+    const { context, page } = await openAuth(browser, { users: Object.assign({}, EXISTING) });
+    await toCode(page);
+    await page.locator('[data-otp="0"]').fill('١٢٣٤٥٦');
+    check('6) تعبئة تلقائية بأرقام عربية أيضاً', (await loggedIn(page)) && (await verified(page)).token === '123456');
+    await context.close();
+  }
+  {
+    const { context, page } = await openAuth(browser, { users: {} });
+    await toCode(page);
+    const pasted = (sel, text) => page.evaluate(([s, t]) => {
+      const dt = new DataTransfer(); dt.setData('text', t);
+      document.querySelector(s).dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, [sel, text]);
+    await pasted('[data-otp="0"]', 'رمزك: 123 456');
+    check('6) لصق نص فيه الرمز (مع مسافات ونص) في الخانة الأولى: يُستخرج الرمز ويُتحقَّق منه',
+      (await loggedIn(page)) && (await verified(page)).token === '123456');
+    await context.close();
+  }
+  {
+    const { context, page } = await openAuth(browser, { users: {} });
+    await toCode(page);
+    await page.locator('[data-otp="0"]').fill('1');
+    await page.locator('[data-otp="1"]').fill('2');
+    await page.evaluate(() => {
+      const dt = new DataTransfer(); dt.setData('text', '34');
+      document.querySelector('[data-otp="2"]').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    const vals = await page.$$eval('[data-otp]', (bs) => bs.map((b) => b.value).join(''));
+    const focused = await page.evaluate(() => document.activeElement.getAttribute('data-otp'));
+    check('6) لصق جزء من الرمز في خانة وسطى: يبدأ منها، والمؤشر ينتقل للخانة التالية', vals === '1234' && focused === '4');
+    // typing over a filled box without a selection keeps only the new digit
+    await page.evaluate(() => { const b = document.querySelector('[data-otp="0"]'); b.focus(); b.setSelectionRange(1, 1); });
+    await page.keyboard.type('9');
+    check('6) كتابة رقم في خانة ممتلئة تستبدله ولا تُزيح بقية الخانات', (await page.$$eval('[data-otp]', (bs) => bs.map((b) => b.value).join(''))) === '9234');
+    await context.close();
+  }
+  {
+    // WebOTP: Chrome on Android hands the page the code from an SMS ending in "@noj-app.github.io #123456"
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route(/^https?:\/\//, (route) => route.abort());
+    await page.addInitScript(() => {
+      window.__NOJ_SCENARIO__ = { captchaEnabled: true, users: {} };
+      window.OTPCredential = function () {};
+      window.__webotp = { calls: 0, aborted: 0 };
+      navigator.credentials.get = (opts) => {
+        window.__webotp.calls++;
+        window.__webotp.lastOpts = { transport: opts.otp && opts.otp.transport };
+        return new Promise((resolve, reject) => {
+          const t = setTimeout(() => resolve({ code: '123456', type: 'otp' }), window.__webotpDelay || 400);
+          opts.signal.addEventListener('abort', () => { clearTimeout(t); window.__webotp.aborted++; reject(new DOMException('aborted', 'AbortError')); });
+        });
+      };
+    });
+    await page.addInitScript({ path: path.join(__dirname, 'fake-turnstile.js') });
+    await page.addInitScript({ path: path.join(__dirname, 'fake-auth-supabase.js') });
+    await page.goto(INDEX_URL);
+    await page.waitForSelector('#ph');
+    await page.waitForTimeout(150);
+    await sendCode(page, '500000000');
+    const ok = await loggedIn(page);
+    const w = await page.evaluate(() => window.__webotp);
+    check('6) WebOTP: طلب واحد بنوع sms عند فتح شاشة الرمز، والرمز الوارد يُعبَّأ ويُتحقَّق منه تلقائياً',
+      ok && w.calls === 1 && JSON.stringify(w.lastOpts.transport) === '["sms"]' && (await verified(page)).token === '123456' && (await verified(page)).type === 'phone_change');
+    await context.close();
+  }
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route(/^https?:\/\//, (route) => route.abort());
+    await page.addInitScript(() => {
+      window.__NOJ_SCENARIO__ = { captchaEnabled: true, users: {} };
+      window.OTPCredential = function () {};
+      window.__webotp = { calls: 0, aborted: 0 };
+      navigator.credentials.get = (opts) => { window.__webotp.calls++; return new Promise((res, rej) => opts.signal.addEventListener('abort', () => { window.__webotp.aborted++; rej(new DOMException('a', 'AbortError')); })); };
+    });
+    await page.addInitScript({ path: path.join(__dirname, 'fake-turnstile.js') });
+    await page.addInitScript({ path: path.join(__dirname, 'fake-auth-supabase.js') });
+    await page.goto(INDEX_URL);
+    await page.waitForSelector('#ph');
+    await page.waitForTimeout(150);
+    await sendCode(page, '500000000');
+    await page.click('#edit');
+    await page.waitForSelector('#ph');
+    check('6) WebOTP يُلغى عند الرجوع لتعديل الرقم (لا طلب معلَّق)', (await page.evaluate(() => window.__webotp.aborted)) === 1);
     await context.close();
   }
 

@@ -9,7 +9,10 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const INDEX_URL = 'file://' + path.join(REPO_ROOT, 'index.html');
-const CHROMIUM_PATH = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// the pre-installed Chromium: /opt/pw-browsers/chromium is the stable link (its build number changes
+// between containers); NOJ_CHROMIUM_PATH overrides, and the old fixed path stays as a fallback.
+const CHROMIUM_PATH = process.env.NOJ_CHROMIUM_PATH ||
+  ['/opt/pw-browsers/chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => require('fs').existsSync(p));
 const FAKE_SB_PATH = path.join(__dirname, 'fake-supabase.js');
 
 let pass = 0, fail = 0;
@@ -97,6 +100,10 @@ const appText = (page) => page.textContent('#app');
     await page.waitForSelector('#resForm');
     check('2) نموذج المطعم: التاريخ والوقت وعدد الأشخاص وملاحظة اختيارية (بلا نوع خدمة)',
       !!(await page.$('#resDate')) && !!(await page.$('#resTime')) && !!(await page.$('#resParty')) && !!(await page.$('#resNote')) && !(await page.$('#resService')));
+    // a page rule, not getComputedStyle: desktop Chromium's own UA sheet already makes date/time ltr,
+    // the reversed placeholder only shows on Chrome Android — so the test checks our CSS sets it.
+    const resDirs = await page.$$eval('#resDate,#resTime', (els) => els.map((e) => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.style && r.style.direction === 'ltr' && e.matches(r.selectorText)))));
+    check('2) خانتا التاريخ والوقت باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', resDirs.length === 2 && resDirs.every(Boolean));
     check('2) حدود التاريخ: من اليوم إلى 90 يوماً (بتوقيت الرياض)', (await page.getAttribute('#resDate', 'min')) === riyadhDate(0) && (await page.getAttribute('#resDate', 'max')) === riyadhDate(90));
     await page.click('#resSubmit');
     check('3) بلا تاريخ/وقت: رسالة واضحة ولا نداء للخادم', /اختر التاريخ والوقت/.test(await page.textContent('#resErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
