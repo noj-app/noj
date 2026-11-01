@@ -707,7 +707,9 @@ Foodics"/"فصل" (النوع ب). **owner فقط للنوعين معاً** — 
   على الخادم المحلي فيطابقها كما هي بلا تعديل (تُشغَّل بـsudo لأن su يتطلب root، ويُتاح لدور postgres قراءة مساحة العمل)؛ (3)
   **المتصفح**: index-tests (مع auth_tests) وmerchant-tests وkiosk-tests بـChromium الذي يثبّته Playwright (`npx playwright
   install --with-deps chromium`)؛ الخطوتان الأخيرتان تُشغَّلان حتى لو فشلت سابقتهما (`!cancelled()`) فتظهر كل الإخفاقات معاً.
-  بلا أي سر ولا اتصال بالمشروع الحي. concurrency يلغي التشغيل الأقدم لنفس الـPR. **لا تُدمج PR فحوصه حمراء**، ولا يُنشَر
+  بلا أي سر ولا اتصال بالمشروع الحي. concurrency يلغي التشغيل الأقدم لنفس الـPR. actions/checkout@v5 وactions/setup-node@v5 في
+  كل الـworkflows (تعمل على Node 24 — v4 كانت تستهدف Node 20 المهجور فيظهر تحذير). **main محمي**: الدمج يتطلب نجاح الفحوص الثلاثة
+  (Deno وDatabase وBrowser)، ولا force push. **لا تُدمج PR فحوصه حمراء**، ولا يُنشَر
   send-sms-hook/pos-intake قبل أن يكون فحص Deno أخضر على main.
 - **خانات التاريخ والوقت في صفحة RTL**: direction:ltr صريح (نموذج الحجز في index.html، وفترة الفواتير في merchant.html) —
   Chrome أندرويد كان يعرض العبارة الإرشادية معكوسة ("موي/رهش/ةنس"). Chromium المكتبي يفرضها ltr أصلاً في ورقة أنماطه
