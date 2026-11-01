@@ -654,6 +654,19 @@ Foodics"/"فصل" (النوع ب). **owner فقط للنوعين معاً** — 
   `@noj-app.github.io #<الرمز>` — يضيفه send-sms-hook (buildOtpMessage/OTP_WEB_DOMAIN، 62 حرفاً، رسالة UCS-2 واحدة)؛
   **يحتاج إعادة نشر send-sms-hook** (deploy-edge-functions.yml) ليصل للحي. تغيير النطاق (نطاق مخصَّص بدل GitHub Pages)
   يستلزم تعديل OTP_WEB_DOMAIN معه، وإلا تبقى تعبئة الآيفون تعمل ويتوقف WebOTP وحده. شاشة نوج بلا خانة رمز فلا تغيير فيها.
+  **⚠️ سطر WebOTP مرتبط بنطاق الموقع**: `@noj-app.github.io` في رسالة الرمز يجب أن يطابق النطاق الذي تُفتح منه index.html/
+  merchant.html حرفياً. **عند الانتقال لنطاق خاص**: عدّل OTP_WEB_DOMAIN في supabase/functions/send-sms-hook/hook.ts واختبار
+  hook.test.ts المقابل (يفرض السطر الأخير حرفياً)، ثم أعد نشر send-sms-hook — في نفس يوم تبديل النطاق. (وكذلك نطاق ودجت
+  Turnstile، راجع بند CAPTCHA.)
+- **اختبارات CI (قرار ثابت، .github/workflows/tests.yml)**: تُشغَّل تلقائياً على كل PR وكل push إلى main (وworkflow_dispatch)،
+  ثلاثة فحوص منفصلة تظهر على صفحة الـPR: (1) **Deno**: `deno test supabase/functions/` (pos-intake وsend-sms-hook) +
+  `deno check` لنقطتي الدخول index.ts (غير مغطّاتين باختبارات)؛ (2) **قاعدة البيانات**: db-tests + lockdown + regression على
+  PostgreSQL 16 **المثبَّت مسبقاً في صورة ubuntu-24.04** لا حاوية service — سكربتات db-tests تستدعي `su postgres -c psql`
+  على الخادم المحلي فيطابقها كما هي بلا تعديل (تُشغَّل بـsudo لأن su يتطلب root، ويُتاح لدور postgres قراءة مساحة العمل)؛ (3)
+  **المتصفح**: index-tests (مع auth_tests) وmerchant-tests وkiosk-tests بـChromium الذي يثبّته Playwright (`npx playwright
+  install --with-deps chromium`)؛ الخطوتان الأخيرتان تُشغَّلان حتى لو فشلت سابقتهما (`!cancelled()`) فتظهر كل الإخفاقات معاً.
+  بلا أي سر ولا اتصال بالمشروع الحي. concurrency يلغي التشغيل الأقدم لنفس الـPR. **لا تُدمج PR فحوصه حمراء**، ولا يُنشَر
+  send-sms-hook/pos-intake قبل أن يكون فحص Deno أخضر على main.
 - **خانات التاريخ والوقت في صفحة RTL**: direction:ltr صريح (نموذج الحجز في index.html، وفترة الفواتير في merchant.html) —
   Chrome أندرويد كان يعرض العبارة الإرشادية معكوسة ("موي/رهش/ةنس"). Chromium المكتبي يفرضها ltr أصلاً في ورقة أنماطه
   الافتراضية، فالاختبار يتحقق من قاعدة الصفحة نفسها لا من النمط المحسوب.

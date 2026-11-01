@@ -1,0 +1,104 @@
+name: الاختبارات
+
+# يشغّل كل اختبارات المستودع تلقائياً على كل PR وعلى كل push إلى main، فتظهر
+# نتيجتها على صفحة الـPR (ثلاثة فحوص منفصلة: Deno، قاعدة البيانات، المتصفح)
+# قبل الدمج. لا أسرار ولا اتصال بالمشروع الحي إطلاقاً: كل شيء محلي داخل
+# المشغّل (Postgres محلي، Supabase مزيَّف في اختبارات المتصفح). راجع CLAUDE.md
+# ("اختبارات CI").
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+# تشغيل أحدث يُلغي الأقدم لنفس الـPR/الفرع (لا هدر دقائق على commit قديم)
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deno:
+    name: Deno (pos-intake + send-sms-hook)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: اختبارات الدالتين
+        run: deno test supabase/functions/
+      # نقطتا الدخول (Deno.serve) غير مغطّاتين بالاختبارات — فحص الأنواع يلتقط خطأً
+      # فيهما قبل النشر بدل أن يظهر عند deploy-edge-functions.yml
+      - name: فحص أنواع نقطتي الدخول
+        run: deno check supabase/functions/pos-intake/index.ts supabase/functions/send-sms-hook/index.ts
+
+  db:
+    name: قاعدة البيانات (db-tests + lockdown + regression)
+    # PostgreSQL 16 مثبَّت مسبقاً في صورة ubuntu-24.04: سكربتات db-tests تستدعي
+    # `su postgres -c "psql ..."` على الخادم المحلي، فخادم المشغّل نفسه يطابقها كما
+    # هي بلا أي تعديل عليها (حاوية service منفصلة كانت تحتاج إعادة كتابة كل نداء psql).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: db-tests/package-lock.json
+      - name: تشغيل Postgres المحلي وإنشاء دوري anon/authenticated
+        run: |
+          sudo systemctl start postgresql.service
+          until pg_isready -h 127.0.0.1 -p 5432; do sleep 1; done
+          sudo -u postgres psql -q -c 'create role anon;' -c 'create role authenticated;'
+          sudo -u postgres psql -tAc 'select version();'
+      # psql يعمل بدور postgres فيحتاج قراءة ملفات SQL داخل مساحة العمل
+      - name: إتاحة قراءة ملفات المستودع لدور postgres
+        run: |
+          d="$GITHUB_WORKSPACE"
+          while [ "$d" != "/" ]; do sudo chmod o+x "$d"; d="$(dirname "$d")"; done
+          sudo chmod -R o+rX "$GITHUB_WORKSPACE"
+      - run: npm ci
+        working-directory: db-tests
+      # `su postgres` يتطلب root
+      - name: db-tests + lockdown + regression
+        working-directory: db-tests
+        run: sudo env "PATH=$PATH" npm test
+
+  e2e:
+    name: المتصفح (index + merchant + kiosk)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            index-tests/package-lock.json
+            merchant-tests/package-lock.json
+            kiosk-tests/package-lock.json
+      - name: تثبيت الحزم وChromium الخاص بـPlaywright
+        run: |
+          for d in index-tests merchant-tests kiosk-tests; do
+            (cd "$d" && npm ci && npx playwright install --with-deps chromium)
+          done
+      # مشغّلات الاختبار تبحث عن /opt/pw-browsers/chromium أولاً (بيئة التطوير)، ولا
+      # يوجد هنا فيستخدم Playwright متصفحه المثبَّت أعلاه
+      - name: index-tests (تطبيق نوج + الدخول)
+        working-directory: index-tests
+        run: npm test
+      - name: merchant-tests (لوحة التاجر)
+        if: ${{ !cancelled() }}
+        working-directory: merchant-tests
+        run: node run_tests.js
+      - name: kiosk-tests (شاشة نوج)
+        if: ${{ !cancelled() }}
+        working-directory: kiosk-tests
+        run: node run_tests.js
