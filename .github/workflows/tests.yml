@@ -1,7 +1,8 @@
 name: الاختبارات
 
 # يشغّل كل اختبارات المستودع تلقائياً على كل PR وعلى كل push إلى main، فتظهر
-# نتيجتها على صفحة الـPR (ثلاثة فحوص منفصلة: Deno، قاعدة البيانات، المتصفح)
+# نتيجتها على صفحة الـPR (ثلاثة فحوص منفصلة: Deno، Database، Browser — أسماؤها
+# مطلوبة حرفياً في قاعدة حماية main، فلا تُغيَّر)
 # قبل الدمج. لا أسرار ولا اتصال بالمشروع الحي إطلاقاً: كل شيء محلي داخل
 # المشغّل (Postgres محلي، Supabase مزيَّف في اختبارات المتصفح). راجع CLAUDE.md
 # ("اختبارات CI").
@@ -22,11 +23,12 @@ concurrency:
 
 jobs:
   deno:
-    name: Deno (pos-intake + send-sms-hook)
+    # اسم الفحص مطلوب حرفياً في قاعدة حماية main — لا تغيّره
+    name: Deno
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
@@ -38,15 +40,16 @@ jobs:
         run: deno check supabase/functions/pos-intake/index.ts supabase/functions/send-sms-hook/index.ts
 
   db:
-    name: قاعدة البيانات (db-tests + lockdown + regression)
+    # اسم الفحص مطلوب حرفياً في قاعدة حماية main — لا تغيّره
+    name: Database
     # PostgreSQL 16 مثبَّت مسبقاً في صورة ubuntu-24.04: سكربتات db-tests تستدعي
     # `su postgres -c "psql ..."` على الخادم المحلي، فخادم المشغّل نفسه يطابقها كما
     # هي بلا أي تعديل عليها (حاوية service منفصلة كانت تحتاج إعادة كتابة كل نداء psql).
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -71,12 +74,13 @@ jobs:
         run: sudo env "PATH=$PATH" npm test
 
   e2e:
-    name: المتصفح (index + merchant + kiosk)
+    # اسم الفحص مطلوب حرفياً في قاعدة حماية main — لا تغيّره
+    name: Browser
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm

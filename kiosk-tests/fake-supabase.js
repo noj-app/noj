@@ -84,6 +84,13 @@
         if (result.error) return Promise.resolve({ data: null, error: { message: result.error } });
         return Promise.resolve({ data: [result.row], error: null });
       }
+      if (name === 'kiosk_appointment_checkin') {
+        (state.checkinCalls = state.checkinCalls || []).push(args.p_transaction_id);
+        if (scenario.checkinError) return Promise.resolve({ data: null, error: { message: scenario.checkinError } });
+        var ck = (scenario.checkins || {})[args.p_transaction_id];
+        if (ck && ck.delayMs) return new Promise(function (r) { setTimeout(function () { r({ data: ck.data, error: null }); }, ck.delayMs); });
+        return Promise.resolve({ data: ck ? ck.data : null, error: null });
+      }
       if (name === 'kiosk_lookup_customer_points') {
         return Promise.resolve({ data: scenario.loyaltyPoints != null ? scenario.loyaltyPoints : 0, error: null });
       }
@@ -132,6 +139,7 @@
 
     window.__TEST__ = {
       getServicesQueries: function () { return state.servicesQueries || 0; },
+      getCheckinCalls: function () { return (state.checkinCalls || []).slice(); },
       pushRealtimeInsert: function (row) { if (state.channelCb) state.channelCb({ new: row }); },
       setChannelStatus: function (status) { if (state.channelStatusCb) state.channelStatusCb(status); },
       setPendingTxns: function (rows) { scenario.pendingTxns = rows; },

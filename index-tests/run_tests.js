@@ -1,6 +1,7 @@
 // NOJ — Playwright E2E tests for index.html (تطبيق نوج): the reservations
 // screens for restaurants and services (supabase-migration-reservations.sql),
-// and that the health "مواعيدي" path stays exactly as it was. Real Chromium,
+// the older health "مواعيدي" rows behaving as before, and real health booking
+// (supabase-migration-health-appointments.sql, sections 16-21). Real Chromium,
 // fake Supabase client (fake-supabase.js), zero live network — index.html is
 // untouched except for the test hook it already has
 // (window.__NOJ_SUPABASE_CLIENT__, see getSb()).
@@ -241,7 +242,9 @@ const appText = (page) => page.textContent('#app');
       /عيادة الأسنان/.test(await page.textContent('#apptList')) && !!(await page.$('[data-edit-appt="h-1"]')) && !(await page.$('#resList, #resEmpty, [data-toggle-res-form]')));
     await page.click('[data-toggle-appt-picker]');
     await page.click('[data-book-clinic="c-1"]');
-    check('10) الصحي: "حجز موعد جديد" يبقى توستاً تجريبياً، بلا create_reservation', /طلب حجز تجريبي/.test(await toastText(page)) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
+    // (كان توستاً تجريبياً حتى supabase-migration-health-appointments.sql — الحجز الحقيقي في 16-21 أدناه)
+    check('10) الصحي: "حجز موعد جديد" يفتح نموذج الموعد الحقيقي (لا توست تجريبي)، بلا create_reservation',
+      !!(await page.$('#apptForm')) && !/طلب حجز تجريبي/.test(await toastText(page)) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
     await page.click('[data-cancel-appt="h-1"]');
     await page.waitForTimeout(200);
     check('10) الصحي: الإلغاء عبر cancel_appointment كما كان', (await page.evaluate(() => window.__TEST__.getCalls('cancel_appointment')))[0].args.p_appointment_id === 'h-1' && /تم إلغاء الموعد/.test(await toastText(page)));
@@ -311,6 +314,103 @@ const appText = (page) => page.textContent('#app');
     const opts = await page.$$eval('#resService option', (os) => os.map((o) => o.value));
     check('15) خدمة أُغلقت بعد فتح النموذج: رسالة "غير متاحة للحجز الآن" والقائمة تتحدّث (اختفت الخدمة)',
       /غير متاحة للحجز الآن/.test(await page.textContent('#resErr')) && JSON.stringify(opts) === JSON.stringify(['', 'svc-2']) && (await page.inputValue('#resTime')) === '11:00');
+    await context.close();
+  }
+
+  // 16-21) المواعيد الصحية الحقيقية (supabase-migration-health-appointments.sql)
+  const healthScenario = (extra) => {
+    const sc = baseScenario(extra);
+    sc.healthMerchantId = HEALTH;
+    sc.clinics = [
+      { clinic_id: 'c-1', clinic_name: 'عيادة الأسنان', doctor_name: 'د. سلطان', booking_enabled: true, now_serving: 3, waiting_count: 2, est_minutes: 10 },
+      { clinic_id: 'c-2', clinic_name: 'عيادة الجلدية', doctor_name: 'د. نورة', booking_enabled: true, now_serving: 1, waiting_count: 0, est_minutes: 0 },
+      { clinic_id: 'c-5', clinic_name: 'المختبر', doctor_name: null, booking_enabled: false, now_serving: null, waiting_count: 0, est_minutes: 0 },
+    ];
+    sc.tables.clinics = [
+      { id: 'c-1', merchant_id: HEALTH, walk_in_enabled: false },
+      { id: 'c-2', merchant_id: HEALTH, walk_in_enabled: true },
+      { id: 'c-5', merchant_id: HEALTH, walk_in_enabled: true },
+    ];
+    return sc;
+  };
+  {
+    const { context, page } = await openApp(browser, healthScenario(), 'America/New_York');
+    await openBooking(page, HEALTH);
+    await page.waitForSelector('#apptList', { timeout: 3000 });
+    await page.click('[data-toggle-appt-picker]');
+    const picker = await page.$$eval('[data-book-clinic]', (bs) => bs.map((b) => [b.getAttribute('data-book-clinic'), (b.querySelector('[data-clinic-mode]') || {}).textContent || '']));
+    check('16) قائمة العيادات: المفتوحة للحجز فقط، مع نمط كل عيادة ("بموعد فقط" / "بموعد وبدون موعد")',
+      JSON.stringify(picker) === JSON.stringify([['c-1', 'بموعد فقط'], ['c-2', 'بموعد وبدون موعد']]));
+    await page.click('[data-book-clinic="c-1"]');
+    await page.waitForSelector('#apptForm');
+    check('17) اختيار عيادة يفتح نموذج الموعد: اسم العيادة والطبيب، التاريخ والوقت (ltr) وملاحظة',
+      /عيادة الأسنان/.test(await page.textContent('#apptForm')) && /د\. سلطان/.test(await page.textContent('#apptForm')) &&
+      !!(await page.$('#apptNote')) && (await page.getAttribute('#apptDate', 'min')) === riyadhDate(0) &&
+      (await page.$$eval('#apptDate,#apptTime', (els) => els.every((e) => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.style && r.style.direction === 'ltr' && e.matches(r.selectorText)))))));
+    await page.click('#apptSubmit');
+    check('17) بلا تاريخ/وقت: رسالة واضحة ولا نداء للخادم', /اختر التاريخ والوقت/.test(await page.textContent('#apptErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_appointment'))).length === 0);
+    const day = riyadhDate(4);
+    await page.fill('#apptDate', day);
+    await page.fill('#apptTime', '09:30');
+    await page.fill('#apptNote', '  ألم في الضرس  ');
+    await page.click('#apptSubmit');
+    await page.waitForSelector('#apptPendingList', { timeout: 3000 });
+    const ca = await page.evaluate(() => window.__TEST__.getCalls('create_appointment'));
+    check('17) الإرسال: create_appointment بالعيادة، والوقت بتوقيت الرياض (جهاز بتوقيت نيويورك)، والملاحظة مقصوصة — لا create_reservation',
+      ca.length === 1 && ca[0].args.p_clinic_id === 'c-1' && ca[0].args.p_scheduled_at === new Date(day + 'T09:30:00+03:00').toISOString() &&
+      ca[0].args.p_note === 'ألم في الضرس' && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
+    const pend = await page.textContent('#apptPendingList');
+    check('17) يظهر الموعد فوراً "بانتظار تأكيد العيادة" بوقت الرياض، مع رسالة تأكيد',
+      /عيادة الأسنان/.test(pend) && /بانتظار تأكيد العيادة/.test(pend) && pend.includes(day.slice(8) + '/' + day.slice(5, 7) + ' - 9:30 ص') &&
+      /بانتظار تأكيد العيادة/.test(await toastText(page)) && !(await page.$('#apptForm')));
+    await page.click('[data-cancel-happt]');
+    await page.waitForTimeout(200);
+    const cc = await page.evaluate(() => window.__TEST__.getCalls('cancel_appointment'));
+    check('18) إلغاء الطلب: نفس cancel_appointment، ويختفي السطر', cc.length === 1 && /^appt-new-/.test(cc[0].args.p_appointment_id) && !(await page.$('#apptPendingList')) && /تم إلغاء الموعد/.test(await toastText(page)));
+    await context.close();
+  }
+  {
+    const sc = healthScenario({ createAppointmentError: 'NOJ_CLINIC_BOOKING_CLOSED' });
+    const { context, page } = await openApp(browser, sc);
+    await openBooking(page, HEALTH);
+    await page.waitForSelector('#apptList', { timeout: 3000 });
+    await page.click('[data-toggle-appt-picker]');
+    await page.click('[data-book-clinic="c-2"]');
+    await page.fill('#apptDate', riyadhDate(2));
+    await page.fill('#apptTime', '10:00');
+    await page.click('#apptSubmit');
+    await page.waitForSelector('#apptErr', { timeout: 3000 });
+    check('18) عيادة أُغلق حجزها بعد فتح القائمة: رسالة واضحة والنموذج يبقى بقيمه', /لا تستقبل حجوزات الآن/.test(await page.textContent('#apptErr')) && (await page.inputValue('#apptTime')) === '10:00');
+    await context.close();
+  }
+  {
+    const sc = healthScenario();
+    sc.tables.merchants.find((m) => m.id === HEALTH).booking_cancel_allowed = false;
+    sc.tables.appointments.push(
+      { id: 'h-app', user_id: PROFILE.id, merchant_id: HEALTH, clinic_id: 'c-2', booking_kind: 'appointment', status: 'confirmed', booked_in_app: true, scheduled_at: inDays(3), note: null, clinics: { name: 'عيادة الجلدية', doctor_name: 'د. نورة' } },
+      { id: 'h-done', user_id: PROFILE.id, merchant_id: HEALTH, clinic_id: 'c-1', booking_kind: 'appointment', status: 'done', booked_in_app: true, scheduled_at: inDays(-5), attended_at: inDays(-5), note: null,
+        clinics: { name: 'عيادة الأسنان', doctor_name: 'د. سلطان' }, invoices: { amount: 230, created_at: inDays(-5) }, queue_tickets: { ticket_number: 45 } });
+    const { context, page } = await openApp(browser, sc);
+    await openBooking(page, HEALTH);
+    await page.waitForSelector('#apptHistory', { timeout: 3000 });
+    const list = await page.textContent('#apptList');
+    check('19) سياسة الإلغاء (نفس قواعد الحجوزات): موعد محجوز من التطبيق بلا زر إلغاء ومع السبب؛ الموعد الأقدم كما كان (تعديل/إلغاء)',
+      /عيادة الجلدية/.test(list) && /مؤكَّد/.test(list) && /الإلغاء غير متاح/.test(list) && !(await page.$('[data-cancel-happt="h-app"]')) &&
+      !!(await page.$('[data-edit-appt="h-1"]')) && !!(await page.$('[data-cancel-appt="h-1"]')));
+    const hist = await page.textContent('#apptHistory');
+    check('20) سجل المواعيد: الزيارة "حضر" مع رقم الدور والفاتورة المربوطة بها',
+      /سجل المواعيد/.test(await appText(page)) && /حضر/.test(hist) && /رقم دورك: 45/.test(hist) && /الفاتورة: 230\.00 ر\.س/.test(hist));
+    await context.close();
+  }
+  {
+    // قبل تطبيق ملف المواعيد الصحية على الحي: القراءة الإضافية تفشل، والصفحة تبقى كما كانت
+    const { context, page } = await openApp(browser, healthScenario({ failSelectContaining: 'booked_in_app' }));
+    await openBooking(page, HEALTH);
+    await page.waitForSelector('#apptList', { timeout: 3000 });
+    await page.waitForTimeout(200);
+    await page.click('[data-toggle-appt-picker]');
+    check('21) قبل تطبيق الملف: قائمة المواعيد وزر الحجز يعملان، بلا سجل ولا خطأ ظاهر',
+      /عيادة الأسنان/.test(await page.textContent('#apptList')) && (await page.$$('[data-book-clinic]')).length === 2 && !(await page.$('#apptHistory')));
     await context.close();
   }
 

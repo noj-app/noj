@@ -163,7 +163,9 @@ alter table public.appointments add column if not exists service_id uuid referen
 -- ---------------------------------------------------------------------------
 -- 2. cancel_appointment(): also withdraws a 'pending' request, and applies the
 --    merchant's cancellation policy to reservations (never to health).
---    IDENTICAL body in supabase-migration-lockdown-direct-writes.sql.
+--    IDENTICAL body in supabase-migration-lockdown-direct-writes.sql and
+--    supabase-migration-health-appointments.sql (which extends the policy to
+--    health appointments booked from the app — older rows unchanged).
 -- ---------------------------------------------------------------------------
 create or replace function public.cancel_appointment(p_appointment_id uuid)
 returns public.appointments
@@ -190,18 +192,21 @@ begin
     raise exception 'الموعد غير موجود أو لا يخصّك';
   end if;
 
-  -- 'pending' = a reservation request not yet accepted by the merchant
-  -- (supabase-migration-reservations.sql); health appointments are never pending
+  -- 'pending' = a request the merchant has not accepted yet (a reservation, or
+  -- a health appointment booked from the app)
   if v_row.status not in ('confirmed', 'pending') then
     raise exception 'لا يمكن إلغاء موعد ليس بحالة مؤكَّدة';
   end if;
 
-  -- a reservation (table/service) follows its merchant's cancellation policy
+  -- a reservation (table/service) and a health appointment booked from the app
+  -- (booked_in_app) follow the merchant's cancellation policy
   -- (merchants.booking_cancel_allowed / booking_cancel_cutoff_hours). Read
   -- through to_jsonb() so this SAME body also runs where those columns do not
   -- exist yet (supabase-migration-lockdown-direct-writes.sql alone): there a
-  -- row has no booking_kind, i.e. it is a health appointment, unchanged.
-  if coalesce(to_jsonb(v_row)->>'booking_kind', 'appointment') in ('table', 'service') then
+  -- row has no booking_kind/booked_in_app, i.e. an older health appointment,
+  -- unchanged.
+  if coalesce(to_jsonb(v_row)->>'booking_kind', 'appointment') in ('table', 'service')
+     or coalesce((to_jsonb(v_row)->>'booked_in_app')::boolean, false) then
     select to_jsonb(m) into v_policy from public.merchants m where m.id = v_row.merchant_id;
     if coalesce((v_policy->>'booking_cancel_allowed')::boolean, true) = false then
       raise exception 'NOJ_CANCEL_NOT_ALLOWED';
@@ -539,7 +544,9 @@ begin
     raise exception 'NOJ_INVALID_CANCEL_POLICY';
   end if;
   select sector_code into v_sector from public.merchants where id = p_merchant_id;
-  if v_sector is null or v_sector not in ('restaurant', 'services') then
+  -- medical: the policy applies to health appointments booked from the app
+  -- (supabase-migration-health-appointments.sql)
+  if v_sector is null or v_sector not in ('restaurant', 'services', 'medical') then
     raise exception 'NOJ_BOOKING_NOT_AVAILABLE';
   end if;
 
@@ -690,7 +697,7 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.booking_kind in ('table', 'service')
+  if (new.booking_kind in ('table', 'service') or coalesce((to_jsonb(new)->>'booked_in_app')::boolean, false))
      and exists (select 1 from public.merchants where id = new.merchant_id and booking_alerts_enabled) then
     insert into public.booking_alerts (merchant_id, appointment_id) values (new.merchant_id, new.id);
   end if;

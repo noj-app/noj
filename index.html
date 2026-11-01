@@ -855,6 +855,15 @@ let MERCHANT_CLINICS={};
 // صحّة فقط: مواعيد العميل القادمة لدى هذا المركز — {[merchantId]:
 // [{id,clinicName,doctorName,scheduledAt}]}.
 let MERCHANT_APPOINTMENTS={};
+// صحّة: تفاصيل مواعيد العميل لدى المركز (supabase-migration-health-appointments.sql)،
+// بقراءة منفصلة أفضل جهد: المحجوزة من التطبيق (بانتظار التأكيد/المؤكَّدة) وسجل
+// الزيارات ("حضر") مع رقم الدور والفاتورة — {[merchantId]: [{id,status,
+// scheduledAt,bookedInApp,note,attendedAt,clinicName,doctorName,invoice,
+// queueNumber}]}، أو null إن تعذّرت القراءة (قبل تطبيق الملف مثلاً).
+let HEALTH_DETAILS={};
+// صحّة: نمط كل عيادة — {[merchantId]: {[clinicId]: walkInEnabled}} (true =
+// "بموعد وبدون موعد"، false = "بموعد فقط").
+let CLINIC_WALKIN={};
 // المطعم والخدمات: حجوزات العميل القادمة (بانتظار التأكيد أو المؤكَّدة) —
 // نفس جدول appointments بنوع 'table'/'service' (supabase-migration-
 // reservations.sql): {[merchantId]: [{id,kind,status,scheduledAt,partySize,
@@ -1637,7 +1646,59 @@ function formatApptDateTime(iso){
   return dd+'/'+mm+' - '+h12+':'+mins+' '+ampm;
 }
 
+// موعد محجوز من التطبيق (booked_in_app) لهذا المركز، إن عُرف
+function healthAppRow(mid,id){
+  var d=HEALTH_DETAILS[mid];
+  if(!d)return null;
+  return d.filter(function(x){return x.id===id&&x.bookedInApp})[0]||null;
+}
+const HEALTH_STATUS={pending:{l:'بانتظار تأكيد العيادة',c:'#B45309'},confirmed:{l:'مؤكَّد',c:'#22A87A'},done:{l:'حضر',c:'#2563EB'}};
+// موعد محجوز من التطبيق: حالته، وزر إلغاء حسب سياسة المركز (نفس قواعد الحجوزات)
+function healthAppRowHtml(d){
+  var st=HEALTH_STATUS[d.status]||{l:d.status,c:'#8A93AD'};
+  var cs=reservationCancelState(d,BOOKING_POLICY[S.selMerchant]);
+  return '<div class="rw" data-happt-row="'+d.id+'"><div style="min-width:0"><b>'+escRes(d.clinicName)+'</b><small>'+(d.doctorName?escRes(d.doctorName)+' · ':'')+formatResDateTime(d.scheduledAt)+'</small>'+
+      (d.note?'<small style="display:block;margin-top:3px">'+escRes(d.note)+'</small>':'')+
+      '<span class="badge" style="background:'+st.c+'18;color:'+st.c+'">'+st.l+'</span>'+
+      (cs.hint?'<small style="display:block;margin-top:4px" data-happt-cancel-hint>'+cs.hint+'</small>':'')+'</div>'+
+    (cs.can?'<button data-cancel-happt="'+d.id+'" style="background:#FEF2F2;color:#DC2626">إلغاء</button>':'')+'</div>';
+}
+// زيارة سابقة ("حضر"): رقم الدور الذي أخذه من حجزه، والفاتورة المربوطة بها
+function healthHistoryRowHtml(d){
+  var st=HEALTH_STATUS.done;
+  return '<div class="rw" data-happt-history="'+d.id+'"><div style="min-width:0"><b>'+escRes(d.clinicName)+'</b><small>'+(d.doctorName?escRes(d.doctorName)+' · ':'')+formatResDateTime(d.scheduledAt)+'</small>'+
+      '<span class="badge" style="background:'+st.c+'18;color:'+st.c+'">'+st.l+'</span>'+
+      (d.queueNumber!=null?'<small style="display:block;margin-top:4px">رقم دورك: <b style="display:inline">'+escRes(d.queueNumber)+'</b></small>':'')+
+      (d.invoice?'<small style="display:block;margin-top:2px" data-happt-invoice>الفاتورة: '+d.invoice.amount.toFixed(2)+' ر.س</small>':'')+
+    '</div></div>';
+}
+function healthErrorText(msg){
+  msg=msg||'';
+  if(/NOJ_CLINIC_BOOKING_CLOSED|NOJ_CLINIC_NOT_FOUND/.test(msg))return 'هذه العيادة لا تستقبل حجوزات الآن، اختر عيادة أخرى.';
+  if(/NOJ_BOOKING_LIMIT/.test(msg))return 'لديك 3 مواعيد قادمة لدى هذا المركز — ألغِ أحدها لحجز موعد جديد.';
+  if(/NOJ_BOOKING_DISABLED/.test(msg))return 'الحجز متوقف حاليًا لدى هذا المركز.';
+  if(/NOJ_CANCEL_NOT_ALLOWED/.test(msg))return 'الإلغاء غير متاح لدى هذا المركز.';
+  if(/NOJ_CANCEL_WINDOW_CLOSED/.test(msg))return 'انتهت مهلة إلغاء هذا الموعد.';
+  if(/NOJ_INVALID_BOOKING_TIME|NOJ_INVALID_BOOKING_NOTE/.test(msg))return reservationErrorText(msg);
+  return 'تعذّر إرسال طلب الموعد، حاول مرة أخرى.';
+}
+function healthFormHtml(m){
+  var f=S.apptForm||{};
+  return '<div class="box res-form" id="apptForm" style="margin-top:14px">'+
+    '<b style="display:block;font-size:14px;margin-bottom:2px">'+escRes(f.clinicName)+'</b>'+
+    (f.doctorName?'<small style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">'+escRes(f.doctorName)+'</small>':'')+
+    '<label class="res-l">التاريخ<input type="date" id="apptDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
+    '<label class="res-l">الوقت<input type="time" id="apptTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
+    '<label class="res-l">ملاحظة (اختياري)<textarea id="apptNote" maxlength="300" rows="2">'+escRes(f.note||'')+'</textarea></label>'+
+    (f.err?'<div class="res-err" id="apptErr">'+escRes(f.err)+'</div>':'')+
+    '<button class="btn" id="apptSubmit"'+(f.sending?' disabled':'')+'>'+(f.sending?'جارٍ الإرسال...':'إرسال طلب الموعد')+'</button>'+
+    '<p style="font-size:12px;color:var(--muted);margin-top:10px;line-height:1.7">يُرسَل الطلب إلى '+escRes(m.name)+' ويصبح مؤكَّدًا بعد أن تقبله العيادة.</p>'+
+  '</div>';
+}
+
 function apptRowHtml(a){
+  var app=healthAppRow(S.selMerchant,a.id);
+  if(app)return healthAppRowHtml(app);
   return '<div class="rw"><div><b>'+a.clinicName+'</b><small>'+(a.doctorName?a.doctorName+' · ':'')+formatApptDateTime(a.scheduledAt)+'</small></div>'+
     '<div style="display:flex;gap:8px;flex-shrink:0">'+
       '<button data-edit-appt="'+a.id+'" style="padding:9px 14px;border-radius:12px;font-size:12px;font-weight:700;background:var(--line);color:var(--text)">تعديل</button>'+
@@ -1668,15 +1729,26 @@ function merchantBookingPage(){
     else if(!appts.length)apptsHtml='<div class="empty">لا توجد مواعيد قادمة لديك حاليًا</div>';
     else apptsHtml='<div class="list" id="apptList">'+appts.map(apptRowHtml).join('')+'</div>';
 
+    // المحجوزة من التطبيق وما زالت بانتظار تأكيد العيادة، وسجل الزيارات ("حضر")
+    var det=HEALTH_DETAILS[m.merchantId]||[];
+    var nowMs=Date.now();
+    var pendingAppts=det.filter(function(d){return d.status==='pending'&&new Date(d.scheduledAt).getTime()>=nowMs});
+    var history=det.filter(function(d){return d.status==='done'}).slice().reverse();
+    var pendingHtml=pendingAppts.length?'<p style="font-size:13px;font-weight:700;margin:14px 0 8px">بانتظار تأكيد العيادة</p><div class="list" id="apptPendingList">'+pendingAppts.map(healthAppRowHtml).join('')+'</div>':'';
+
     var clinics=MERCHANT_CLINICS[m.merchantId]||[];
     var bookable=clinics.filter(function(c){return c.bookingEnabled});
+    var walkIn=CLINIC_WALKIN[m.merchantId]||{};
     var newBtn=bookable.length?'<button class="btn" data-toggle-appt-picker="1" style="margin-top:14px">'+ic('clock',16,'#fff')+' حجز موعد جديد</button>':'';
     var picker=(S.showApptPicker&&bookable.length)?'<div class="list" style="margin-top:10px">'+bookable.map(function(c){
+      var mode=walkIn[c.clinicId]===true?'بموعد وبدون موعد':walkIn[c.clinicId]===false?'بموعد فقط':'';
       return '<button class="row" data-book-clinic="'+c.clinicId+'" data-clinic-name="'+c.clinicName+'"><div class="row-ico" style="background:#0F6E6E18">'+ic('hospital',22,'#0F6E6E')+'</div>'+
-        '<div class="row-txt"><b>'+c.clinicName+'</b>'+(c.doctorName?'<small>'+c.doctorName+'</small>':'')+'</div>'+ic('chevron',18,'#8A93AD')+'</button>';
+        '<div class="row-txt"><b>'+c.clinicName+'</b>'+(c.doctorName?'<small>'+c.doctorName+'</small>':'')+(mode?'<small data-clinic-mode>'+mode+'</small>':'')+'</div>'+ic('chevron',18,'#8A93AD')+'</button>';
     }).join('')+'</div>':'';
+    var form=(S.apptForm&&S.apptForm.merchantId===m.merchantId)?healthFormHtml(m):'';
+    var historyHtml=history.length?'<div class="sec-head" style="margin-top:22px"><h2>سجل المواعيد</h2></div><div class="list" id="apptHistory">'+history.map(healthHistoryRowHtml).join('')+'</div>':'';
     return '<div class="sec-head" style="margin-top:20px"><h2>'+bc.label+'</h2></div>'+
-      apptsHtml+newBtn+picker;
+      apptsHtml+pendingHtml+newBtn+picker+form+historyHtml;
   }
 
   var kind=reservationKindFor(m.type);
@@ -2579,7 +2651,7 @@ function bind(){
     S.selMerchant=id;
     if(section==='loyalty'){S.rewardsBack='merchantDetail';S.tab='merchantRewards'}
     else if(section==='invoices')S.tab='merchantInvoices';
-    else if(section==='booking'){S.tab='merchantBooking';S.showApptPicker=false;S.resForm=null}
+    else if(section==='booking'){S.tab='merchantBooking';S.showApptPicker=false;S.resForm=null;S.apptForm=null}
     else if(section==='queue')S.tab='merchantQueue';
     else if(section==='alerts')S.tab='merchantAlerts';
     render();
@@ -2661,14 +2733,16 @@ function bind(){
   var toggleAppt=document.querySelector('[data-toggle-appt-picker]');
   if(toggleAppt)toggleAppt.onclick=function(){S.showApptPicker=!S.showApptPicker;render()};
 
-  // اختيار عيادة من القائمة: توست تأكيد تجريبي فقط (كبقية أزرار الحجز في
-  // التطبيق) — لا حجز فعلي، لا حاجة لصف appointments جديد.
+  // اختيار عيادة من القائمة: يفتح نموذج الموعد (التاريخ والوقت والملاحظة) —
+  // حجز حقيقي عبر create_appointment (supabase-migration-health-appointments.sql)
   [].forEach.call(document.querySelectorAll('[data-book-clinic]'),function(b){b.onclick=function(){
-    var name=b.getAttribute('data-clinic-name');
+    var cid=b.getAttribute('data-book-clinic');
+    var c=(MERCHANT_CLINICS[S.selMerchant]||[]).filter(function(x){return x.clinicId===cid})[0];
     S.showApptPicker=false;
-    toast('تم إرسال طلب حجز تجريبي لدى '+name+' 📅');
+    S.apptForm={merchantId:S.selMerchant,clinicId:cid,clinicName:c?c.clinicName:b.getAttribute('data-clinic-name'),doctorName:c?c.doctorName:null};
     render();
   }});
+  bindHealthBooking();
 
   // "تعديل" موعد: لا واجهة إعادة جدولة في هذه النسخة التجريبية — توست فقط
   [].forEach.call(document.querySelectorAll('[data-edit-appt]'),function(b){b.onclick=function(){
@@ -2703,6 +2777,68 @@ function bind(){
   }});
 
   bindReservations();
+}
+
+// مواعيد الصحي: إرسال طلب الموعد، وإلغاء موعد محجوز من التطبيق (نفس
+// cancel_appointment وسياسة الإلغاء نفسها)
+function bindHealthBooking(){
+  var keep=function(id,key){var el=document.getElementById(id);if(el)el.oninput=el.onchange=function(){if(S.apptForm)S.apptForm[key]=el.value}};
+  keep('apptDate','date');keep('apptTime','time');keep('apptNote','note');
+  var submit=document.getElementById('apptSubmit');
+  if(submit)submit.onclick=async function(){
+    var f=S.apptForm;
+    var m=USER_MERCHANTS.filter(function(x){return x.merchantId===S.selMerchant})[0];
+    if(!f||!m||f.sending)return;
+    var fail=function(t){f.err=t;render()};
+    if(!f.date||!f.time)return fail('اختر التاريخ والوقت.');
+    // المركز في الرياض: الوقت المختار بتوقيت الرياض (+03:00) أياً كان توقيت الجهاز
+    var at=new Date(f.date+'T'+f.time+':00+03:00');
+    if(isNaN(at.getTime()))return fail('اختر التاريخ والوقت.');
+    if(at.getTime()<Date.now()+15*60000||at.getTime()>Date.now()+90*86400000)return fail(healthErrorText('NOJ_INVALID_BOOKING_TIME'));
+    var note=String(f.note||'').trim();
+    if(note.length>300)return fail(healthErrorText('NOJ_INVALID_BOOKING_NOTE'));
+    f.sending=true;f.err='';render();
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.rpc('create_appointment',{p_clinic_id:f.clinicId,p_scheduled_at:at.toISOString(),p_note:note||null});
+      if(res.error) throw res.error;
+      var row=Array.isArray(res.data)?res.data[0]:res.data;
+      var list=(HEALTH_DETAILS[m.merchantId]=HEALTH_DETAILS[m.merchantId]||[]);
+      list.push({id:row.id,status:row.status,scheduledAt:row.scheduled_at,bookedInApp:true,note:row.note,attendedAt:null,
+        clinicName:f.clinicName,doctorName:f.doctorName,invoice:null,queueNumber:null});
+      list.sort(function(a,b){return a.scheduledAt<b.scheduledAt?-1:a.scheduledAt>b.scheduledAt?1:0});
+      S.apptForm=null;
+      render();
+      toast('تم إرسال طلب الموعد — بانتظار تأكيد العيادة');
+    }catch(e){
+      console.error('NOJ create appointment error:',e);
+      f.sending=false;
+      // عيادة أُغلق حجزها منذ فتح القائمة: تحديث قائمة العيادات
+      if(/NOJ_CLINIC_BOOKING_CLOSED/.test((e&&e.message)||''))await loadMerchantClinics(m.merchantId);
+      fail(healthErrorText(e&&e.message));
+    }
+  };
+  [].forEach.call(document.querySelectorAll('[data-cancel-happt]'),function(b){b.onclick=async function(){
+    var id=b.getAttribute('data-cancel-happt');
+    var mid=S.selMerchant;
+    b.disabled=true;
+    try{
+      var sb=await getSb();
+      if(!sb) throw new Error('supabase-client-unavailable');
+      var res=await sb.rpc('cancel_appointment',{p_appointment_id:id});
+      if(res.error) throw res.error;
+      HEALTH_DETAILS[mid]=(HEALTH_DETAILS[mid]||[]).filter(function(d){return d.id!==id});
+      MERCHANT_APPOINTMENTS[mid]=(MERCHANT_APPOINTMENTS[mid]||[]).filter(function(a){return a.id!==id});
+      render();
+      toast('تم إلغاء الموعد');
+    }catch(e){
+      console.error('NOJ cancel health appointment error:',e);
+      b.disabled=false;
+      var cm=(e&&e.message)||'';
+      toast(/NOJ_CANCEL_/.test(cm)?healthErrorText(cm):'تعذّر إلغاء الموعد، حاول مرة أخرى');
+    }
+  }});
 }
 
 function bindReservations(){
@@ -2916,8 +3052,48 @@ function prefetchMerchantHealthData(m){
     loadMerchantClinics(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render()});
   }
   if(MERCHANT_APPOINTMENTS[m.merchantId]===undefined){
-    loadMerchantAppointments(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render()});
+    loadMerchantAppointments(m.merchantId).then(function(){if(S.selMerchant===m.merchantId)render();return refreshHealthDetails(m)});
+  }else refreshHealthDetails(m);
+}
+
+// تفاصيل المواعيد (المحجوزة من التطبيق، سجل الزيارات، نمط العيادات، سياسة
+// الإلغاء) — قراءات منفصلة أفضل جهد بعد قائمة المواعيد الأساسية، فلا يتعطل
+// شيء إن لم يُطبَّق ملف المواعيد الصحية بعد. تُحدَّث صامتة عند كل فتح للقسم.
+async function loadHealthDetails(merchantId){
+  var sb=null;
+  try{
+    sb=await getSb();
+    if(!sb)return;
+    var res=await sb.from('appointments').select('id, status, scheduled_at, booked_in_app, note, attended_at, clinics(name, doctor_name), invoices(amount, created_at), queue_tickets(ticket_number)')
+      .eq('merchant_id',merchantId).eq('user_id',PROFILE.id).in('status',['pending','confirmed','done']).order('scheduled_at',{ascending:true});
+    if(res.error) throw res.error;
+    HEALTH_DETAILS[merchantId]=(res.data||[]).map(function(r){
+      return {id:r.id,status:r.status,scheduledAt:r.scheduled_at,bookedInApp:!!r.booked_in_app,note:r.note,attendedAt:r.attended_at,
+        clinicName:r.clinics?r.clinics.name:'عيادة',doctorName:r.clinics?r.clinics.doctor_name:null,
+        invoice:r.invoices?{amount:Number(r.invoices.amount),createdAt:r.invoices.created_at}:null,
+        queueNumber:r.queue_tickets?r.queue_tickets.ticket_number:null};
+    });
+  }catch(e){
+    console.error('NOJ health appointment details error:',e);
+    if(HEALTH_DETAILS[merchantId]===undefined)HEALTH_DETAILS[merchantId]=null;
   }
+  try{
+    if(!sb)return;
+    var cl=await sb.from('clinics').select('id, walk_in_enabled').eq('merchant_id',merchantId);
+    if(!cl.error&&cl.data){
+      var map={};
+      cl.data.forEach(function(c){if(typeof c.walk_in_enabled==='boolean')map[c.id]=c.walk_in_enabled});
+      CLINIC_WALKIN[merchantId]=map;
+    }
+  }catch(e){console.error('NOJ clinic modes error:',e)}
+}
+function refreshHealthDetails(m){
+  if(!PROFILE.id)return Promise.resolve();
+  var mid=m.merchantId;
+  var before=JSON.stringify([HEALTH_DETAILS[mid],CLINIC_WALKIN[mid],BOOKING_POLICY[mid]]);
+  return Promise.all([loadHealthDetails(mid),loadBookingDetails(m)]).then(function(){
+    if(S.tab==='merchantBooking'&&S.selMerchant===mid&&JSON.stringify([HEALTH_DETAILS[mid],CLINIC_WALKIN[mid],BOOKING_POLICY[mid]])!==before)render();
+  });
 }
 
 document.getElementById('app').style.display='none';

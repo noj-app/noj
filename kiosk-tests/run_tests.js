@@ -619,6 +619,68 @@ async function openAdminSettingsViaPin(page, pin) {
     await context.close();
   }
 
+  // =========================================================================
+  // 28-31) الصحي في الوضع المباشر: المريض الذي له موعد اليوم يأخذ رقم دوره من
+  //        حجزه، وتظهر بطاقة موعده (supabase-migration-health-appointments.sql)
+  // =========================================================================
+  const medicalLive = (extra) => baseScenario(Object.assign({
+    merchantRow: { name: 'مركز النور الطبي', type: 'صحة', points_rate: 0 },
+    branchSettingsRow: {
+      sector_code: 'medical', biz_name: 'مركز النور الطبي', biz_branch: 'فرع الملقا',
+      biz_slogan: '', biz_logo: '', show_menu_btn: false, menu_images: [], card_toggles: {}, dark_mode: false,
+    },
+    claimResults: { 'txn-m': { row: { is_registered: true, profile_id: 'p1', prev_points: 0, added_points: 0, total_points: 0, invoice_id: 'inv-m' } } },
+  }, extra || {}));
+  const pushTxn = (page, id) => page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), {
+    id, branch_id: 'branch-1', amount: '230.00', vat: '30.00', status: 'pending', expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
+  });
+  {
+    const sc = medicalLive({ checkins: { 'txn-m': { data: { clinic_name: 'عيادة الأسنان', doctor_name: 'د. سارة القحطاني', scheduled_time_riyadh: '10:30', queue_number: 45, ahead: 2 } } } });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    await pushTxn(page, 'txn-m');
+    check('28) الصحي (مباشر): وصلت فاتورة المريض', await waitForCheckout(page));
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok', { timeout: 4000 });
+    const okText = await page.textContent('.ok');
+    check('28) بعد إدخال الرقم: يُطلب ما ربطه الخادم لهذه العملية بالذات (kiosk_appointment_checkin)',
+      JSON.stringify(await page.evaluate(() => window.__TEST__.getCheckinCalls())) === JSON.stringify(['txn-m']));
+    check('29) بطاقة الموعد: العيادة والطبيب ووقت الموعد', !!(await page.$('[data-live-appt]')) && /موعدك/.test(okText) && /عيادة الأسنان/.test(okText) && /د\. سارة القحطاني/.test(okText) && /10:30/.test(okText));
+    check('29) رقم الدور الحقيقي من الحجز ("رقم دورك" 45، أمامك 2) — لا رقم القالب التجريبي',
+      (await page.textContent('[data-live-queue]')).includes('45') && /رقم دورك/.test(await page.textContent('[data-live-queue]')) && /أمامك 2/.test(await page.textContent('[data-live-queue]')));
+    await context.close();
+  }
+  {
+    // لا موعد اليوم: شاشة النجاح كما كانت تماماً (فاتورتك فقط، بلا رقم دور)
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: medicalLive({ checkins: {} }) });
+    await pushTxn(page, 'txn-m');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok', { timeout: 4000 });
+    check('30) مريض بلا موعد اليوم: نجاح عادي بلا بطاقة موعد ولا رقم دور', !(await page.$('[data-live-appt]')) && !(await page.$('[data-live-queue]')) && !(await page.$('.ok .tno')) && /تم الربط بنجاح/.test(await page.textContent('.ok')));
+    await context.close();
+  }
+  {
+    // القراءة تفشل أو تتأخر: لا تمنع شاشة النجاح (الربط تمّ في الخادم أصلاً)
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: medicalLive({ checkinError: 'boom' }) });
+    await pushTxn(page, 'txn-m');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    const shown = await page.waitForSelector('.ok', { timeout: 4000 }).then(() => true, () => false);
+    check('31) تعذّر قراءة الموعد: شاشة النجاح تظهر كالمعتاد بلا بطاقة موعد', shown && !(await page.$('[data-live-appt]')));
+    await context.close();
+  }
+  {
+    // غير الصحي: لا يُطلب شيء إضافي إطلاقاً (المطعم كما كان)
+    const sc = baseScenario({ claimResults: { 'txn-r': { row: { is_registered: true, profile_id: 'p1', prev_points: 10, added_points: 5, total_points: 15, invoice_id: 'inv-r' } } } });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    await pushTxn(page, 'txn-r');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok', { timeout: 4000 });
+    check('31) قطاع غير صحي: لا نداء kiosk_appointment_checkin ولا بطاقة موعد', (await page.evaluate(() => window.__TEST__.getCheckinCalls())).length === 0 && !(await page.$('[data-live-appt]')));
+    await context.close();
+  }
+
   await browser.close();
 
   console.log('\n=== KIOSK E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');

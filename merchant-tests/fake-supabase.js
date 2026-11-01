@@ -168,6 +168,37 @@
           cancel_allowed: bm.booking_cancel_allowed !== false, cancel_cutoff_hours: bm.booking_cancel_cutoff_hours || 0,
           alerts_enabled: bm.booking_alerts_enabled !== false, rows: brows }, error: null });
       }
+      if (name === 'merchant_list_appointments') {
+        (state.apptListCalls = state.apptListCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id)) return Promise.resolve(noAccess);
+        var am0 = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; }) || {};
+        if (am0.sector_code !== 'medical') return Promise.resolve({ data: null, error: { message: 'NOJ_BOOKING_NOT_AVAILABLE' } });
+        var arows = (scenario.appointments || []).filter(function (r) { return r.merchant_id === args.p_merchant_id; })
+          .map(function (r) { var o = Object.assign({}, r); delete o.merchant_id; return o; });
+        return Promise.resolve({ data: { booking_enabled: !!am0.booking_enabled, sector_code: am0.sector_code,
+          cancel_allowed: am0.booking_cancel_allowed !== false, cancel_cutoff_hours: am0.booking_cancel_cutoff_hours || 0,
+          alerts_enabled: am0.booking_alerts_enabled !== false, clinics: JSON.parse(JSON.stringify(scenario.clinics || [])), rows: arows }, error: null });
+      }
+      if (name === 'merchant_set_appointment_status') {
+        (state.apptStatusCalls = state.apptStatusCalls || []).push(args);
+        var ap = (scenario.appointments || []).find(function (r) { return r.id === args.p_appointment_id; });
+        if (!ap) return Promise.resolve({ data: null, error: { message: 'NOJ_APPOINTMENT_NOT_FOUND' } });
+        if (!isMemberOf(ap.merchant_id)) return Promise.resolve(noAccess);
+        if ((args.p_status === 'confirmed' && ap.status !== 'pending') || (args.p_status === 'cancelled' && ['pending', 'confirmed'].indexOf(ap.status) === -1)) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_TRANSITION' } });
+        }
+        ap.status = args.p_status;
+        var apo = Object.assign({}, ap); delete apo.merchant_id;
+        return Promise.resolve({ data: apo, error: null });
+      }
+      if (name === 'merchant_set_clinic_booking') {
+        (state.clinicCalls = state.clinicCalls || []).push(args);
+        var cl = (scenario.clinics || []).find(function (c) { return c.id === args.p_clinic_id; });
+        if (!cl) return Promise.resolve({ data: null, error: { message: 'NOJ_CLINIC_NOT_FOUND' } });
+        if (!isMemberOf('merchant-1', true)) return Promise.resolve(noAccess);
+        cl.booking_enabled = !!args.p_booking_enabled; cl.walk_in_enabled = !!args.p_walk_in_enabled;
+        return Promise.resolve({ data: JSON.parse(JSON.stringify(cl)), error: null });
+      }
       if (name === 'merchant_set_booking_policy') {
         (state.policyCalls = state.policyCalls || []).push(args);
         if (!isMemberOf(args.p_merchant_id, true)) return Promise.resolve(noAccess);
@@ -411,6 +442,9 @@
       getOtpSends: function () { return (state.otpSends || []).slice(); },
       getVerifyCalls: function () { return (state.verifyCalls || []).slice(); },
       getBookingListCalls: function () { return (state.bookingListCalls || []).slice(); },
+      getApptListCalls: function () { return (state.apptListCalls || []).slice(); },
+      getApptStatusCalls: function () { return (state.apptStatusCalls || []).slice(); },
+      getClinicCalls: function () { return (state.clinicCalls || []).slice(); },
       getBookingStatusCalls: function () { return (state.bookingStatusCalls || []).slice(); },
       getBookingToggleCalls: function () { return (state.bookingToggleCalls || []).slice(); },
       getMerchant: function (id) { return (scenario.merchants || []).find(function (m) { return m.id === id; }) || null; },

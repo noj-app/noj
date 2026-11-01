@@ -166,9 +166,10 @@ drop policy if exists "update own appointments" on public.appointments;
 revoke update on public.appointments from anon, authenticated;
 
 -- The body below is IDENTICAL to the one in supabase-migration-
--- reservations.sql (which also lets a customer withdraw a 'pending'
--- reservation request) — compared by db-tests, so re-running this older file
--- never takes that back. Health appointments are never 'pending'.
+-- reservations.sql and supabase-migration-health-appointments.sql (a customer
+-- withdraws a 'pending' request; reservations and health appointments booked
+-- from the app follow the merchant's cancellation policy) — compared by
+-- db-tests, so re-running this older file never takes that back.
 create or replace function public.cancel_appointment(p_appointment_id uuid)
 returns public.appointments
 language plpgsql
@@ -194,18 +195,21 @@ begin
     raise exception 'الموعد غير موجود أو لا يخصّك';
   end if;
 
-  -- 'pending' = a reservation request not yet accepted by the merchant
-  -- (supabase-migration-reservations.sql); health appointments are never pending
+  -- 'pending' = a request the merchant has not accepted yet (a reservation, or
+  -- a health appointment booked from the app)
   if v_row.status not in ('confirmed', 'pending') then
     raise exception 'لا يمكن إلغاء موعد ليس بحالة مؤكَّدة';
   end if;
 
-  -- a reservation (table/service) follows its merchant's cancellation policy
+  -- a reservation (table/service) and a health appointment booked from the app
+  -- (booked_in_app) follow the merchant's cancellation policy
   -- (merchants.booking_cancel_allowed / booking_cancel_cutoff_hours). Read
   -- through to_jsonb() so this SAME body also runs where those columns do not
   -- exist yet (supabase-migration-lockdown-direct-writes.sql alone): there a
-  -- row has no booking_kind, i.e. it is a health appointment, unchanged.
-  if coalesce(to_jsonb(v_row)->>'booking_kind', 'appointment') in ('table', 'service') then
+  -- row has no booking_kind/booked_in_app, i.e. an older health appointment,
+  -- unchanged.
+  if coalesce(to_jsonb(v_row)->>'booking_kind', 'appointment') in ('table', 'service')
+     or coalesce((to_jsonb(v_row)->>'booked_in_app')::boolean, false) then
     select to_jsonb(m) into v_policy from public.merchants m where m.id = v_row.merchant_id;
     if coalesce((v_policy->>'booking_cancel_allowed')::boolean, true) = false then
       raise exception 'NOJ_CANCEL_NOT_ALLOWED';

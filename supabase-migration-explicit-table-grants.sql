@@ -1,0 +1,23 @@
+-- ============================================================================
+-- NOJ — migration: explicit table grants the project relied on implicitly
+-- ============================================================================
+-- Supabase stops granting NEW tables in `public` to anon / authenticated /
+-- service_role by default (notice: effective Oct 30 2026). Tables created
+-- before that keep the grants they already received on the live project, but
+-- a fresh project built from these files would not get them. db-tests now
+-- simulate the new behaviour (db-tests/00_auth_stub.sql revokes every default
+-- table privilege), and that simulation found ONE table whose access only
+-- ever came from the old default grant:
+--
+--   branch_pos_credentials — the pos-intake Edge Function looks up the
+--   branch token hash in it with the service-role client
+--   (supabase/functions/pos-intake/index.ts). RLS stays enabled with NO
+--   policy (service_role bypasses RLS, anon/authenticated still get nothing);
+--   the table GRANT is what service_role still needs. SELECT only — the only
+--   writer is issue_branch_pos_token() (SECURITY DEFINER).
+--
+-- On the live project this is a no-op (service_role already has it from the
+-- old default). Safe to re-run.
+-- ============================================================================
+
+grant select on public.branch_pos_credentials to service_role;
