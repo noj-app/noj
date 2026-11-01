@@ -108,8 +108,14 @@ export function normalizeSaPhone(raw: string | null | undefined): string | null 
   return null;
 }
 
+// The last line "@<domain> #<code>" is the domain-bound one-time-code format
+// (WebOTP on Chrome for Android reads it and offers the code to the page on
+// that domain; iOS uses it to offer autofill only there). It must be the
+// LAST line and match the origin that hosts index.html/merchant.html.
+export const OTP_WEB_DOMAIN = 'noj-app.github.io';
+
 export function buildOtpMessage(otp: string): string {
-  return `رمز التحقق الخاص بك في نوج: ${otp}`;
+  return `رمز التحقق الخاص بك في نوج: ${otp}\n\n@${OTP_WEB_DOMAIN} #${otp}`;
 }
 
 function maskPhone(phone: string): string {

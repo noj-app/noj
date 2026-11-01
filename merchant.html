@@ -161,6 +161,8 @@
   .bk-actions{display:flex;gap:8px;margin-top:10px}
   .bk-actions .approve-btn{max-width:120px;padding:9px 14px;font-size:12.5px}
   .sec-h .btn-outline{padding:6px 12px}
+  /* نفس إصلاح تطبيق نوج: خانات التاريخ والوقت LTR كي لا تنقلب "يوم/شهر/سنة" في RTL على Chrome أندرويد */
+  input[type=date],input[type=time]{direction:ltr;text-align:right}
   .tab-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-inline-start:6px;border-radius:99px;background:var(--red);color:#fff;font-size:11px;font-weight:800;line-height:16px}
   .bk-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}
   .bk-actions .btn-outline{font-size:12px}
@@ -322,7 +324,7 @@ function authCode(){
   var boxes='';
   for(var i=0;i<OTP_LENGTH;i++){
     var v=A.code[i]||'';
-    boxes+='<input type="tel" inputmode="numeric" maxlength="1" data-otp="'+i+'" value="'+v+'"'+(v?' class="filled"':'')+'>';
+    boxes+='<input type="tel" inputmode="numeric" autocomplete="one-time-code" maxlength="'+OTP_LENGTH+'" data-otp="'+i+'" value="'+v+'"'+(v?' class="filled"':'')+'>';
   }
   return '<div class="auth-body">'+
     '<h2>رمز التحقق</h2>'+
@@ -336,12 +338,35 @@ function authCode(){
   '</div>';
 }
 
+// WebOTP (Chrome على أندرويد): يقرأ الرمز من رسالة SMS تنتهي بسطر
+// "@noj-app.github.io #123456" (يضيفه send-sms-hook) بعد موافقة العميل، فيُعبَّأ ويُتحقَّق
+// منه تلقائياً. الآيفون يكتفي بـautocomplete="one-time-code". متصفح بلا الميزة: لا شيء.
+var webOtpAbort=null;
+function startWebOtp(){
+  if(webOtpAbort||!('OTPCredential' in window)||!navigator.credentials||!window.AbortController)return;
+  var ac=new AbortController();
+  webOtpAbort=ac;
+  navigator.credentials.get({otp:{transport:['sms']},signal:ac.signal}).then(function(c){
+    if(webOtpAbort!==ac)return;
+    webOtpAbort='done'; // طلب واحد لكل رسالة: لا يُعاد بدؤه مع renderAuth التالي (إعادة الإرسال تبدأ طلباً جديداً)
+    var v=toAsciiDigits(c&&c.code).replace(/\D/g,'');
+    if(A.step!=='code'||v.length<OTP_LENGTH)return;
+    A.code=v.slice(0,OTP_LENGTH);A.err='';
+    renderAuth();
+    doVerify();
+  }).catch(function(){if(webOtpAbort===ac)webOtpAbort='done'});
+}
+function stopWebOtp(){
+  if(webOtpAbort&&webOtpAbort!=='done'){try{webOtpAbort.abort()}catch(e){}}
+  webOtpAbort=null;
+}
 function renderAuth(){
   var el=document.getElementById('auth');
   el.innerHTML='<div class="auth-inner">'+
     '<div class="auth-brand"><div class="auth-mark">N</div><b>لوحة التاجر</b><span>NOJ — No Ordinary Journey</span></div>'+
     (A.step==='phone'?authPhone():authCode())+'</div>';
   bindAuth();
+  if(A.step==='code')startWebOtp();else stopWebOtp();
 }
 
 function startTimer(){
@@ -383,24 +408,46 @@ function bindAuth(){
 
   var otps=document.querySelectorAll('[data-otp]');
   function readCode(){var s='';[].forEach.call(otps,function(b){s+=(b.value||'')});return s}
+  // يوزّع أرقاماً على الخانات: الرمز كاملاً (تعبئة تلقائية من SMS أو لصق) يبدأ من
+  // الخانة الأولى دائماً، وجزء منه يبدأ من الخانة الحالية.
+  function spreadDigits(digits,fromIdx){
+    var start=digits.length>=OTP_LENGTH?0:fromIdx;
+    digits=digits.slice(0,OTP_LENGTH-start);
+    for(var k=0;k<digits.length;k++){otps[start+k].value=digits[k];otps[start+k].classList.add('filled')}
+    var last=start+digits.length;
+    if(last<OTP_LENGTH)otps[last].focus();else otps[OTP_LENGTH-1].blur();
+  }
+  function afterCodeChange(){
+    A.code=readCode();A.err='';
+    var vb=document.getElementById('verify');
+    if(vb)vb.disabled=A.code.length<OTP_LENGTH;
+    if(A.code.length===OTP_LENGTH)setTimeout(doVerify,180);
+  }
   [].forEach.call(otps,function(box,idx){
-    box.oninput=function(){
+    // الخانة لم تعد maxlength=1 (كانت تقصّ اللصق والتعبئة التلقائية لرقم واحد):
+    // رقم واحد مكتوب يبقى في خانته، وأكثر من رقم يُوزَّع.
+    box.oninput=function(e){
+      var typed=e&&e.inputType==='insertText'&&e.data!=null?toAsciiDigits(e.data).replace(/\D/g,''):null;
       var v=toAsciiDigits(this.value).replace(/\D/g,'');
+      if(typed!==null&&typed.length<=1)v=typed;
       if(v.length>1){
-        for(var k=0;k<otps.length;k++){
-          otps[k].value=v[k]||'';
-          if(otps[k].value)otps[k].classList.add('filled');else otps[k].classList.remove('filled');
-        }
-        this.blur();
+        this.value='';
+        spreadDigits(v,idx);
       }else{
         this.value=v;
         if(v)this.classList.add('filled');else this.classList.remove('filled');
         if(v&&idx<OTP_LENGTH-1)otps[idx+1].focus();
       }
-      A.code=readCode();A.err='';
-      var vb=document.getElementById('verify');
-      if(vb)vb.disabled=A.code.length<OTP_LENGTH;
-      if(A.code.length===OTP_LENGTH)setTimeout(doVerify,180);
+      afterCodeChange();
+    };
+    box.onpaste=function(e){
+      var text=(e.clipboardData||window.clipboardData);
+      text=text?text.getData('text'):'';
+      var v=toAsciiDigits(text).replace(/\D/g,'');
+      if(!v)return;
+      e.preventDefault();
+      spreadDigits(v,idx);
+      afterCodeChange();
     };
     box.onkeydown=function(e){
       if(e.key==='Backspace'&&!this.value&&idx>0){
@@ -497,7 +544,7 @@ async function resendOtp(){
     return;
   }
 
-  A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
+  stopWebOtp();A.code='';A.err='';renderAuth();startTimer();toast('تم إرسال الرمز مرة أخرى');
 }
 
 async function doVerify(){
@@ -515,6 +562,7 @@ async function doVerify(){
     renderAuth();
     return;
   }
+  stopWebOtp();
   clearInterval(A.timer);
   await checkAccess();
 }

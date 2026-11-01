@@ -8,7 +8,10 @@ const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const MERCHANT_URL = 'file://' + path.join(REPO_ROOT, 'merchant.html');
-const CHROMIUM_PATH = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// the pre-installed Chromium: /opt/pw-browsers/chromium is the stable link (its build number changes
+// between containers); NOJ_CHROMIUM_PATH overrides, and the old fixed path stays as a fallback.
+const CHROMIUM_PATH = process.env.NOJ_CHROMIUM_PATH ||
+  ['/opt/pw-browsers/chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => require('fs').existsSync(p));
 const FAKE_SB_PATH = path.join(__dirname, 'fake-supabase.js');
 const FAKE_TURNSTILE_PATH = path.join(__dirname, 'fake-turnstile.js');
 
@@ -1383,6 +1386,79 @@ async function loginFlow(page, phone, otp) {
     const sends = await page.evaluate(() => window.__TEST__.getOtpSends());
     check('66) ودجت بطيء (3.5 ثانية): الإرسال وإعادة الإرسال نجحا برمزين مختلفين (لا captcha_failed)',
       sends.length === 2 && sends.every((x) => x.captchaToken) && sends[0].captchaToken !== sends[1].captchaToken);
+    await context.close();
+  }
+
+  // =========================================================================
+  // 67-71) الرمز كاملاً دفعة واحدة (تعبئة SMS التلقائية، اللصق، WebOTP) واتجاه خانات التاريخ.
+  // =========================================================================
+  const toCodeScreen = async (page) => {
+    await page.fill('#ph', '512345678');
+    await page.click('#send');
+    await page.waitForSelector('[data-otp="0"]', { timeout: 5000 });
+  };
+  const dashboardShown = (page) => page.waitForSelector('.topbar', { timeout: 5000 }).then(() => true, () => false);
+  {
+    const { context, page } = await openMerchant(browser, { scenario: baseScenario({}) });
+    await toCodeScreen(page);
+    const attrs = await page.$$eval('[data-otp]', (bs) => bs.map((b) => [b.getAttribute('autocomplete'), b.maxLength]));
+    check('67) خانات الرمز: autocomplete="one-time-code" وبلا maxlength=1', attrs.length === 6 && attrs.every(([a, m]) => a === 'one-time-code' && m === 6));
+    await page.locator('[data-otp="0"]').fill('١٢٣٤٥٦'); // what SMS autofill does — Arabic digits too
+    const ok = await dashboardShown(page);
+    const v = await page.evaluate(() => window.__TEST__.getVerifyCalls());
+    check('67) تعبئة الرمز كاملاً في الخانة الأولى (بأرقام عربية): يُتحقَّق منه مرة واحدة ويدخل', ok && v.length === 1 && v[0].token === '123456' && v[0].type === 'sms');
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: baseScenario({}) });
+    await toCodeScreen(page);
+    await page.evaluate(() => {
+      const dt = new DataTransfer(); dt.setData('text', 'رمز التحقق: 123-456');
+      document.querySelector('[data-otp="0"]').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    });
+    const ok = await dashboardShown(page);
+    check('68) لصق نص فيه الرمز: يُستخرج ويُتحقَّق منه ويدخل', ok && (await page.evaluate(() => window.__TEST__.getVerifyCalls()))[0].token === '123456');
+    await context.close();
+  }
+  {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.route('**://challenges.cloudflare.com/**', (route) => route.abort());
+    await page.route('**://esm.sh/**', (route) => route.abort());
+    await page.addInitScript((s) => {
+      window.__NOJ_SCENARIO__ = s;
+      window.OTPCredential = function () {};
+      window.__webotp = { calls: 0, aborted: 0 };
+      navigator.credentials.get = (opts) => {
+        window.__webotp.calls++;
+        window.__webotp.transport = opts.otp && opts.otp.transport;
+        return new Promise((resolve, reject) => {
+          const t = setTimeout(() => resolve({ code: '123456', type: 'otp' }), 400);
+          opts.signal.addEventListener('abort', () => { clearTimeout(t); window.__webotp.aborted++; reject(new DOMException('aborted', 'AbortError')); });
+        });
+      };
+    }, baseScenario({}));
+    await page.addInitScript({ path: FAKE_SB_PATH });
+    await page.addInitScript({ path: FAKE_TURNSTILE_PATH });
+    await page.goto(MERCHANT_URL);
+    await page.waitForSelector('#ph');
+    await toCodeScreen(page);
+    const ok = await dashboardShown(page);
+    const w = await page.evaluate(() => window.__webotp);
+    const v = await page.evaluate(() => window.__TEST__.getVerifyCalls());
+    check('69) WebOTP: طلب واحد بنوع sms، والرمز الوارد يُعبَّأ ويُتحقَّق منه تلقائياً مرة واحدة',
+      ok && w.calls === 1 && JSON.stringify(w.transport) === '["sms"]' && v.length === 1 && v[0].token === '123456');
+    await context.close();
+  }
+  {
+    const { context, page } = await openInvoices(invScenario([]));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invPresets');
+    await page.click('#invPresets [data-preset="custom"]');
+    await page.waitForSelector('#invFrom');
+    // a page rule, not getComputedStyle: desktop Chromium's UA sheet already makes date inputs ltr (bug is Android-only)
+    const dirs = await page.$$eval('#invFrom,#invTo', (els) => els.map((e) => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.style && r.style.direction === 'ltr' && e.matches(r.selectorText)))));
+    check('70) خانتا تاريخ الفواتير باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', dirs.length === 2 && dirs.every(Boolean));
     await context.close();
   }
 

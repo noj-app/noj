@@ -384,6 +384,7 @@
       getDevices: function () { return scenario.devices || []; },
       getUsedCaptchaTokens: function () { return state.usedCaptchaTokens.slice(); },
       getInvoiceCalls: function () { return state.invoiceCalls.slice(); },
+      getVerifyCalls: function () { return (state.verifyCalls || []).slice(); },
       getLastBranchSettingsUpdate: function () { return state.lastBranchSettingsUpdate; },
       getBranchSettings: function (branchId) { return (scenario.branchSettings || []).find(function (s) { return s.branch_id === branchId; }) || null; },
       getLastSetPinCall: function () { return state.lastSetPinCall; },
