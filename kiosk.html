@@ -901,6 +901,12 @@ function saveDeviceCache(d){
 var LIVE_TXN=null;
 var LIVE_TXN_QUEUE=[];
 var LIVE_CLAIM_RESULT=null;
+/* القطاع الصحي في الوضع المباشر: بعد ربط الفاتورة برقم المريض، إن كان له موعد
+   ذلك اليوم فقد رُبطت الفاتورة به وأخذ رقم دوره من حجزه (الخادم يفعل ذلك داخل
+   نفس الربط — supabase-migration-health-appointments.sql). هنا فقط ما تعرضه
+   الشاشة: {clinic_name, doctor_name, scheduled_time_riyadh, queue_number, ahead}
+   من kiosk_appointment_checkin، أو null (لا موعد اليوم / تعذّرت القراءة). */
+var LIVE_APPT_CHECKIN=null;
 var liveRealtimeChannel=null;
 var liveFallbackPollTimer=null;
 var liveExpiryTimer=null;
@@ -1729,14 +1735,22 @@ function success(){
     return '<div class="g"><div class="g-i" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
     '<b>'+o.b+'</b><small>'+o.s+'</small></div>'
   });
-  var gotCards=[okHtml[0]||''].concat(loyaltyOkCard(c)).concat(live?[]:okHtml.slice(1)).filter(Boolean).join('');
+  /* موعد اليوم (الصحي، الوضع المباشر): بطاقة الموعد حدث حقيقي من الخادم، ورقم
+     الدور رقم حقيقي أخذه المريض من حجزه — لا قيمة قالب تجريبية. */
+  var appt=live?LIVE_APPT_CHECKIN:null;
+  var apptCard=appt?'<div class="g" data-live-appt><div class="g-i" style="background:#0F6E6E18">'+ic('calchk',22,'#0F6E6E')+'</div>'+
+    '<b>موعدك</b><small>'+escAttr(appt.clinic_name||'')+(appt.doctor_name?' · '+escAttr(appt.doctor_name):'')+(appt.scheduled_time_riyadh?' · '+escAttr(appt.scheduled_time_riyadh):'')+'</small></div>':'';
+  var gotCards=[okHtml[0]||''].concat(loyaltyOkCard(c)).concat(live?[apptCard]:okHtml.slice(1)).filter(Boolean).join('');
   var gotRow=gotCards?'<div class="got">'+gotCards+'</div>':'';
+  var liveTicket=(appt&&appt.queue_number!=null&&cardOn('queueNumber'))
+    ?'<div class="tno" data-live-queue><small>'+(c.ticketLabel||'رقم دورك')+'</small><b>'+escAttr(appt.queue_number)+'</b>'+
+      (appt.ahead!=null?'<small data-live-ahead>'+(Number(appt.ahead)>0?'أمامك '+Number(appt.ahead):'أنت التالي')+'</small>':'')+'</div>':'';
   return '<div class="ok"><div class="ok-in">'+
    '<div class="ok-c">'+ic('check',54,'#22A87A',3)+'</div>'+
    '<h2>تم الربط بنجاح</h2>'+
    '<p>أُرسلت فاتورتك إلى '+linked+'</p>'+
    gotRow+
-   (SETTINGS.mode==='live'?'':'<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>')+
+   (SETTINGS.mode==='live'?liveTicket:'<div class="tno"><small>'+c.ticketLabel+'</small><b>'+ticket+'</b></div>')+
    '<div class="timer" id="timer"></div>'+
   '</div></div>';
 }
@@ -2021,7 +2035,7 @@ function startTimer(s){
       clearInterval(tmr);
       S.phone='';resetCustomerState();
       if(SETTINGS.mode==='live'){
-        LIVE_CLAIM_RESULT=null;
+        LIVE_CLAIM_RESULT=null;LIVE_APPT_CHECKIN=null;
         S.view='main';S.page='idle';render();
       }else{
         S.view='main';renderLayer();
@@ -2045,6 +2059,27 @@ async function sendInvoice(){
   console.log('NOJ kiosk → إرسال الفاتورة (محاكاة):',payload);
   CUST.added=null;CUST.earnFailReason=null;
   return payload;
+}
+
+/* القطاع الصحي: ما ربطه الخادم للتو (موعد اليوم + رقم الدور) لهذه العملية.
+   أفضل جهد وبمهلة قصيرة — فشلها أو تأخرها لا يمنع شاشة النجاح (الربط نفسه
+   تمّ في الخادم أصلاً). window.__NOJ_CHECKIN_WAIT_MS__ للاختبار فقط. */
+async function fetchApptCheckin(txnId){
+  try{
+    var sb=await getSb();
+    if(!sb||!txnId)return null;
+    var wait=window.__NOJ_CHECKIN_WAIT_MS__||3000;
+    var res=await Promise.race([
+      sb.rpc('kiosk_appointment_checkin',{p_transaction_id:txnId}),
+      new Promise(function(resolve){setTimeout(function(){resolve({data:null,error:{message:'timeout'}})},wait)})
+    ]);
+    if(res.error)throw res.error;
+    var d=Array.isArray(res.data)?res.data[0]:res.data;
+    return d&&typeof d==='object'&&d.clinic_name?d:null;
+  }catch(e){
+    console.error('NOJ kiosk: kiosk_appointment_checkin error',e);
+    return null;
+  }
 }
 
 /* المرحلة ٣: يربط LIVE_TXN الحالية برقم جوال العميل فعلياً عبر
@@ -2078,7 +2113,9 @@ function handlePhoneSubmit(phone){
   if(SETTINGS.mode==='live'&&LIVE_TXN){
     S.phone=phone||'';
     clearTimeout(liveExpiryTimer);
-    claimLiveTransaction(phone).then(function(r){
+    var claimedTxnId=LIVE_TXN.id;
+    LIVE_APPT_CHECKIN=null;
+    claimLiveTransaction(phone).then(async function(r){
       // عملية أخرى (أو مغادرة الشاشة) قد تكون غيّرت LIVE_TXN/الصفحة أثناء
       // انتظار الرد — تجاهل نتيجة متأخرة لا تخص الشاشة الحالية.
       if(S.page!=='checkout')return;
@@ -2093,6 +2130,10 @@ function handlePhoneSubmit(phone){
         CUST.points=Number(r.row.prev_points)||0;
         CUST.added=Number(r.row.added_points)||0;
         CUST.earnFailReason=null;
+        if(r.row&&r.row.is_registered!==false&&SETTINGS.sector==='medical'){
+          LIVE_APPT_CHECKIN=await fetchApptCheckin(claimedTxnId);
+          if(S.page!=='checkout')return;
+        }
         S.view='ok';renderLayer();
         return;
       }

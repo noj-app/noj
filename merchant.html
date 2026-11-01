@@ -1126,15 +1126,23 @@ function bindInvoices(){
    reservation_status() للقبول/الإلغاء (مالك وموظف)، وmerchant_set_booking_
    enabled() لتفعيل/إيقاف استقبال الحجوزات (المالك فقط، وتتحقق الدالة من ذلك
    أيضاً). التبويب يظهر فقط لتاجر قسمه مطعم أو خدمات. لا يُحمَّل شيء قبل فتحه. */
-var BOOKING_SECTORS=['restaurant','services'];
+/* القطاع الصحي (supabase-migration-health-appointments.sql): نفس التبويب باسم
+   "المواعيد" — merchant_list_appointments/merchant_set_appointment_status (مالك
+   وموظف، اسم المريض وآخر 4 أرقام فقط)، عيادات المركز مع فتح الحجز ونمط "بموعد
+   فقط"/"بموعد وبدون موعد" لكل عيادة (merchant_set_clinic_booking، المالك فقط)،
+   ونفس بطاقتي سياسة الإلغاء والتنبيه. */
+var BOOKING_SECTORS=['restaurant','services','medical'];
 var BK_STATUS_LABELS={pending:'بانتظار القبول',confirmed:'مؤكَّد',cancelled:'ملغى',done:'منتهٍ'};
+function isMedicalBk(S){return !!S&&S.sector==='medical'}
+function bkNoun(S){return isMedicalBk(S)?'الموعد':'الحجز'}
 function bookingsTabVisible(){return BOOKING_SECTORS.indexOf(M.loadedSector)!==-1||M.view==='bookings'}
 function newBkState(){return {loading:false,err:'',rows:null,bookingEnabled:null,sector:null,busyId:null,toggling:false,req:0,
   cancelAllowed:true,cutoffHours:0,polAllowed:true,polHours:'0',polSaving:false,polMsg:'',alertsEnabled:true,alertsSaving:false,
-  services:null,svcEditId:null,svcName:'',svcPrice:'',svcSaving:false,svcErr:'',svcBusyId:null}}
+  services:null,svcEditId:null,svcName:'',svcPrice:'',svcSaving:false,svcErr:'',svcBusyId:null,clinics:null,clinicBusyId:null}}
 function bkErrorText(msg){
   msg=msg||'';
   if(/NOJ_INVALID_TRANSITION/.test(msg))return 'تغيّرت حالة هذا الحجز، حدّث القائمة.';
+  if(/NOJ_APPOINTMENT_NOT_FOUND|NOJ_CLINIC_NOT_FOUND/.test(msg))return 'لم يعد هذا العنصر موجوداً، حدّث القائمة.';
   if(/NOJ_BOOKING_NOT_AVAILABLE/.test(msg))return 'الحجوزات متاحة لقسمي المطعم والخدمات فقط.';
   if(/لا تملك صلاحية/.test(msg))return 'لا تملك صلاحية على هذا التاجر.';
   if(/NOJ_INVALID_CANCEL_POLICY/.test(msg))return 'مهلة الإلغاء يجب أن تكون من 0 إلى 168 ساعة.';
@@ -1150,10 +1158,12 @@ async function loadBookings(){
   var myReq=++S.req;
   S.loading=true;S.err='';renderApp();
   var sb=await getSb();
-  var res=sb?await sb.rpc('merchant_list_reservations',{p_merchant_id:M.activeMerchantId}):{error:{message:'no-client'}};
+  var medical=M.loadedSector==='medical';
+  var res=sb?await sb.rpc(medical?'merchant_list_appointments':'merchant_list_reservations',{p_merchant_id:M.activeMerchantId}):{error:{message:'no-client'}};
   if(M.bk!==S||myReq!==S.req)return;
   S.loading=false;
-  if(res.error||!res.data){S.err='تعذّر تحميل الحجوزات، حاول مرة أخرى.';renderApp();return}
+  if(res.error||!res.data){S.err=medical?'تعذّر تحميل المواعيد، حاول مرة أخرى.':'تعذّر تحميل الحجوزات، حاول مرة أخرى.';renderApp();return}
+  S.clinics=res.data.clinics||null;
   S.rows=res.data.rows||[];
   S.bookingEnabled=!!res.data.booking_enabled;
   S.sector=res.data.sector_code;
@@ -1193,7 +1203,54 @@ function bookingRowHtml(r){
     (actions?'<div class="bk-actions">'+actions+'</div>':'')+
   '</div>';
 }
+function appointmentRowHtml(r){
+  var who=(r.customer_name?escAttr(r.customer_name):'مريض')+(r.customer_phone_last4?' · جوال ينتهي بـ <span class="num">'+escAttr(r.customer_phone_last4)+'</span>':'');
+  var busy=M.bk&&M.bk.busyId===r.id;
+  var actions='';
+  if(r.status==='pending'){
+    actions='<button type="button" class="approve-btn bk-accept" data-bk-accept="'+r.id+'"'+(busy?' disabled':'')+'>قبول</button>'+
+      '<button type="button" class="btn-outline bk-cancel" data-bk-cancel="'+r.id+'"'+(busy?' disabled':'')+'>إلغاء</button>';
+  }else if(r.status==='confirmed'){
+    actions='<button type="button" class="btn-outline bk-cancel" data-bk-cancel="'+r.id+'"'+(busy?' disabled':'')+'>إلغاء</button>';
+  }
+  var label=r.status==='done'?'حضر':(BK_STATUS_LABELS[r.status]||r.status);
+  var arrival=r.status==='done'?'<div class="inv-sub" data-appt-arrival>حضر'+(r.attended_at_riyadh?' <span class="num">'+escAttr(r.attended_at_riyadh.slice(11))+'</span>':'')+
+    (r.queue_number!=null?' · رقم الدور <b class="num">'+escAttr(r.queue_number)+'</b>':'')+
+    (r.invoice_amount!=null?' · الفاتورة <span class="num">'+escAttr(fmtPrice(r.invoice_amount))+'</span>':'')+'</div>':'';
+  return '<div class="inv-row bk-row" data-bk-row="'+r.id+'">'+
+    '<div class="inv-top"><b class="num">'+escAttr(r.scheduled_at_riyadh)+'</b>'+
+      '<span class="badge '+(r.status==='confirmed'||r.status==='done'?'active':r.status==='pending'?'warn':'revoked')+'" data-bk-status>'+escAttr(label)+'</span></div>'+
+    '<div class="inv-sub"><b>'+escAttr(r.clinic_name||'عيادة')+'</b>'+(r.doctor_name?' · '+escAttr(r.doctor_name):'')+'</div>'+
+    '<div class="inv-sub">'+who+'</div>'+
+    (r.note?'<div class="inv-sub bk-note">ملاحظة: '+escAttr(r.note)+'</div>':'')+
+    arrival+
+    (actions?'<div class="bk-actions">'+actions+'</div>':'')+
+  '</div>';
+}
+/* عيادات المركز: الحجز مفتوح/مغلق لكل عيادة ونمطها. التعديل للمالك فقط. */
+function clinicsHtml(S){
+  var owner=activeRole()==='owner';
+  var list=S.clinics||[];
+  return '<div class="card" id="clinicsCard" style="margin-bottom:14px">'+
+    '<div class="inv-top"><b>العيادات والحجز من تطبيق نوج</b></div>'+
+    '<p class="hint" style="margin:6px 0 10px">افتح الحجز لعيادات معينة فقط، وحدّد لكل عيادة: "بموعد فقط" أو "بموعد وبدون موعد". الإغلاق يمنع المواعيد الجديدة فقط.</p>'+
+    (list.length?list.map(function(c){
+      var busy=S.clinicBusyId===c.id;
+      return '<div class="inv-row" data-clinic-row="'+c.id+'">'+
+        '<div class="inv-top"><b>'+escAttr(c.name)+'</b>'+(c.doctor_name?'<span class="hint">'+escAttr(c.doctor_name)+'</span>':'')+'</div>'+
+        '<div class="inv-sub"><span class="badge '+(c.booking_enabled?'active':'revoked')+'" data-clinic-booking-badge>'+(c.booking_enabled?'الحجز مفتوح':'الحجز مغلق')+'</span> '+
+          (c.booking_enabled?'<span class="badge '+(c.walk_in_enabled?'active':'warn')+'" data-clinic-mode-badge>'+(c.walk_in_enabled?'بموعد وبدون موعد':'بموعد فقط')+'</span>':'')+'</div>'+
+        (owner?'<div class="bk-actions">'+
+          '<button type="button" class="btn-outline" data-clinic-booking="'+c.id+'"'+(busy?' disabled':'')+'>'+(c.booking_enabled?'إغلاق الحجز':'فتح الحجز')+'</button>'+
+          (c.booking_enabled?'<button type="button" class="btn-outline" data-clinic-walkin="'+c.id+'"'+(busy?' disabled':'')+'>'+(c.walk_in_enabled?'بموعد فقط':'بموعد وبدون موعد')+'</button>':'')+
+        '</div>':'')+
+      '</div>';
+    }).join(''):'<div class="empty" id="clinicsEmpty">لا عيادات مسجّلة لهذا المركز.</div>')+
+    (owner?'':'<p class="hint" id="clinicsOwnerOnly">فتح الحجز للعيادات وتحديد نمطها للمالك فقط.</p>')+
+  '</div>';
+}
 function bookingToggleHtml(S){
+  if(isMedicalBk(S))return clinicsHtml(S)+bookingPolicyHtml(S)+bookingAlertsHtml(S);
   if(S.bookingEnabled===null)return '';
   var on=S.bookingEnabled;
   var owner=activeRole()==='owner';
@@ -1213,8 +1270,8 @@ function bookingPolicyHtml(S){
   var owner=activeRole()==='owner';
   var summary=S.cancelAllowed?'يستطيع العميل الإلغاء '+cutoffText(S.cutoffHours)+'.':'لا يستطيع العميل الإلغاء من تطبيق نوج.';
   return '<div class="card" id="bkPolicyCard" style="margin-bottom:14px">'+
-    '<div class="inv-top"><b>إلغاء العميل للحجز</b></div>'+
-    '<p class="hint" id="bkPolicyText" style="margin:6px 0 10px">'+summary+' أنت تستطيع إلغاء أي حجز دائماً.</p>'+
+    '<div class="inv-top"><b>إلغاء العميل لل'+bkNoun(S).slice(2)+'</b></div>'+
+    '<p class="hint" id="bkPolicyText" style="margin:6px 0 10px">'+summary+' أنت تستطيع إلغاء أي '+bkNoun(S).slice(2)+' دائماً.</p>'+
     (owner
       ?'<label class="bk-check"><input type="checkbox" id="bkCancelAllowed"'+(S.polAllowed?' checked':'')+'> السماح للعميل بالإلغاء</label>'+
         '<label class="form-f" style="margin:10px 0 0"><label>يُقفل الإلغاء قبل الموعد بـ (ساعة، 0 = حتى الموعد)</label>'+
@@ -1230,9 +1287,9 @@ function bookingAlertsHtml(S){
   var on=S.alertsEnabled;
   var owner=activeRole()==='owner';
   return '<div class="card" id="bkAlertsCard" style="margin-bottom:14px">'+
-    '<div class="inv-top"><b>تنبيه الحجوزات الجديدة</b>'+
+    '<div class="inv-top"><b>'+(isMedicalBk(S)?'تنبيه المواعيد الجديدة':'تنبيه الحجوزات الجديدة')+'</b>'+
       '<span class="badge '+(on?'active':'revoked')+'" id="bkAlertsBadge">'+(on?'مفعّلة':'موقفة')+'</span></div>'+
-    '<p class="hint" style="margin:6px 0 10px">صوت وعدّاد على تبويب "الحجوزات" لحظة وصول طلب حجز جديد، لكل من يفتح اللوحة لهذا التاجر.</p>'+
+    '<p class="hint" style="margin:6px 0 10px">'+(isMedicalBk(S)?'صوت وعدّاد على تبويب "المواعيد" لحظة وصول طلب موعد جديد من تطبيق نوج، لكل من يفتح اللوحة لهذا المركز.':'صوت وعدّاد على تبويب "الحجوزات" لحظة وصول طلب حجز جديد، لكل من يفتح اللوحة لهذا التاجر.')+'</p>'+
     (owner
       ?'<button type="button" class="btn-outline" id="bkAlertsToggle"'+(S.alertsSaving?' disabled':'')+'>'+(on?'إيقاف التنبيهات':'تشغيل التنبيهات')+'</button>'
       :'<p class="hint" id="bkAlertsOwnerOnly">تشغيل التنبيهات وإيقافها للمالك فقط.</p>')+
@@ -1275,7 +1332,8 @@ function servicesHtml(S){
 function bookingsViewHtml(){
   var S=M.bk;
   if(!S)return '';
-  var html='<div class="sec-h"><h2>الحجوزات</h2><button type="button" class="btn-outline" id="bkRefresh">تحديث</button></div>';
+  var medical=M.loadedSector==='medical'||isMedicalBk(S);
+  var html='<div class="sec-h"><h2>'+(medical?'المواعيد':'الحجوزات')+'</h2><button type="button" class="btn-outline" id="bkRefresh">تحديث</button></div>';
   if(S.loading&&!S.rows)return html+'<div class="loading-row" id="bkLoading">جارٍ التحميل...</div>';
   if(S.err&&!S.rows){
     return html+'<div class="card"><div class="form-warn" id="bkErr">'+escAttr(S.err)+'</div>'+
@@ -1283,30 +1341,33 @@ function bookingsViewHtml(){
   }
   if(!S.rows)return html;
   if(BOOKING_SECTORS.indexOf(S.sector)===-1){
-    return html+'<div class="card"><div class="empty" id="bkNotAvailable">الحجوزات متاحة لقسمي المطعم والخدمات فقط.</div></div>';
+    return html+'<div class="card"><div class="empty" id="bkNotAvailable">الحجوزات متاحة لأقسام المطعم والخدمات والصحي فقط.</div></div>';
   }
   html+=bookingToggleHtml(S);
   if(S.err)html+='<div class="form-warn" id="bkErr" style="margin-bottom:10px">'+escAttr(S.err)+'</div>';
-  var groups=[['pending','بانتظار القبول'],['confirmed','المؤكَّدة'],['cancelled','الملغاة']];
+  var groups=isMedicalBk(S)
+    ?[['pending','بانتظار القبول'],['confirmed','المؤكَّدة'],['done','حضر'],['cancelled','الملغاة']]
+    :[['pending','بانتظار القبول'],['confirmed','المؤكَّدة'],['cancelled','الملغاة']];
+  var rowFn=isMedicalBk(S)?appointmentRowHtml:bookingRowHtml;
   var any=false;
   groups.forEach(function(g){
     var rows=S.rows.filter(function(r){return r.status===g[0]});
     if(!rows.length)return;
     any=true;
     html+='<div class="bk-group" id="bkGroup-'+g[0]+'"><div class="hint" style="margin:6px 2px 6px">'+g[1]+' (<span class="num">'+rows.length+'</span>)</div>'+
-      '<div class="card">'+rows.map(bookingRowHtml).join('')+'</div></div>';
+      '<div class="card">'+rows.map(rowFn).join('')+'</div></div>';
   });
-  if(!any)html+='<div class="card"><div class="empty" id="bkEmpty">لا حجوزات قادمة.</div></div>';
+  if(!any)html+='<div class="card"><div class="empty" id="bkEmpty">'+(isMedicalBk(S)?'لا مواعيد قادمة.':'لا حجوزات قادمة.')+'</div></div>';
   return html+servicesHtml(S);
 }
 function bookingCancelConfirmHtml(){
   if(!M.bkConfirmCancelId)return '';
   return '<div class="ov" id="bkCancelOv"><div class="confirm-box">'+
-    '<h3>إلغاء هذا الحجز؟</h3>'+
-    '<p>سيظهر للعميل في تطبيق نوج أن الحجز أُلغي.</p>'+
+    '<h3>إلغاء هذا '+bkNoun(M.bk)+'؟</h3>'+
+    '<p>سيظهر للعميل في تطبيق نوج أن '+bkNoun(M.bk)+' أُلغي.</p>'+
     '<div class="confirm-row">'+
       '<button class="confirm-cancel" id="bkCancelBack">تراجع</button>'+
-      '<button class="confirm-ok" id="bkCancelOk">إلغاء الحجز</button>'+
+      '<button class="confirm-ok" id="bkCancelOk">إلغاء '+bkNoun(M.bk)+'</button>'+
     '</div>'+
   '</div></div>';
 }
@@ -1315,13 +1376,15 @@ async function setBookingStatus(id,status){
   if(!S)return;
   S.busyId=id;S.err='';renderApp();
   var sb=await getSb();
-  var res=sb?await sb.rpc('merchant_set_reservation_status',{p_reservation_id:id,p_status:status}):{error:{message:'no-client'}};
+  var res=!sb?{error:{message:'no-client'}}:isMedicalBk(S)
+    ?await sb.rpc('merchant_set_appointment_status',{p_appointment_id:id,p_status:status})
+    :await sb.rpc('merchant_set_reservation_status',{p_reservation_id:id,p_status:status});
   if(M.bk!==S)return;
   S.busyId=null;
   if(res.error||!res.data){S.err=bkErrorText(res.error&&res.error.message);renderApp();return}
   S.rows=S.rows.map(function(r){return r.id===id?res.data:r});
   renderApp();
-  toast(status==='confirmed'?'تم قبول الحجز':'تم إلغاء الحجز');
+  toast(status==='confirmed'?'تم قبول '+bkNoun(S):'تم إلغاء '+bkNoun(S));
 }
 function bindBookings(){
   var S=M.bk;
@@ -1358,6 +1421,26 @@ function bindBookings(){
 }
 
 function bindBookingSettings(S){
+  var setClinic=async function(c,booking,walkIn){
+    if(activeRole()!=='owner'||S.clinicBusyId)return;
+    S.clinicBusyId=c.id;S.err='';renderApp();
+    var sb=await getSb();
+    var res=sb?await sb.rpc('merchant_set_clinic_booking',{p_clinic_id:c.id,p_booking_enabled:booking,p_walk_in_enabled:walkIn}):{error:{message:'no-client'}};
+    if(M.bk!==S)return;
+    S.clinicBusyId=null;
+    if(res.error||!res.data){S.err=bkErrorText(res.error&&res.error.message);renderApp();return}
+    S.clinics=(S.clinics||[]).map(function(x){return x.id===res.data.id?res.data:x});
+    renderApp();
+    toast('تم حفظ إعداد العيادة');
+  };
+  [].forEach.call(document.querySelectorAll('[data-clinic-booking]'),function(b){b.onclick=function(){
+    var c=(S.clinics||[]).find(function(x){return x.id===b.getAttribute('data-clinic-booking')});
+    if(c)setClinic(c,!c.booking_enabled,c.walk_in_enabled!==false);
+  }});
+  [].forEach.call(document.querySelectorAll('[data-clinic-walkin]'),function(b){b.onclick=function(){
+    var c=(S.clinics||[]).find(function(x){return x.id===b.getAttribute('data-clinic-walkin')});
+    if(c)setClinic(c,c.booking_enabled,!(c.walk_in_enabled!==false));
+  }});
   var allowed=document.getElementById('bkCancelAllowed');
   if(allowed)allowed.onchange=function(){S.polAllowed=allowed.checked;renderApp()};
   var cut=document.getElementById('bkCutoff');
@@ -1546,7 +1629,7 @@ function renderApp(){
     '<div class="tabs" id="viewTabs">'+
       '<button type="button" data-view="manage" class="'+(M.view==='manage'?'on':'')+'">الإدارة</button>'+
       '<button type="button" data-view="invoices" class="'+(M.view==='invoices'?'on':'')+'">الفواتير</button>'+
-      (bookingsTabVisible()?'<button type="button" data-view="bookings" class="'+(M.view==='bookings'?'on':'')+'">الحجوزات'+(BK_ALERT.count>0?'<span id="bkBadge" class="tab-badge">'+BK_ALERT.count+'</span>':'')+'</button>':'')+
+      (bookingsTabVisible()?'<button type="button" data-view="bookings" class="'+(M.view==='bookings'?'on':'')+'">'+(M.loadedSector==='medical'?'المواعيد':'الحجوزات')+(BK_ALERT.count>0?'<span id="bkBadge" class="tab-badge">'+BK_ALERT.count+'</span>':'')+'</button>':'')+
     '</div>'+
     (M.view==='invoices'?invoicesViewHtml():M.view==='bookings'?bookingsViewHtml():
     '<div class="sec-h"><h2>الأجهزة</h2></div>'+

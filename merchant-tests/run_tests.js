@@ -1078,7 +1078,8 @@ async function loginFlow(page, phone, otp) {
     const { context, page } = await openMerchant(browser, { scenario: holdScenario() });
     await loginFlow(page, '512345678', '123456');
     await page.waitForSelector('#sectorSw', { timeout: 3000 });
-    check('44) تاجر صحي: لا تبويب حجوزات (مواعيد الصحي لا تمر بهذه الشاشة)', (await page.$('#viewTabs [data-view="bookings"]')) === null);
+    // (حتى supabase-migration-health-appointments.sql لم يكن للصحي تبويب هنا؛ الآن تبويب "المواعيد" — 71-77)
+    check('44) تاجر صحي: التبويب باسم "المواعيد" لا "الحجوزات"', /المواعيد/.test(await page.textContent('#viewTabs [data-view="bookings"]')) && !/الحجوزات/.test(await page.textContent('#viewTabs')));
     await context.close();
   }
   {
@@ -1459,6 +1460,86 @@ async function loginFlow(page, phone, otp) {
     // a page rule, not getComputedStyle: desktop Chromium's UA sheet already makes date inputs ltr (bug is Android-only)
     const dirs = await page.$$eval('#invFrom,#invTo', (els) => els.map((e) => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.style && r.style.direction === 'ltr' && e.matches(r.selectorText)))));
     check('70) خانتا تاريخ الفواتير باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', dirs.length === 2 && dirs.every(Boolean));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 71-77) المواعيد الصحية (supabase-migration-health-appointments.sql)
+  // =========================================================================
+  const apptScenario = (over) => baseScenario(Object.assign({
+    merchants: [{ id: 'merchant-1', name: 'مركز النور الطبي', sector_code: 'medical', points_hold_days: 0, booking_enabled: true, booking_alerts_enabled: true, booking_cancel_allowed: true, booking_cancel_cutoff_hours: 0 }],
+    clinics: [
+      { id: 'c-1', name: 'عيادة الأسنان', doctor_name: 'د. سارة', booking_enabled: true, walk_in_enabled: true },
+      { id: 'c-2', name: 'عيادة الجلدية', doctor_name: 'د. نورة', booking_enabled: true, walk_in_enabled: false },
+      { id: 'c-5', name: 'المختبر', doctor_name: null, booking_enabled: false, walk_in_enabled: true },
+    ],
+    appointments: [
+      { id: 'a-1', merchant_id: 'merchant-1', status: 'pending', scheduled_at: '2030-03-11T07:00:00Z', scheduled_at_riyadh: '2030-03-11 10:00', clinic_id: 'c-1', clinic_name: 'عيادة الأسنان', doctor_name: 'د. سارة', note: 'أول زيارة', booked_in_app: true, attended_at_riyadh: null, queue_number: null, invoice_amount: null, created_at: '2030-03-01T10:00:00Z', customer_name: 'هدى', customer_phone_last4: '4567' },
+      { id: 'a-2', merchant_id: 'merchant-1', status: 'confirmed', scheduled_at: '2030-03-12T07:00:00Z', scheduled_at_riyadh: '2030-03-12 10:00', clinic_id: 'c-2', clinic_name: 'عيادة الجلدية', doctor_name: 'د. نورة', note: null, booked_in_app: true, attended_at_riyadh: null, queue_number: null, invoice_amount: null, created_at: '2030-03-01T10:00:00Z', customer_name: 'عمر', customer_phone_last4: '6543' },
+      { id: 'a-3', merchant_id: 'merchant-1', status: 'done', scheduled_at: '2030-03-10T07:00:00Z', scheduled_at_riyadh: '2030-03-10 10:00', clinic_id: 'c-1', clinic_name: 'عيادة الأسنان', doctor_name: 'د. سارة', note: null, booked_in_app: true, attended_at_riyadh: '2030-03-10 09:52', queue_number: 45, invoice_amount: 230, created_at: '2030-03-01T10:00:00Z', customer_name: 'لينا', customer_phone_last4: '1111' },
+    ],
+  }, over || {}));
+  {
+    const { context, page } = await openBookings(apptScenario());
+    await page.waitForSelector('#bkGroup-done', { timeout: 3000 });
+    const txt = await page.textContent('#app');
+    check('71) تاجر صحي: فتح "المواعيد" يستدعي merchant_list_appointments (لا merchant_list_reservations)',
+      (await page.evaluate(() => window.__TEST__.getApptListCalls())).length === 1 && (await page.evaluate(() => window.__TEST__.getBookingListCalls())).length === 0);
+    check('71) مجمَّعة: بانتظار القبول / المؤكَّدة / حضر، كل موعد بالعيادة والطبيب واسم المريض وآخر 4 أرقام',
+      !!(await page.$('#bkGroup-pending')) && !!(await page.$('#bkGroup-confirmed')) && /عيادة الأسنان/.test(await page.textContent('#bkGroup-pending')) &&
+      /د\. سارة/.test(txt) && /هدى/.test(txt) && /4567/.test(txt) && /أول زيارة/.test(txt));
+    const done = await page.textContent('#bkGroup-done');
+    check('71) "حضر": رقم الدور والفاتورة المربوطة', /حضر/.test(done) && /رقم الدور/.test(done) && /45/.test(done) && /230\.00 ر\.س/.test(done) && !(await page.$('#bkGroup-done [data-bk-cancel]')));
+    await page.click('[data-bk-accept="a-1"]');
+    await page.waitForFunction(() => /مؤكَّد/.test((document.querySelector('[data-bk-row="a-1"] [data-bk-status]') || {}).textContent || ''), null, { timeout: 3000 });
+    const sc1 = await page.evaluate(() => window.__TEST__.getApptStatusCalls());
+    check('72) "قبول" يستدعي merchant_set_appointment_status(confirmed)', sc1.length === 1 && sc1[0].p_appointment_id === 'a-1' && sc1[0].p_status === 'confirmed');
+    await page.click('[data-bk-cancel="a-2"]');
+    await page.waitForSelector('#bkCancelOv');
+    check('73) إلغاء موعد: تأكيد بصياغة "الموعد"', /إلغاء هذا الموعد/.test(await page.textContent('#bkCancelOv')));
+    await page.click('#bkCancelOk');
+    await page.waitForFunction(() => window.__TEST__.getApptStatusCalls().length === 2, null, { timeout: 3000 });
+    check('73) التأكيد يستدعي merchant_set_appointment_status(cancelled)', (await page.evaluate(() => window.__TEST__.getApptStatusCalls()))[1].p_status === 'cancelled');
+    const clin = await page.textContent('#clinicsCard');
+    check('74) بطاقة العيادات: الحجز مفتوح/مغلق ونمط كل عيادة', /بموعد وبدون موعد/.test(clin) && /بموعد فقط/.test(clin) && /الحجز مغلق/.test(clin));
+    await page.click('[data-clinic-walkin="c-1"]');
+    await page.waitForFunction(() => window.__TEST__.getClinicCalls().length === 1, null, { timeout: 3000 });
+    await page.waitForTimeout(100);
+    const cc = await page.evaluate(() => window.__TEST__.getClinicCalls());
+    check('74) المالك يجعل عيادة "بموعد فقط": merchant_set_clinic_booking(c-1, true, false)', cc[0].p_clinic_id === 'c-1' && cc[0].p_booking_enabled === true && cc[0].p_walk_in_enabled === false &&
+      /بموعد فقط/.test(await page.textContent('[data-clinic-row="c-1"] [data-clinic-mode-badge]')));
+    await page.click('[data-clinic-booking="c-5"]');
+    await page.waitForFunction(() => window.__TEST__.getClinicCalls().length === 2, null, { timeout: 3000 });
+    await page.waitForTimeout(100);
+    check('74) فتح الحجز لعيادة مغلقة: merchant_set_clinic_booking(c-5, true, …)', (await page.evaluate(() => window.__TEST__.getClinicCalls()))[1].p_booking_enabled === true &&
+      /الحجز مفتوح/.test(await page.textContent('[data-clinic-row="c-5"]')));
+    check('76) سياسة الإلغاء وتنبيه المواعيد للصحي أيضاً (نفس البطاقتين)', /إلغاء العميل للموعد/.test(await page.textContent('#bkPolicyCard')) && /تنبيه المواعيد الجديدة/.test(await page.textContent('#bkAlertsCard')));
+    await page.fill('#bkCutoff', '12');
+    await page.click('#bkPolicySave');
+    await page.waitForFunction(() => window.__TEST__.getPolicyCalls().length === 1, null, { timeout: 3000 });
+    check('76) حفظ مهلة 12 ساعة للصحي: merchant_set_booking_policy(true, 12)', (await page.evaluate(() => window.__TEST__.getPolicyCalls()))[0].p_cutoff_hours === 12);
+    await context.close();
+  }
+  {
+    const { context, page } = await openBookings(apptScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    await page.waitForSelector('#clinicsCard', { timeout: 3000 });
+    check('75) الموظف: يقبل ويلغي المواعيد، لكن بلا أزرار العيادات وبتنبيه "للمالك فقط"',
+      !!(await page.$('[data-bk-accept="a-1"]')) && (await page.$$('[data-clinic-booking], [data-clinic-walkin]')).length === 0 && !!(await page.$('#clinicsOwnerOnly')) && !(await page.$('#bkPolicySave')));
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_clinic_booking', { p_clinic_id: 'c-1', p_booking_enabled: false, p_walk_in_enabled: true })).error);
+    check('75) دفاع في العمق: نداء merchant_set_clinic_booking بجلسة موظف يُرفض', direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: apptScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    await page.waitForFunction(() => BK_ALERT.status === 'SUBSCRIBED', null, { timeout: 3000 });
+    const ch = await page.evaluate(() => window.__TEST__.getChannels());
+    await page.evaluate(() => window.__TEST__.emitBookingAlert({ id: 7, merchant_id: 'merchant-1', appointment_id: 'a-new', created_at: new Date(Date.now() + 1000).toISOString() }));
+    await page.waitForSelector('#bkBadge', { timeout: 2000 });
+    check('77) تنبيه موعد جديد للصحي: استماع على booking_alerts للتاجر، صوت + عدّاد على تبويب "المواعيد"',
+      ch.length === 1 && ch[0].filter.table === 'booking_alerts' && (await page.textContent('#bkBadge')) === '1' && (await page.evaluate(() => BK_ALERT.sounds)) === 1 &&
+      /المواعيد/.test(await page.textContent('#viewTabs [data-view="bookings"]')));
     await context.close();
   }
 

@@ -74,3 +74,13 @@ end $$;
 -- psql ...`), so it covers every function any of them creates from this
 -- point on — exactly mirroring the live timeline.
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+
+-- Supabase stops granting NEW tables (and their sequences) in `public` to
+-- anon/authenticated/service_role by default from Oct 30 2026 — every
+-- migration must grant what a client or an Edge Function needs explicitly, in
+-- the file that creates the table. Plain Postgres already grants nothing by
+-- default; this states it explicitly so the local database behaves like a
+-- post-change project and a forgotten grant fails a test (db-tests section 25
+-- also checks it with a probe table).
+alter default privileges in schema public revoke all on tables from anon, authenticated, service_role;
+alter default privileges in schema public revoke all on sequences from anon, authenticated, service_role;

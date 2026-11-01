@@ -30,7 +30,8 @@
         limit: function (n) { limitN = n; return builder; },
         then: function (resolve, reject) {
           queries.push({ table: table, select: selectStr, filters: filters.slice() });
-          if ((scenario.failTables || []).indexOf(table) !== -1) {
+          if ((scenario.failTables || []).indexOf(table) !== -1 ||
+              (scenario.failSelectContaining && (selectStr || '').indexOf(scenario.failSelectContaining) !== -1)) {
             return Promise.resolve({ data: null, error: { message: 'boom' } }).then(resolve, reject);
           }
           var rows = (tables[table] || []).filter(function (r) { return filters.every(function (f) { return matches(r, f); }); });
@@ -69,6 +70,19 @@
         };
         (tables.appointments = tables.appointments || []).push(row);
         return Promise.resolve({ data: JSON.parse(JSON.stringify(row)), error: null });
+      }
+      if (name === 'create_appointment') {
+        if (scenario.createAppointmentError) return Promise.resolve({ data: null, error: { message: scenario.createAppointmentError } });
+        var c = (scenario.clinics || []).find(function (x) { return x.clinic_id === args.p_clinic_id; });
+        if (!c) return Promise.resolve({ data: null, error: { message: 'NOJ_CLINIC_NOT_FOUND' } });
+        if (!c.booking_enabled) return Promise.resolve({ data: null, error: { message: 'NOJ_CLINIC_BOOKING_CLOSED' } });
+        var appt = {
+          id: 'appt-new-' + calls.length, user_id: scenario.profile.id, merchant_id: scenario.healthMerchantId || 'm-health', clinic_id: c.clinic_id,
+          scheduled_at: args.p_scheduled_at, status: 'pending', created_at: new Date().toISOString(), booking_kind: 'appointment',
+          booked_in_app: true, note: args.p_note, clinics: { name: c.clinic_name, doctor_name: c.doctor_name },
+        };
+        (tables.appointments = tables.appointments || []).push(appt);
+        return Promise.resolve({ data: JSON.parse(JSON.stringify(appt)), error: null });
       }
       if (name === 'cancel_appointment') {
         if (scenario.cancelError) return Promise.resolve({ data: null, error: { message: scenario.cancelError } });

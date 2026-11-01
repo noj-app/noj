@@ -113,6 +113,8 @@ async function asServiceRole(fn) {
     'supabase-migration-unified-sectors.sql',
     'supabase-migration-sector-owner-only.sql',
     'supabase-migration-reservations.sql',
+    'supabase-migration-health-appointments.sql',
+    'supabase-migration-explicit-table-grants.sql',
   ].map(f => path.join(REPO_ROOT, f));
   // a byte-level snapshot of everything the sector unification must NOT touch,
   // taken right before that migration runs (checked in section 21e)
@@ -2903,7 +2905,11 @@ async function asServiceRole(fn) {
     const polBad = [await setPolicy(matamOwner, MATAM, true, 169), await setPolicy(matamOwner, MATAM, true, -1), await setPolicy(matamOwner, MATAM, null, 1), await setPolicy(matamOwner, MATAM, true, null)];
     check('merchant_set_booking_policy validates 0..168 hours and both values (NOJ_INVALID_CANCEL_POLICY)', polBad.every(x => !x.ok && /NOJ_INVALID_CANCEL_POLICY/.test(x.msg)));
     const polHealth = await setPolicy(healthOwner, HEALTH, false, 5);
-    check('merchant_set_booking_policy: restaurant/services only in this PR (health → NOJ_BOOKING_NOT_AVAILABLE)', !polHealth.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(polHealth.msg));
+    // (PR ب accepted restaurant/services only and refused health here; since
+    // supabase-migration-health-appointments.sql a medical merchant sets the same
+    // policy for its app-booked appointments — other sectors are checked in section 24)
+    check('merchant_set_booking_policy: a medical merchant sets it too (health appointments booked from the app)',
+      polHealth.ok && polHealth.row.p.cancel_allowed === false && polHealth.row.p.cancel_cutoff_hours === 5);
     // health appointments ignore the reservation policy entirely
     await admin(c => c.query(`update merchants set booking_cancel_allowed = false, booking_cancel_cutoff_hours = 100 where id=$1`, [HEALTH]));
     const hAppt = await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status) values ($1,$2,'21000000-0000-0000-0000-000000000001', now() + interval '1 hour', 'confirmed') returning id`, [nora.profileId, HEALTH]));
@@ -2962,6 +2968,308 @@ async function asServiceRole(fn) {
     const before = await all();
     apply('supabase-migration-reservations.sql');
     check('migration is idempotent: a re-run changes no appointment or reservation row', before === (await all()));
+  }
+
+  // =========================================================================
+  // 24) HEALTH APPOINTMENTS (supabase-migration-health-appointments.sql): real
+  //     booking from the app on the reservations system, per-clinic booking +
+  //     walk-in mode, the same cancel/alert/privacy rules, and arrival through
+  //     the cashier (invoice → that day's appointment, "حضر", queue number).
+  // =========================================================================
+  {
+    const apply = (f) => execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    apply('supabase-migration-health-appointments.sql');
+    apply('supabase-migration-health-appointments.sql');
+
+    const HEALTH = '20000000-0000-0000-0000-00000000000d';
+    const DENTAL = '21000000-0000-0000-0000-000000000001'; // عيادة الأسنان — د. سارة القحطاني (booking on)
+    const DERMA = '21000000-0000-0000-0000-000000000002';
+    const LAB = '21000000-0000-0000-0000-000000000005';    // المختبر (booking off)
+    const tryAs = (uid, sql, params) => asUser(uid, async c => { try { const r = await c.query(sql, params); return { ok: true, r, row: r.rows[0] }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const newUser = async () => { const u = crypto.randomUUID(); await admin(c => c.query('insert into auth.users (id) values ($1)', [u])); return u; };
+    let phoneSeq = 0;
+    const newPatient = async (name) => {
+      const uid = await newUser();
+      const phone = '57' + String(1000000 + (++phoneSeq) * 7919).slice(-7);
+      const p = await admin(c => c.query(`insert into profiles (phone, auth_user_id, name) values ($1,$2,$3) returning id`, [phone, uid, name]));
+      // a kiosk claim needs the customer's recorded consent (consent-privacy.sql)
+      await admin(c => c.query(`insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','app')`, [p.rows[0].id]));
+      return { uid, profileId: p.rows[0].id, phone };
+    };
+    const inHours = (h) => new Date(Date.now() + h * 3600 * 1000).toISOString();
+    const book = (uid, clinic, at, note) => tryAs(uid, 'select * from create_appointment($1,$2,$3)', [clinic, at, note === undefined ? null : note]);
+    const statusOf = async (id) => (await admin(c => c.query('select status from appointments where id=$1', [id]))).rows[0].status;
+
+    const hOwner = await newUser(), hStaff = await newUser(), stranger = await newUser(), cafeOwner = await newUser();
+    const CAFE = (await admin(c => c.query(`select id from merchants where sector_code='cafe' order by id limit 1`))).rows[0].id;
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner'),($1,$3,'staff'),($4,$5,'owner')`, [HEALTH, hOwner, hStaff, CAFE, cafeOwner]));
+    // a clean policy/alerts state for this merchant (section 23 toggled them)
+    await admin(c => c.query(`update merchants set booking_enabled = true, booking_cancel_allowed = true, booking_cancel_cutoff_hours = 0, booking_alerts_enabled = true where id=$1`, [HEALTH]));
+
+    // ---- A) additive: older rows and clinics read the new defaults ----
+    const legacy = await admin(c => c.query(`select count(*)::int n, bool_and(not booked_in_app and invoice_id is null and attended_at is null and queue_ticket_id is null) ok from appointments where booked_in_app = false`));
+    const clinicsWalk = await admin(c => c.query(`select bool_and(walk_in_enabled) w, count(*)::int n from clinics where merchant_id=$1`, [HEALTH]));
+    check('health-appointments: every older appointment reads booked_in_app=false with no arrival data, and every clinic keeps walk-ins (default)',
+      legacy.rows[0].n > 0 && legacy.rows[0].ok === true && clinicsWalk.rows[0].w === true && clinicsWalk.rows[0].n === 5);
+
+    // ---- B) create_appointment ----
+    const huda = await newPatient('هدى');
+    const a1 = await book(huda.uid, DENTAL, inHours(26), '  أول زيارة  ');
+    check('create_appointment: a PENDING clinic appointment of the CALLER, booked_in_app, note trimmed',
+      a1.ok && a1.row.status === 'pending' && a1.row.booking_kind === 'appointment' && a1.row.booked_in_app === true &&
+      a1.row.clinic_id === DENTAL && a1.row.merchant_id === HEALTH && a1.row.user_id === huda.profileId && a1.row.note === 'أول زيارة');
+    const bad = {
+      closed: await book(huda.uid, LAB, inHours(26)),
+      unknown: await book(huda.uid, crypto.randomUUID(), inHours(26)),
+      soon: await book(huda.uid, DENTAL, inHours(0.1)),
+      far: await book(huda.uid, DENTAL, inHours(24 * 91)),
+      note: await book(huda.uid, DENTAL, inHours(26), 'x'.repeat(301)),
+    };
+    check('create_appointment: closed clinic, unknown clinic, too soon / too far, 301-char note are refused with their codes',
+      /NOJ_CLINIC_BOOKING_CLOSED/.test(bad.closed.msg) && /NOJ_CLINIC_NOT_FOUND/.test(bad.unknown.msg) &&
+      /NOJ_INVALID_BOOKING_TIME/.test(bad.soon.msg) && /NOJ_INVALID_BOOKING_TIME/.test(bad.far.msg) && /NOJ_INVALID_BOOKING_NOTE/.test(bad.note.msg));
+    await admin(c => c.query(`update merchants set booking_enabled=false where id=$1`, [HEALTH]));
+    const off = await book(huda.uid, DENTAL, inHours(26));
+    await admin(c => c.query(`update merchants set booking_enabled=true where id=$1`, [HEALTH]));
+    const cafeClinic = (await admin(c => c.query(`insert into clinics (merchant_id, name, booking_enabled) values ($1,'عيادة وهمية',true) returning id`, [CAFE]))).rows[0].id;
+    const notMedical = await book(huda.uid, cafeClinic, inHours(26));
+    await admin(c => c.query(`delete from clinics where id=$1`, [cafeClinic]));
+    const noProfile = await tryAs(await newUser(), 'select * from create_appointment($1,$2,$3)', [DENTAL, inHours(26), null]);
+    check('create_appointment: merchant booking off → NOJ_BOOKING_DISABLED; a clinic of a non-medical merchant → NOJ_BOOKING_NOT_AVAILABLE; no profile → refused',
+      /NOJ_BOOKING_DISABLED/.test(off.msg) && /NOJ_BOOKING_NOT_AVAILABLE/.test(notMedical.msg) && !noProfile.ok);
+    const a2 = await book(huda.uid, DERMA, inHours(30));
+    const a3 = await book(huda.uid, DENTAL, inHours(50));
+    const a4 = await book(huda.uid, DENTAL, inHours(70));
+    check('create_appointment: at most 3 upcoming per customer per merchant (NOJ_BOOKING_LIMIT)', a2.ok && a3.ok && !a4.ok && /NOJ_BOOKING_LIMIT/.test(a4.msg));
+    const race = await newPatient('ريم');
+    await book(race.uid, DENTAL, inHours(20)); await book(race.uid, DENTAL, inHours(21));
+    const both = await Promise.all([book(race.uid, DENTAL, inHours(22)), book(race.uid, DERMA, inHours(23))]);
+    check('create_appointment: two concurrent requests cannot both slip under the limit (profile row lock)', both.filter(x => x.ok).length === 1);
+    const resTry = await tryAs(huda.uid, 'select * from create_reservation($1,$2,$3,$4,$5)', [HEALTH, inHours(26), 2, null, null]);
+    check('create_reservation still refuses a health merchant (health books through create_appointment)', !resTry.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(resTry.msg));
+
+    // ---- C) alerts: same trigger, now for app-booked appointments ----
+    const alertsFor = async (id) => (await admin(c => c.query('select merchant_id from booking_alerts where appointment_id=$1', [id]))).rows;
+    const legacyIns = await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status) values ($1,$2,$3, now() + interval '3 days', 'confirmed') returning id`, [huda.profileId, HEALTH, DERMA]));
+    check('alerts: an app booking writes ONE alert for its merchant; a row created outside the app writes none',
+      (await alertsFor(a1.row.id)).length === 1 && (await alertsFor(a1.row.id))[0].merchant_id === HEALTH && (await alertsFor(legacyIns.rows[0].id)).length === 0);
+    await admin(c => c.query(`update merchants set booking_alerts_enabled=false where id=$1`, [HEALTH]));
+    const quiet = await newPatient('منى');
+    const q1 = await book(quiet.uid, DENTAL, inHours(40));
+    await admin(c => c.query(`update merchants set booking_alerts_enabled=true where id=$1`, [HEALTH]));
+    check('alerts: with the switch off, an app booking writes no alert', q1.ok && (await alertsFor(q1.row.id)).length === 0);
+
+    // ---- D) cancel: the same policy as reservations, for app bookings only ----
+    const setPolicy = (uid, mid, allowed, hours) => tryAs(uid, 'select merchant_set_booking_policy($1,$2,$3) as p', [mid, allowed, hours]);
+    const cancelAs = (uid, id) => tryAs(uid, 'select * from cancel_appointment($1)', [id]);
+    const polOk = await setPolicy(hOwner, HEALTH, false, 0);
+    const polStaff = await setPolicy(hStaff, HEALTH, true, 0);
+    const polCafe = await setPolicy(cafeOwner, CAFE, true, 0);
+    check('merchant_set_booking_policy: the medical OWNER sets it; staff refused; a cafe is still NOJ_BOOKING_NOT_AVAILABLE',
+      polOk.ok && !polStaff.ok && /لا تملك صلاحية/.test(polStaff.msg) && !polCafe.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(polCafe.msg));
+    const noCancel = await cancelAs(huda.uid, a2.row.id);
+    const legacyCancel = await cancelAs(huda.uid, legacyIns.rows[0].id);
+    check('cancel_appointment: an app booking follows the policy (NOJ_CANCEL_NOT_ALLOWED) while an older health row cancels exactly as before',
+      !noCancel.ok && /NOJ_CANCEL_NOT_ALLOWED/.test(noCancel.msg) && (await statusOf(a2.row.id)) === 'pending' && legacyCancel.ok && legacyCancel.row.status === 'cancelled');
+    await setPolicy(hOwner, HEALTH, true, 48);
+    const nearC = await cancelAs(huda.uid, a2.row.id);   // 30h ahead, cutoff 48h
+    const farC = await cancelAs(huda.uid, a3.row.id);    // 50h ahead
+    check('cancel_appointment: inside the cutoff → NOJ_CANCEL_WINDOW_CLOSED; outside it → cancelled',
+      !nearC.ok && /NOJ_CANCEL_WINDOW_CLOSED/.test(nearC.msg) && farC.ok && farC.row.status === 'cancelled');
+    const steal = await cancelAs(race.uid, a1.row.id);
+    check('cancel_appointment: another customer cannot cancel it', !steal.ok && (await statusOf(a1.row.id)) === 'pending');
+
+    // ---- E) merchant_list_appointments ----
+    const list = (uid, mid) => tryAs(uid, 'select merchant_list_appointments($1,$2,$3) as r', [mid, null, null]);
+    const ol = await list(hOwner, HEALTH), sl = await list(hStaff, HEALTH);
+    const ROW_KEYS = ['attended_at_riyadh', 'booked_in_app', 'clinic_id', 'clinic_name', 'created_at', 'customer_name', 'customer_phone_last4', 'doctor_name', 'id', 'invoice_amount', 'note', 'queue_number', 'scheduled_at', 'scheduled_at_riyadh', 'status'];
+    const rows = ol.ok ? ol.row.r.rows : [];
+    const mineRow = rows.find(r => r.id === a1.row.id);
+    check('merchant_list_appointments: owner AND staff read the clinic appointments (app + older), soonest first, every status',
+      ol.ok && sl.ok && rows.length === sl.row.r.rows.length && rows.length >= 5 && rows.some(r => !r.booked_in_app) &&
+      rows.every((r, i) => i === 0 || rows[i - 1].scheduled_at <= r.scheduled_at) && rows.some(r => r.status === 'cancelled'));
+    check('merchant_list_appointments: a closed list of keys — the customer name and the LAST 4 digits only, never the full phone',
+      mineRow && JSON.stringify(Object.keys(mineRow).sort()) === JSON.stringify(ROW_KEYS) && mineRow.customer_name === 'هدى' &&
+      mineRow.customer_phone_last4 === huda.phone.slice(-4) && mineRow.clinic_name === 'عيادة الأسنان' && mineRow.doctor_name === 'د. سارة القحطاني' &&
+      !JSON.stringify(ol.row.r).includes(huda.phone) && !JSON.stringify(ol.row.r).includes(huda.profileId));
+    const cl = ol.row.r.clinics;
+    check('merchant_list_appointments: returns the clinics with booking + walk-in mode and the merchant booking settings',
+      cl.length === 5 && cl.find(c => c.id === LAB).booking_enabled === false && cl.every(c => c.walk_in_enabled === true) &&
+      ol.row.r.cancel_cutoff_hours === 48 && ol.row.r.alerts_enabled === true && ol.row.r.sector_code === 'medical');
+    const strangerList = await list(stranger, HEALTH), cafeList = await list(cafeOwner, CAFE);
+    check('merchant_list_appointments: a non-member is refused; a non-medical merchant is NOJ_BOOKING_NOT_AVAILABLE',
+      !strangerList.ok && /لا تملك صلاحية/.test(strangerList.msg) && !cafeList.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(cafeList.msg));
+
+    // ---- F) merchant_set_appointment_status ----
+    const setSt = (uid, id, st) => tryAs(uid, 'select merchant_set_appointment_status($1,$2) as r', [id, st]);
+    const acc = await setSt(hStaff, a1.row.id, 'confirmed');
+    check('merchant_set_appointment_status: staff accepts a pending appointment (→ confirmed), and the customer reads it confirmed',
+      acc.ok && acc.row.r.status === 'confirmed' && (await tryAs(huda.uid, 'select status from appointments where id=$1', [a1.row.id])).row.status === 'confirmed');
+    const reAcc = await setSt(hOwner, a1.row.id, 'confirmed');
+    const asDone = await setSt(hOwner, a1.row.id, 'done');
+    const byStranger = await setSt(stranger, a2.row.id, 'cancelled');
+    const MATAM = (await admin(c => c.query(`select id from merchants where sector_code='restaurant' order by id limit 1`))).rows[0].id;
+    const tableRow = (await admin(c => c.query(`insert into appointments (user_id, merchant_id, scheduled_at, booking_kind, party_size, status) values ($1,$2, now() + interval '2 days', 'table', 2, 'pending') returning id`, [huda.profileId, MATAM]))).rows[0].id;
+    const onTable = await setSt(hOwner, tableRow, 'cancelled');
+    check('merchant_set_appointment_status: re-accepting → NOJ_INVALID_TRANSITION, "done" is not a merchant action, a stranger is refused, a reservation is NOJ_APPOINTMENT_NOT_FOUND',
+      /NOJ_INVALID_TRANSITION/.test(reAcc.msg) && /NOJ_INVALID_STATUS/.test(asDone.msg) && /لا تملك صلاحية/.test(byStranger.msg) &&
+      /NOJ_APPOINTMENT_NOT_FOUND/.test(onTable.msg) && (await statusOf(tableRow)) === 'pending');
+    const merchCancel = await setSt(hOwner, a2.row.id, 'cancelled'); // inside the 48h customer cutoff
+    check('merchant_set_appointment_status: the clinic can always cancel (ignores the customer cutoff)', merchCancel.ok && merchCancel.row.r.status === 'cancelled');
+    await setPolicy(hOwner, HEALTH, true, 0);
+
+    // ---- G) merchant_set_clinic_booking (OWNER only) ----
+    const setClinic = (uid, clinic, b, w) => tryAs(uid, 'select merchant_set_clinic_booking($1,$2,$3) as r', [clinic, b, w]);
+    const apptOnly = await setClinic(hOwner, DERMA, true, false);
+    const staffClinic = await setClinic(hStaff, DERMA, false, true);
+    const strangerClinic = await setClinic(cafeOwner, DERMA, false, true);
+    const nullClinic = await setClinic(hOwner, DERMA, null, true);
+    check('merchant_set_clinic_booking: the owner sets "بموعد فقط"; staff, another merchant and NULL flags are refused',
+      apptOnly.ok && apptOnly.row.r.booking_enabled === true && apptOnly.row.r.walk_in_enabled === false &&
+      /لا تملك صلاحية/.test(staffClinic.msg) && /لا تملك صلاحية/.test(strangerClinic.msg) && /NOJ_INVALID_BOOKING_FLAG/.test(nullClinic.msg) &&
+      (await admin(c => c.query('select booking_enabled, walk_in_enabled from clinics where id=$1', [DERMA]))).rows[0].walk_in_enabled === false);
+    const sami = await newPatient('سامي');
+    const okApptOnly = await book(sami.uid, DERMA, inHours(28));
+    await setClinic(hOwner, DERMA, false, true);
+    const closedNow = await book(sami.uid, DERMA, inHours(29));
+    check('merchant_set_clinic_booking: an appointment-only clinic still books; closing it stops NEW bookings and keeps the existing one',
+      okApptOnly.ok && /NOJ_CLINIC_BOOKING_CLOSED/.test(closedNow.msg) && (await statusOf(okApptOnly.row.id)) === 'pending');
+    await setClinic(hOwner, DERMA, true, true);
+
+    // ---- H) arrival through the cashier ----
+    const BR = (await admin(c => c.query('select id from branches where merchant_id=$1 order by created_at limit 1', [HEALTH]))).rows[0].id;
+    const kUid = await newUser();
+    await admin(c => c.query('insert into devices (auth_user_id, branch_id, is_active) values ($1,$2,true)', [kUid, BR]));
+    let refSeq = 0;
+    const intake = async (amount) => (await asServiceRole(c => c.query(`select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+      [BR, null, 'HEALTH-APPT-' + (++refSeq) + '-' + Date.now(), amount, '0', 'generic', null]))).rows[0].id;
+    const claim = async (txn, phone) => (await asUser(kUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [txn, phone]))).rows[0];
+    const checkin = (uid, txn) => tryAs(uid, 'select kiosk_appointment_checkin($1) as r', [txn]);
+    const apptRow = async (id) => (await admin(c => c.query('select a.*, q.ticket_number, q.unit_name, q.status q_status, q.user_id q_user from appointments a left join queue_tickets q on q.id = a.queue_ticket_id where a.id=$1', [id]))).rows[0];
+    const todayTickets = async (unit) => (await admin(c => c.query(`select coalesce(max(ticket_number),0)::int m from queue_tickets where merchant_id=$1 and unit_name=$2 and (created_at at time zone 'Asia/Riyadh')::date = riyadh_today()`, [HEALTH, unit]))).rows[0].m;
+
+    const omar = await newPatient('عمر');
+    const today = (await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booked_in_app) values ($1,$2,$3, now(), 'confirmed', true) returning id`, [omar.profileId, HEALTH, DENTAL]))).rows[0].id;
+    const tomorrow = (await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booked_in_app) values ($1,$2,$3, now() + interval '1 day', 'confirmed', true) returning id`, [omar.profileId, HEALTH, DENTAL]))).rows[0].id;
+    const before = await todayTickets('عيادة الأسنان');
+    const t1 = await intake('230.00');
+    const c1 = await claim(t1, '0' + omar.phone);
+    const r1 = await apptRow(today);
+    check('arrival: the claimed invoice is linked to THAT DAY\'s appointment, which is marked "حضر" (done, attended_at)',
+      c1.is_registered === true && r1.status === 'done' && r1.attended_at !== null && r1.invoice_id === c1.invoice_id);
+    check('arrival: the patient gets the next queue number of that clinic for the day (a waiting ticket of their own)',
+      r1.ticket_number === before + 1 && r1.unit_name === 'عيادة الأسنان' && r1.q_status === 'waiting' && r1.q_user === omar.profileId);
+    check('arrival: the next day\'s appointment is untouched', (await apptRow(tomorrow)).status === 'confirmed' && (await apptRow(tomorrow)).invoice_id === null);
+    const card = await checkin(kUid, t1);
+    check('kiosk_appointment_checkin: the device that claimed it gets the appointment card + queue number (no name, no phone)',
+      card.ok && card.row.r.clinic_name === 'عيادة الأسنان' && card.row.r.doctor_name === 'د. سارة القحطاني' && card.row.r.queue_number === before + 1 &&
+      typeof card.row.r.scheduled_time_riyadh === 'string' && !JSON.stringify(card.row.r).includes(omar.phone) && !JSON.stringify(card.row.r).includes('عمر'));
+    const otherBranch = (await admin(c => c.query('select id from branches where merchant_id<>$1 order by created_at limit 1', [HEALTH]))).rows[0].id;
+    const kOther = await newUser();
+    await admin(c => c.query('insert into devices (auth_user_id, branch_id, is_active) values ($1,$2,true)', [kOther, otherBranch]));
+    const foreign = await checkin(kOther, t1), asCustomer = await checkin(omar.uid, t1);
+    check('kiosk_appointment_checkin: another branch\'s device (NOJ_TRANSACTION_NOT_FOUND) and a customer session are refused',
+      !foreign.ok && /NOJ_TRANSACTION_NOT_FOUND/.test(foreign.msg) && !asCustomer.ok);
+    const mine = await tryAs(omar.uid, `select a.status, i.amount::text amount from appointments a join invoices i on i.id = a.invoice_id where a.id=$1`, [today]);
+    check('the customer reads the invoice inside their appointment record (own rows through RLS)', mine.ok && mine.row.status === 'done' && mine.row.amount === '230.00');
+
+    const lina = await newPatient('لينا');
+    const linaToday = (await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booked_in_app) values ($1,$2,$3, now(), 'pending', true) returning id`, [lina.profileId, HEALTH, DENTAL]))).rows[0].id;
+    const t2 = await intake('150.00');
+    await claim(t2, lina.phone);
+    const card2 = await checkin(kUid, t2);
+    const aheadExpected = (await admin(c => c.query(`select count(*)::int n from queue_tickets where merchant_id=$1 and unit_name='عيادة الأسنان' and status='waiting'
+      and ticket_number < $2 and (created_at at time zone 'Asia/Riyadh')::date = riyadh_today()`, [HEALTH, before + 2]))).rows[0].n;
+    check('arrival: a still-pending appointment of that day is linked too, the number follows (+1) and "ahead" counts the waiting patients before it (incl. the previous arrival)',
+      (await apptRow(linaToday)).status === 'done' && card2.row.r.queue_number === before + 2 && card2.row.r.ahead === aheadExpected && aheadExpected >= 1);
+
+    const walkIn = await newPatient('خالد');
+    const t3 = await intake('90.00');
+    const c3 = await claim(t3, walkIn.phone);
+    const card3 = await checkin(kUid, t3);
+    const unreg = await intake('60.00');
+    const c4 = await claim(unreg, '559999001');
+    check('arrival: no appointment that day / an unregistered phone → the invoice is claimed as always, no ticket, nothing to show',
+      c3.invoice_id && card3.ok && card3.row.r === null && c4.is_registered === false && (await todayTickets('عيادة الأسنان')) === before + 2);
+
+    // best-effort: a failure while linking never fails the claim
+    const nour = await newPatient('نور');
+    const nourToday = (await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booked_in_app) values ($1,$2,$3, now(), 'confirmed', true) returning id`, [nour.profileId, HEALTH, DENTAL]))).rows[0].id;
+    await admin(c => c.query(`alter table queue_tickets add constraint zz_force_fail check (ticket_number < 0) not valid`));
+    const t5 = await intake('75.00');
+    let c5 = null; try { c5 = await claim(t5, nour.phone); } catch (e) { c5 = null; }
+    await admin(c => c.query(`alter table queue_tickets drop constraint zz_force_fail`));
+    check('arrival is best-effort: if linking fails, the invoice is still claimed and the appointment stays as it was',
+      c5 && c5.invoice_id && (await statusOf(nourToday)) === 'confirmed' && (await apptRow(nourToday)).invoice_id === null);
+
+    // ---- I) no direct client writes, access, identical bodies, idempotency ----
+    const dUpd = await tryAs(omar.uid, `update appointments set status='confirmed', invoice_id=null where id=$1`, [today]);
+    const dClinic = await tryAs(hOwner, `update clinics set booking_enabled=false where id=$1`, [DENTAL]);
+    check('no direct client write on appointments (arrival data) or clinics (booking mode)',
+      !(dUpd.ok && dUpd.r.rowCount === 1) && !(dClinic.ok && dClinic.r.rowCount === 1) && (await statusOf(today)) === 'done');
+    const RPCS = ['create_appointment(uuid,timestamptz,text)', 'merchant_list_appointments(uuid,date,date)', 'merchant_set_appointment_status(uuid,text)',
+      'merchant_set_clinic_booking(uuid,boolean,boolean)', 'kiosk_appointment_checkin(uuid)'];
+    const privs = await admin(c => c.query(`select bool_and(not has_function_privilege('anon', ('public.' || f)::regprocedure, 'execute')
+      and has_function_privilege('authenticated', ('public.' || f)::regprocedure, 'execute')) ok from unnest($1::text[]) f`, [RPCS]));
+    check('every new health RPC: NOT executable by anon, executable by authenticated', privs.rows[0].ok === true);
+    const helperPriv = await admin(c => c.query(`select bool_or(has_function_privilege(r, f::regprocedure, 'execute')) any
+      from unnest(array['anon','authenticated','service_role']) r,
+           unnest(array['public.appointment_json_for_merchant(public.appointments)','public.link_invoice_to_appointment(uuid)','public.invoice_appointment_checkin_trg()']) f`));
+    check('the row-to-JSON helper, the linker and the invoice trigger function are not executable by anon, authenticated or service_role', helperPriv.rows[0].any === false);
+
+    const src = async (fn) => (await admin(c => c.query(`select prosrc from pg_proc where proname=$1`, [fn]))).rows[0].prosrc;
+    const srcs = async () => [await src('cancel_appointment'), await src('merchant_set_booking_policy'), await src('booking_alert_on_reservation_trg')];
+    const fromHealth = await srcs();
+    apply('supabase-migration-lockdown-direct-writes.sql');
+    const cancelFromLockdown = await src('cancel_appointment');
+    apply('supabase-migration-reservations.sql');
+    const fromReservations = await srcs();
+    apply('supabase-migration-health-appointments.sql');
+    check('cancel_appointment, merchant_set_booking_policy and the alert trigger have IDENTICAL bodies in the older files (re-running one never takes this back)',
+      JSON.stringify(fromHealth) === JSON.stringify(fromReservations) && cancelFromLockdown === fromHealth[0] && /booked_in_app/.test(fromHealth[0]) && /'medical'/.test(fromHealth[1]));
+    const all = async () => JSON.stringify((await admin(c => c.query('select * from appointments order by id'))).rows) + JSON.stringify((await admin(c => c.query('select * from clinics order by id'))).rows);
+    const snap = await all();
+    apply('supabase-migration-health-appointments.sql');
+    check('health-appointments migration is idempotent: a re-run changes no appointment or clinic row', snap === (await all()));
+  }
+
+  // =========================================================================
+  // 25) TABLE GRANTS ARE EXPLICIT (Supabase stops auto-granting new public
+  //     tables, Oct 30 2026). 00_auth_stub.sql revokes every default table
+  //     privilege, so this database behaves like a post-change project: a
+  //     forgotten grant fails here, not on a fresh live project.
+  // =========================================================================
+  {
+    await admin(c => c.query('create table public.zz_grant_probe (id int)'));
+    const probe = await admin(c => c.query(`select bool_or(has_table_privilege(r, 'public.zz_grant_probe', p)) any
+      from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update','delete']) p`));
+    await admin(c => c.query('drop table public.zz_grant_probe'));
+    check('grants: a NEW table in public gets no privilege for anon/authenticated/service_role (the post-change default)', probe.rows[0].any === false);
+    const svc = await admin(c => c.query(`select has_table_privilege('service_role', 'public.branch_pos_credentials', 'select') s,
+      has_table_privilege('anon', 'public.branch_pos_credentials', 'select') a, has_table_privilege('authenticated', 'public.branch_pos_credentials', 'select') u`));
+    check('grants: service_role can read branch_pos_credentials (pos-intake looks the token hash up there); anon/authenticated cannot',
+      svc.rows[0].s === true && svc.rows[0].a === false && svc.rows[0].u === false);
+    // every table the three pages touch through PostgREST (sb.from('t')...) must
+    // carry an explicit grant for the operation they use
+    const need = new Map();
+    for (const page of ['index.html', 'kiosk.html', 'merchant.html']) {
+      const html = require('fs').readFileSync(path.join(REPO_ROOT, page), 'utf8');
+      const re = /\.from\('([a-z_]+)'\)([^;]*)/g;
+      let m;
+      while ((m = re.exec(html))) {
+        const ops = ['select', 'update', 'insert', 'delete'].filter(op => new RegExp('\\.' + op + '\\(').test(m[2]));
+        for (const op of ops) need.set(m[1] + ':' + op, page);
+      }
+    }
+    const missing = [];
+    for (const key of need.keys()) {
+      const [t, op] = key.split(':');
+      const r = await admin(c => c.query(`select has_table_privilege('authenticated', $1, $2) ok`, ['public.' + t, op]));
+      if (!r.rows[0].ok) missing.push(key + ' (' + need.get(key) + ')');
+    }
+    if (missing.length) console.log('  missing grants:', missing.join(', '));
+    check('grants: every table index.html / kiosk.html / merchant.html read or write directly has an explicit grant for authenticated (' + need.size + ' table/operation pairs)',
+      need.size > 10 && missing.length === 0);
   }
 
   // =========================================================================
