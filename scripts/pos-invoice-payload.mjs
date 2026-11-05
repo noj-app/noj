@@ -16,6 +16,10 @@
 // يُرسل كنص فارغ أبداً). unit_code (رمز العيادة في نظام الكاشير، اختياري) يُحذف
 // كلياً إن كان فارغاً، كـdevice_id تماماً.
 
+/**
+ * @param {{ amount: any, vat: any, deviceId: any, unitCode?: string | null, ci: any }} args
+ *   unitCode is optional (the clinic's code in the cashier system)
+ */
 export function buildPosInvoicePayload({ amount, vat, deviceId, unitCode, ci }) {
   const amountNum = Number(amount);
   if (!Number.isFinite(amountNum) || amountNum <= 0) {
