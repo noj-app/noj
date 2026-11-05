@@ -31,7 +31,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          # إصدار محدد لا v2.x (راجع CLAUDE.md "إصدارات الأدوات في الـworkflows")
+          deno-version: v2.9.8
       - name: اختبارات الدالتين
         run: deno test supabase/functions/
       # نقطتا الدخول (Deno.serve) غير مغطّاتين بالاختبارات — فحص الأنواع يلتقط خطأً
