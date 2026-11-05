@@ -13,9 +13,10 @@
 // يجب أن يطابق هذا الملف عقد supabase/functions/pos-intake/intake.ts
 // (genericAdapter) تماماً: external_ref إلزامي غير فارغ، amount/vat أرقام
 // JS حقيقية لا نصوصاً، device_id يُحذف كلياً من الحمولة إن كان فارغاً (لا
-// يُرسل كنص فارغ أبداً).
+// يُرسل كنص فارغ أبداً). unit_code (رمز العيادة في نظام الكاشير، اختياري) يُحذف
+// كلياً إن كان فارغاً، كـdevice_id تماماً.
 
-export function buildPosInvoicePayload({ amount, vat, deviceId, ci }) {
+export function buildPosInvoicePayload({ amount, vat, deviceId, unitCode, ci }) {
   const amountNum = Number(amount);
   if (!Number.isFinite(amountNum) || amountNum <= 0) {
     throw new Error('amount يجب أن يكون رقماً أكبر من صفر');
@@ -41,6 +42,12 @@ export function buildPosInvoicePayload({ amount, vat, deviceId, ci }) {
 
   const trimmedDeviceId = (deviceId || '').trim();
   if (trimmedDeviceId) body.device_id = trimmedDeviceId;
+
+  const trimmedUnitCode = (unitCode || '').trim();
+  if (trimmedUnitCode.length > 40) {
+    throw new Error('unit_code أطول من 40 حرفاً');
+  }
+  if (trimmedUnitCode) body.unit_code = trimmedUnitCode;
 
   return body;
 }

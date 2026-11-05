@@ -115,6 +115,7 @@ async function asServiceRole(fn) {
     'supabase-migration-reservations.sql',
     'supabase-migration-health-appointments.sql',
     'supabase-migration-explicit-table-grants.sql',
+    'supabase-migration-clinic-queue.sql',
   ].map(f => path.join(REPO_ROOT, f));
   // a byte-level snapshot of everything the sector unification must NOT touch,
   // taken right before that migration runs (checked in section 21e)
@@ -3231,6 +3232,271 @@ async function asServiceRole(fn) {
     const snap = await all();
     apply('supabase-migration-health-appointments.sql');
     check('health-appointments migration is idempotent: a re-run changes no appointment or clinic row', snap === (await all()));
+  }
+
+  // =========================================================================
+  // 26) CLINIC QUEUE (supabase-migration-clinic-queue.sql): the cashier's clinic
+  //     code → a walk-in queue number for a patient without an appointment that
+  //     day; the merchant's call-next screen; the live "ahead" aggregate. #112's
+  //     appointment logic (section 24) is NOT redefined and still decides first.
+  // =========================================================================
+  {
+    const apply = (f) => execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    const src = async (fn) => (await admin(c => c.query(`select prosrc from pg_proc where proname=$1`, [fn]))).rows[0].prosrc;
+    const APPT_FNS = ['link_invoice_to_appointment', 'invoice_appointment_checkin_trg', 'kiosk_appointment_checkin', 'create_appointment', 'merchant_list_appointments'];
+    const apptSrcBefore = [];
+    for (const f of APPT_FNS) apptSrcBefore.push(await src(f));
+    apply('supabase-migration-clinic-queue.sql');
+    apply('supabase-migration-clinic-queue.sql');
+    const apptSrcAfter = [];
+    for (const f of APPT_FNS) apptSrcAfter.push(await src(f));
+    check('clinic-queue: the #112 appointment functions are not redefined (identical bodies before/after the file, applied twice)',
+      JSON.stringify(apptSrcBefore) === JSON.stringify(apptSrcAfter));
+
+    const HEALTH = '20000000-0000-0000-0000-00000000000d';
+    const DENTAL = '21000000-0000-0000-0000-000000000001'; // عيادة الأسنان — د. سارة القحطاني
+    const DERMA = '21000000-0000-0000-0000-000000000002';
+    const tryAs = (uid, sql, params) => asUser(uid, async c => { try { const r = await c.query(sql, params); return { ok: true, r, row: r.rows[0] }; } catch (e) { return { ok: false, msg: e.message }; } });
+    const newUser = async () => { const u = crypto.randomUUID(); await admin(c => c.query('insert into auth.users (id) values ($1)', [u])); return u; };
+    let phoneSeq = 0;
+    const newPatient = async (name) => {
+      const uid = await newUser();
+      const phone = '58' + String(1000000 + (++phoneSeq) * 6131).slice(-7);
+      const p = await admin(c => c.query(`insert into profiles (phone, auth_user_id, name) values ($1,$2,$3) returning id`, [phone, uid, name]));
+      await admin(c => c.query(`insert into profile_consents (profile_id, consent_type, text_version, channel) values ($1,'data_processing','v1','app')`, [p.rows[0].id]));
+      return { uid, profileId: p.rows[0].id, phone };
+    };
+    const ticketsOf = async (profileId) => (await admin(c => c.query('select * from queue_tickets where user_id=$1 order by created_at', [profileId]))).rows;
+    const maxToday = async (clinicName) => (await admin(c => c.query(`select coalesce(max(ticket_number),0)::int m from queue_tickets where merchant_id=$1 and unit_name=$2 and (created_at at time zone 'Asia/Riyadh')::date = riyadh_today()`, [HEALTH, clinicName]))).rows[0].m;
+
+    const qOwner = await newUser(), qStaff = await newUser(), qStranger = await newUser(), qCafeOwner = await newUser();
+    const CAFE = (await admin(c => c.query(`select id from merchants where sector_code='cafe' order by id limit 1`))).rows[0].id;
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner'),($1,$3,'staff'),($4,$5,'owner')`, [HEALTH, qOwner, qStaff, CAFE, qCafeOwner]));
+    await admin(c => c.query(`update clinics set booking_enabled = true, walk_in_enabled = true where id in ($1,$2)`, [DENTAL, DERMA]));
+
+    // ---- A) additive: clinics get no code, old tickets learn their clinic ----
+    const codes = await admin(c => c.query(`select count(*)::int n from clinics where pos_unit_code is not null`));
+    const unresolved = await admin(c => c.query(`select count(*)::int n from queue_tickets t where t.clinic_id is null and exists (select 1 from clinics c where c.merchant_id = t.merchant_id and c.name = t.unit_name)`));
+    const statuses = await admin(c => c.query(`select bool_and(status in ('waiting','called','done','cancelled')) ok from queue_tickets`));
+    check('clinic-queue: no clinic has a cashier code yet; every older ticket of a known clinic now carries its clinic_id; older statuses unchanged',
+      codes.rows[0].n === 0 && unresolved.rows[0].n === 0 && statuses.rows[0].ok === true);
+
+    // ---- B) merchant_set_clinic_pos_code: OWNER only, unique inside the merchant ----
+    const setCode = (uid, clinic, code) => tryAs(uid, 'select merchant_set_clinic_pos_code($1,$2) as r', [clinic, code]);
+    const okCode = await setCode(qOwner, DENTAL, '  DENT-1  ');
+    const staffCode = await setCode(qStaff, DERMA, 'X1');
+    const strangerCode = await setCode(qStranger, DERMA, 'X1');
+    const dupCode = await setCode(qOwner, DERMA, 'dent-1');
+    const longCode = await setCode(qOwner, DERMA, 'x'.repeat(41));
+    const cafeClinic = (await admin(c => c.query(`insert into clinics (merchant_id, name) values ($1,'عيادة وهمية ٢') returning id`, [CAFE]))).rows[0].id;
+    const cafeCode = await setCode(qCafeOwner, cafeClinic, 'C1');
+    await admin(c => c.query(`delete from clinics where id=$1`, [cafeClinic]));
+    const ghost = await setCode(qOwner, crypto.randomUUID(), 'G1');
+    check('merchant_set_clinic_pos_code: the owner sets it (trimmed); staff, a stranger, the same code in another case, 41 chars, a non-medical merchant and an unknown clinic are refused',
+      okCode.ok && okCode.row.r.pos_unit_code === 'DENT-1' && /لا تملك صلاحية/.test(staffCode.msg) && /لا تملك صلاحية/.test(strangerCode.msg) &&
+      /NOJ_UNIT_CODE_TAKEN/.test(dupCode.msg) && /NOJ_INVALID_UNIT_CODE/.test(longCode.msg) && /NOJ_BOOKING_NOT_AVAILABLE/.test(cafeCode.msg) && /NOJ_CLINIC_NOT_FOUND/.test(ghost.msg));
+    const otherMed = (await admin(c => c.query(`insert into merchants (name, type, logo_color) values ('مركز اختبار الطابور','صحة','#123456') returning id`))).rows[0].id;
+    const otherOwner = await newUser();
+    await admin(c => c.query(`insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,'owner')`, [otherMed, otherOwner]));
+    const otherClinic = (await admin(c => c.query(`insert into clinics (merchant_id, name) values ($1,'عيادة الأسنان') returning id`, [otherMed]))).rows[0].id;
+    const sameElsewhere = await setCode(otherOwner, otherClinic, 'DENT-1');
+    const clear = await setCode(qOwner, DERMA, 'TMP');
+    const cleared = await setCode(qOwner, DERMA, '   ');
+    check('merchant_set_clinic_pos_code: the same code is fine at ANOTHER merchant; an empty value clears it',
+      sameElsewhere.ok && clear.ok && cleared.ok && cleared.row.r.pos_unit_code === null);
+    await setCode(qOwner, DERMA, 'DERM');
+    const directCode = await tryAs(qOwner, `update clinics set pos_unit_code='HACK' where id=$1`, [DENTAL]);
+    check('no direct client write of clinics.pos_unit_code (only the owner RPC)',
+      !(directCode.ok && directCode.r.rowCount === 1) && (await admin(c => c.query('select pos_unit_code from clinics where id=$1', [DENTAL]))).rows[0].pos_unit_code === 'DENT-1');
+
+    // ---- C) walk-in tickets from the cashier's code ----
+    const BR = (await admin(c => c.query('select id from branches where merchant_id=$1 order by created_at limit 1', [HEALTH]))).rows[0].id;
+    const kUid = await newUser();
+    await admin(c => c.query('insert into devices (auth_user_id, branch_id, is_active) values ($1,$2,true)', [kUid, BR]));
+    let refSeq = 0;
+    const intake = async (amount, unitCode) => (await asServiceRole(c => c.query(`select * from intake_pos_transaction($1,$2,$3,$4,$5,$6,$7)`,
+      [BR, null, 'QUEUE-' + (++refSeq) + '-' + Date.now(), amount, '0', 'generic', unitCode === undefined ? null : JSON.stringify({ unit_code: unitCode })]))).rows[0].id;
+    const claim = async (txn, phone) => (await asUser(kUid, c => c.query('select * from kiosk_claim_pos_transaction($1,$2)', [txn, phone]))).rows[0];
+    const qCheckin = (uid, txn) => tryAs(uid, 'select kiosk_queue_checkin($1) as r', [txn]);
+    const aCheckin = (uid, txn) => tryAs(uid, 'select kiosk_appointment_checkin($1) as r', [txn]);
+
+    const dentBefore = await maxToday('عيادة الأسنان');
+    const fahd = await newPatient('فهد');
+    const t1 = await intake('120.00', 'dent-1');
+    const c1 = await claim(t1, fahd.phone);
+    const fahdT = await ticketsOf(fahd.profileId);
+    check('walk-in: no appointment today + the code of a "بموعد وبدون موعد" clinic (any case) → ONE waiting ticket in that clinic, next number of the day, tied to the invoice',
+      c1.is_registered === true && fahdT.length === 1 && fahdT[0].status === 'waiting' && fahdT[0].clinic_id === DENTAL &&
+      fahdT[0].unit_name === 'عيادة الأسنان' && fahdT[0].ticket_number === dentBefore + 1 && fahdT[0].invoice_id === c1.invoice_id);
+    const qc1 = await qCheckin(kUid, t1), ac1 = await aCheckin(kUid, t1);
+    const ahead1 = (await admin(c => c.query(`select count(*)::int n from queue_tickets where clinic_id=$1 and status='waiting' and ticket_number < $2 and (created_at at time zone 'Asia/Riyadh')::date = riyadh_today()`, [DENTAL, dentBefore + 1]))).rows[0].n;
+    check('kiosk_queue_checkin: clinic, doctor, number and ahead for the claiming device (no name, no phone); kiosk_appointment_checkin stays null (no appointment)',
+      qc1.ok && qc1.row.r.clinic_name === 'عيادة الأسنان' && qc1.row.r.doctor_name === 'د. سارة القحطاني' && qc1.row.r.queue_number === dentBefore + 1 &&
+      qc1.row.r.ahead === ahead1 && !JSON.stringify(qc1.row.r).includes(fahd.phone) && !JSON.stringify(qc1.row.r).includes('فهد') &&
+      Object.keys(qc1.row.r).sort().join() === 'ahead,clinic_name,doctor_name,queue_number' && ac1.ok && ac1.row.r === null);
+    const otherBranch = (await admin(c => c.query('select id from branches where merchant_id<>$1 order by created_at limit 1', [HEALTH]))).rows[0].id;
+    const kOther = await newUser();
+    await admin(c => c.query('insert into devices (auth_user_id, branch_id, is_active) values ($1,$2,true)', [kOther, otherBranch]));
+    const foreign = await qCheckin(kOther, t1), asCust = await qCheckin(fahd.uid, t1);
+    check('kiosk_queue_checkin: another branch\'s device (NOJ_TRANSACTION_NOT_FOUND) and a customer session are refused', !foreign.ok && /NOJ_TRANSACTION_NOT_FOUND/.test(foreign.msg) && !asCust.ok);
+
+    // appointment-only clinic, unknown code, no code, unregistered phone: invoice yes, number no
+    await admin(c => c.query(`update clinics set walk_in_enabled=false where id=$1`, [DERMA]));
+    const dermBefore = await maxToday('عيادة الجلدية');
+    const p2 = await newPatient('أمل'), p3 = await newPatient('بدر'), p4 = await newPatient('جود');
+    const t2 = await intake('80.00', 'DERM'), t3 = await intake('80.00', 'NO-SUCH'), t4 = await intake('80.00');
+    const c2 = await claim(t2, p2.phone), c3 = await claim(t3, p3.phone), c4 = await claim(t4, p4.phone);
+    const t5 = await intake('80.00', 'DENT-1');
+    const c5 = await claim(t5, '559999002');
+    const qc2 = await qCheckin(kUid, t2);
+    check('walk-in: an appointment-only clinic ("بموعد فقط"), an unknown code, no code, an unregistered phone → the invoice is claimed, no number',
+      c2.invoice_id && c3.invoice_id && c4.invoice_id && c5.invoice_id && c5.is_registered === false &&
+      (await ticketsOf(p2.profileId)).length === 0 && (await ticketsOf(p3.profileId)).length === 0 && (await ticketsOf(p4.profileId)).length === 0 &&
+      (await maxToday('عيادة الجلدية')) === dermBefore && (await maxToday('عيادة الأسنان')) === dentBefore + 1 && qc2.ok && qc2.row.r === null);
+    await admin(c => c.query(`update clinics set walk_in_enabled=true where id=$1`, [DERMA]));
+
+    // an appointment today decides (#112), even if the cashier sent another clinic's code
+    const dermName = (await admin(c => c.query('select name from clinics where id=$1', [DERMA]))).rows[0].name;
+    const salem = await newPatient('سالم');
+    const salemAppt = (await admin(c => c.query(`insert into appointments (user_id, merchant_id, clinic_id, scheduled_at, status, booked_in_app) values ($1,$2,$3, now(), 'confirmed', true) returning id`, [salem.profileId, HEALTH, DENTAL]))).rows[0].id;
+    const t6 = await intake('200.00', 'DERM');
+    await claim(t6, salem.phone);
+    const salemT = await ticketsOf(salem.profileId);
+    const salemA = (await admin(c => c.query('select status, queue_ticket_id from appointments where id=$1', [salemAppt]))).rows[0];
+    const ac6 = await aCheckin(kUid, t6), qc6 = await qCheckin(kUid, t6);
+    check('appointment first: a patient with an appointment today gets the #112 arrival (appointment clinic, "حضر"), and NO walk-in ticket for the code sent',
+      salemA.status === 'done' && salemT.length === 1 && salemT[0].id === salemA.queue_ticket_id && salemT[0].clinic_id === DENTAL &&
+      salemT[0].invoice_id === null && salemT[0].ticket_number === dentBefore + 2 && ac6.row.r.queue_number === dentBefore + 2 && qc6.row.r === null &&
+      (await maxToday(dermName)) === dermBefore);
+
+    // walk-ins and appointment arrivals share one numbering per clinic per day
+    const p7 = await newPatient('دانة');
+    const t7 = await intake('50.00', 'DENT-1');
+    await claim(t7, p7.phone);
+    check('one queue per clinic per day: the next walk-in after an appointment arrival gets the following number',
+      (await ticketsOf(p7.profileId))[0].ticket_number === dentBefore + 3);
+    const p8 = await newPatient('هاني'), p9 = await newPatient('وعد');
+    const [t8, t9] = [await intake('40.00', 'DENT-1'), await intake('41.00', 'dent-1')];
+    await Promise.all([claim(t8, p8.phone), claim(t9, p9.phone)]);
+    const nums = [(await ticketsOf(p8.profileId))[0].ticket_number, (await ticketsOf(p9.profileId))[0].ticket_number].sort();
+    check('walk-in: two concurrent claims never share a number (same advisory lock as #112)', nums[0] === dentBefore + 4 && nums[1] === dentBefore + 5);
+
+    // best-effort: a failure while issuing never fails the claim
+    const p10 = await newPatient('زياد');
+    await admin(c => c.query(`alter table queue_tickets add constraint zz_force_fail_q check (ticket_number < 0) not valid`));
+    const t10 = await intake('70.00', 'DENT-1');
+    let c10 = null; try { c10 = await claim(t10, p10.phone); } catch (e) { c10 = null; }
+    await admin(c => c.query(`alter table queue_tickets drop constraint zz_force_fail_q`));
+    check('walk-in is best-effort: if issuing the number fails, the invoice is still claimed (no ticket)', c10 && c10.invoice_id && (await ticketsOf(p10.profileId)).length === 0);
+
+    // ---- D) the live aggregate (clinic_queue_state) ----
+    const stateOf = async (clinic) => (await admin(c => c.query('select * from clinic_queue_state where clinic_id=$1', [clinic]))).rows[0];
+    const waitingDent = async () => (await admin(c => c.query(`select count(*)::int n from queue_tickets where clinic_id=$1 and status='waiting' and (created_at at time zone 'Asia/Riyadh')::date = riyadh_today()`, [DENTAL]))).rows[0].n;
+    const st1 = await stateOf(DENTAL);
+    check('clinic_queue_state: one row per clinic for today (merchant, waiting count) kept by the ticket trigger, no customer data',
+      st1 && st1.merchant_id === HEALTH && st1.waiting_count === (await waitingDent()) &&
+      Object.keys(st1).sort().join() === 'clinic_id,day,merchant_id,now_serving,updated_at,waiting_count');
+    const stAuth = await tryAs(fahd.uid, 'select waiting_count from clinic_queue_state where clinic_id=$1', [DENTAL]);
+    const stWrite = await tryAs(qOwner, `update clinic_queue_state set waiting_count = 0 where clinic_id=$1`, [DENTAL]);
+    const stIns = await tryAs(qOwner, `insert into clinic_queue_state (clinic_id, merchant_id, day) values ($1,$2, current_date)`, [otherClinic, otherMed]);
+    const gr = await admin(c => c.query(`select has_table_privilege('anon','public.clinic_queue_state','select') a,
+      has_table_privilege('service_role','public.clinic_queue_state','select') s,
+      has_table_privilege('authenticated','public.clinic_queue_state','select') u,
+      has_table_privilege('authenticated','public.clinic_queue_state','insert') ui,
+      has_table_privilege('authenticated','public.clinic_queue_state','update') uu,
+      has_table_privilege('authenticated','public.clinic_queue_state','delete') ud`));
+    check('clinic_queue_state grants are explicit and minimal: authenticated SELECT only (reads it), no anon / service_role, no client write',
+      stAuth.ok && stAuth.row && gr.rows[0].u === true && gr.rows[0].a === false && gr.rows[0].s === false &&
+      !gr.rows[0].ui && !gr.rows[0].uu && !gr.rows[0].ud && !(stWrite.ok && stWrite.r.rowCount === 1) && !stIns.ok);
+
+    // ---- E) get_my_queue_status (تطبيق نوج) ----
+    const myQ = (uid) => tryAs(uid, 'select get_my_queue_status() as r', []);
+    const m1 = await myQ(fahd.uid);
+    const fq = m1.ok ? m1.row.r[0] : null;
+    check('get_my_queue_status: the caller\'s own waiting ticket with clinic, doctor, number and ahead',
+      m1.ok && m1.row.r.length === 1 && fq.clinic_id === DENTAL && fq.clinic_name === 'عيادة الأسنان' && fq.doctor_name === 'د. سارة القحطاني' &&
+      fq.ticket_number === dentBefore + 1 && fq.status === 'waiting' && fq.ahead === ahead1 && fq.merchant_id === HEALTH);
+    const noTickets = await myQ(p2.uid), noProfile = await myQ(await newUser());
+    check('get_my_queue_status: someone without a ticket (or a profile) reads an empty list — never another patient\'s ticket',
+      noTickets.ok && noTickets.row.r.length === 0 && noProfile.ok && noProfile.row.r.length === 0);
+
+    // ---- F) merchant_clinic_queue + call next / done / no-show ----
+    const mq = (uid, mid) => tryAs(uid, 'select merchant_clinic_queue($1) as r', [mid]);
+    const oq = await mq(qOwner, HEALTH), sq = await mq(qStaff, HEALTH);
+    const dentQ = oq.ok ? oq.row.r.clinics.find(c => c.id === DENTAL) : null;
+    const fRow = dentQ ? dentQ.tickets.find(t => t.ticket_number === dentBefore + 1) : null;
+    const QKEYS = 'called_at_riyadh,clinic_id,created_at_riyadh,customer_name,customer_phone_last4,id,kind,status,ticket_number';
+    check('merchant_clinic_queue: owner AND staff read every clinic of the day with its waiting list, code and modes',
+      oq.ok && sq.ok && JSON.stringify(oq.row.r) === JSON.stringify(sq.row.r) && oq.row.r.clinics.length === 5 &&
+      dentQ.pos_unit_code === 'DENT-1' && dentQ.walk_in_enabled === true && dentQ.tickets.every(t => ['waiting', 'called'].includes(t.status)) &&
+      dentQ.tickets.every((t, i) => i === 0 || dentQ.tickets[i - 1].ticket_number < t.ticket_number));
+    check('merchant_clinic_queue: a closed list of keys — patient name and LAST 4 digits only; walk-in vs appointment is told apart',
+      fRow && Object.keys(fRow).sort().join() === QKEYS && fRow.customer_name === 'فهد' && fRow.customer_phone_last4 === fahd.phone.slice(-4) &&
+      fRow.kind === 'walk_in' && dentQ.tickets.find(t => t.ticket_number === dentBefore + 2).kind === 'appointment' &&
+      !JSON.stringify(oq.row.r).includes(fahd.phone) && !JSON.stringify(oq.row.r).includes(fahd.profileId));
+    const sQ = await mq(qStranger, HEALTH), cQ = await mq(qCafeOwner, CAFE);
+    check('merchant_clinic_queue: a non-member is refused; a non-medical merchant is NOJ_BOOKING_NOT_AVAILABLE',
+      !sQ.ok && /لا تملك صلاحية/.test(sQ.msg) && !cQ.ok && /NOJ_BOOKING_NOT_AVAILABLE/.test(cQ.msg));
+
+    const callNext = (uid, clinic) => tryAs(uid, 'select merchant_queue_call_next($1) as r', [clinic]);
+    const setTk = (uid, id, st) => tryAs(uid, 'select merchant_queue_set_ticket_status($1,$2) as r', [id, st]);
+    // isolate the DENTAL queue for exact expectations: older seeded waiting tickets of today are finished first
+    await admin(c => c.query(`update queue_tickets set status='done' where clinic_id=$1 and status in ('waiting','called') and ticket_number <= $2 and (created_at at time zone 'Asia/Riyadh')::date = riyadh_today()`, [DENTAL, dentBefore]));
+    const n1 = await callNext(qStaff, DENTAL);
+    const fahdNow = (await ticketsOf(fahd.profileId))[0];
+    const m7 = await myQ(p7.uid);
+    check('نداء التالي (staff): the LOWEST waiting number of the clinic today → called (called_at); the aggregate and "ahead" of the others follow',
+      n1.ok && n1.row.r.ticket_number === dentBefore + 1 && fahdNow.status === 'called' && fahdNow.called_at !== null &&
+      (await stateOf(DENTAL)).now_serving === dentBefore + 1 && m7.row.r[0].ahead === 1 && m7.row.r[0].now_serving === dentBefore + 1);
+    // (p7 = dentBefore+3: only #112's appointment arrival dentBefore+2 is still waiting before it)
+    const m1b = await myQ(fahd.uid);
+    check('get_my_queue_status: a called ticket reads status "called" with nobody ahead', m1b.row.r[0].status === 'called' && m1b.row.r[0].ahead === 0);
+    const doneEarly = await setTk(qOwner, (await ticketsOf(p7.profileId))[0].id, 'done');
+    const badSt = await setTk(qOwner, fahdNow.id, 'cancelled');
+    const strangerSt = await setTk(qStranger, fahdNow.id, 'done');
+    const otherOwnerSt = await setTk(otherOwner, fahdNow.id, 'done');
+    check('انتهى/لم يحضر: "done" only from called (NOJ_INVALID_TRANSITION), only done/no_show (NOJ_INVALID_STATUS), a stranger or another merchant\'s owner refused',
+      /NOJ_INVALID_TRANSITION/.test(doneEarly.msg) && /NOJ_INVALID_STATUS/.test(badSt.msg) && /لا تملك صلاحية/.test(strangerSt.msg) && /لا تملك صلاحية/.test(otherOwnerSt.msg));
+    const done1 = await setTk(qOwner, fahdNow.id, 'done');
+    const noShow = await setTk(qStaff, (await ticketsOf(p7.profileId))[0].id, 'no_show');
+    const again = await setTk(qStaff, fahdNow.id, 'no_show');
+    const m1c = await myQ(fahd.uid);
+    check('انتهى (owner) and لم يحضر (staff, straight from waiting) close the ticket (finished_at); a closed ticket cannot change again; it leaves the patient\'s live list',
+      done1.ok && done1.row.r.status === 'done' && noShow.ok && noShow.row.r.status === 'no_show' && /NOJ_INVALID_TRANSITION/.test(again.msg) &&
+      (await ticketsOf(fahd.profileId))[0].finished_at !== null && m1c.row.r.length === 0);
+    const after = (await mq(qOwner, HEALTH)).row.r.clinics.find(c => c.id === DENTAL);
+    check('merchant_clinic_queue: the day\'s done / no-show counts and the number now serving follow',
+      after.done_count >= 1 && after.no_show_count === 1 && after.now_serving === dentBefore + 1 && !after.tickets.some(t => t.ticket_number === dentBefore + 1));
+    // empty everything left and check NOJ_QUEUE_EMPTY
+    for (let i = 0; i < 10; i++) { const r = await callNext(qOwner, DENTAL); if (!r.ok) break; }
+    const empty = await callNext(qOwner, DENTAL);
+    const strangerCall = await callNext(qStranger, DENTAL), ghostCall = await callNext(qOwner, crypto.randomUUID());
+    check('نداء التالي: an empty queue → NOJ_QUEUE_EMPTY; a stranger is refused; an unknown clinic → NOJ_CLINIC_NOT_FOUND; waiting count reaches 0',
+      /NOJ_QUEUE_EMPTY/.test(empty.msg) && /لا تملك صلاحية/.test(strangerCall.msg) && /NOJ_CLINIC_NOT_FOUND/.test(ghostCall.msg) && (await stateOf(DENTAL)).waiting_count === 0);
+    const directQ = await tryAs(fahd.uid, `update queue_tickets set status='waiting' where user_id=$1`, [fahd.profileId]);
+    check('no direct client write on queue_tickets (statuses change only through the merchant RPCs)', !(directQ.ok && directQ.r.rowCount >= 1));
+
+    // ---- G) privileges, idempotency, the #112 file re-run ----
+    const RPCS = ['kiosk_queue_checkin(uuid)', 'get_my_queue_status()', 'merchant_clinic_queue(uuid)', 'merchant_queue_call_next(uuid)',
+      'merchant_queue_set_ticket_status(uuid,text)', 'merchant_set_clinic_pos_code(uuid,text)'];
+    const privs = await admin(c => c.query(`select bool_and(not has_function_privilege('anon', ('public.' || f)::regprocedure, 'execute')
+      and has_function_privilege('authenticated', ('public.' || f)::regprocedure, 'execute')) ok from unnest($1::text[]) f`, [RPCS]));
+    check('every new queue RPC: NOT executable by anon, executable by authenticated', privs.rows[0].ok === true);
+    const helperPriv = await admin(c => c.query(`select bool_or(has_function_privilege(r, f::regprocedure, 'execute')) any
+      from unnest(array['anon','authenticated','service_role']) r,
+           unnest(array['public.issue_walk_in_ticket(uuid)','public.invoice_walk_in_queue_trg()','public.refresh_clinic_queue_state(uuid)',
+                        'public.queue_ticket_state_trg()','public.queue_ticket_resolve_clinic_trg()','public.queue_ticket_json_for_merchant(public.queue_tickets)']) f`));
+    check('the issuer, the triggers, the aggregate refresher and the row-to-JSON helper are not executable by anon, authenticated or service_role', helperPriv.rows[0].any === false);
+    const trgOrder = await admin(c => c.query(`select string_agg(tgname, ',' order by tgname) s from pg_trigger where tgrelid='public.invoices'::regclass and tgname in ('trg_invoice_appointment_checkin','trg_invoice_walk_in_queue')`));
+    check('the walk-in trigger fires AFTER the #112 appointment trigger (same timing, name order)', trgOrder.rows[0].s === 'trg_invoice_appointment_checkin,trg_invoice_walk_in_queue');
+    const all = async () => JSON.stringify((await admin(c => c.query('select * from queue_tickets order by id'))).rows) +
+      JSON.stringify((await admin(c => c.query('select * from clinics order by id'))).rows) +
+      JSON.stringify((await admin(c => c.query('select * from clinic_queue_state order by clinic_id'))).rows);
+    const snap = await all();
+    apply('supabase-migration-clinic-queue.sql');
+    apply('supabase-migration-health-appointments.sql');
+    check('clinic-queue migration is idempotent (and a re-run of the #112 file keeps it): no ticket, clinic or aggregate row changes',
+      snap === (await all()) && (await admin(c => c.query(`select count(*)::int n from pg_trigger where tgname='trg_invoice_walk_in_queue'`))).rows[0].n === 1);
   }
 
   // =========================================================================

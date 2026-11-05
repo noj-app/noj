@@ -35,6 +35,10 @@ on:
         description: 'معرّف جهاز الكشك (اختياري، UUID)'
         required: false
         default: ''
+      unit_code:
+        description: 'رمز العيادة في نظام الكاشير (اختياري، للمراكز الصحية): مريض بلا موعد اليوم يأخذ رقم دور في هذه العيادة'
+        required: false
+        default: ''
       refund_of:
         description: 'للإرجاع بدل فاتورة جديدة: external_ref الفاتورة الأصلية (يُطبع عند إرسالها، مثال sim-12-1700000000000)'
         required: false
@@ -64,6 +68,7 @@ jobs:
           AMOUNT: ${{ github.event.inputs.amount }}
           VAT: ${{ github.event.inputs.vat }}
           DEVICE_ID: ${{ github.event.inputs.device_id }}
+          UNIT_CODE: ${{ github.event.inputs.unit_code }}
           REFUND_OF: ${{ github.event.inputs.refund_of }}
           REFUND_AMOUNT: ${{ github.event.inputs.refund_amount }}
         run: |
@@ -71,5 +76,6 @@ jobs:
             --amount "$AMOUNT" \
             --vat "$VAT" \
             --device-id "$DEVICE_ID" \
+            --unit-code "$UNIT_CODE" \
             --refund-of "$REFUND_OF" \
             --refund-amount "$REFUND_AMOUNT"

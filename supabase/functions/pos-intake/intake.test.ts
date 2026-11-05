@@ -292,3 +292,52 @@ Deno.test('invoices are unchanged: a body without type still goes to intakeTrans
   assertEquals(r.status, 200);
   assertEquals(JSON.parse(r.body).transaction_id, 'txn-INV-9');
 });
+
+// ---------------------------------------------------------------------------
+// unit_code (supabase-migration-clinic-queue.sql): the clinic's code in the
+// cashier system. Optional, travels as metadata.unit_code, never a reason to
+// reject an invoice.
+// ---------------------------------------------------------------------------
+function capturingDeps() {
+  const seen: Array<Record<string, unknown> | null> = [];
+  const deps = makeDeps({
+    intakeTransaction: (args) => {
+      seen.push(args.metadata);
+      return Promise.resolve({ ok: true, row: { id: 'txn-' + args.externalRef, status: 'pending', external_ref: args.externalRef } });
+    },
+  });
+  return { deps, seen };
+}
+
+Deno.test('unit_code: a valid code is trimmed and travels as metadata.unit_code, other metadata kept', async () => {
+  const { deps, seen } = capturingDeps();
+  const body = JSON.stringify({ external_ref: 'INV-U1', amount: 100, unit_code: '  DENT-1  ', metadata: { cashier: 'A' } });
+  const result = await handlePosIntake(body, headers(VALID_TOKEN), deps);
+  assertEquals(result.status, 200);
+  assertEquals(seen[0], { cashier: 'A', unit_code: 'DENT-1' });
+});
+
+Deno.test('unit_code: without metadata, a metadata object holding only unit_code is created', async () => {
+  const { deps, seen } = capturingDeps();
+  const result = await handlePosIntake(JSON.stringify({ external_ref: 'INV-U2', amount: 100, unit_code: 'LAB' }), headers(VALID_TOKEN), deps);
+  assertEquals(result.status, 200);
+  assertEquals(seen[0], { unit_code: 'LAB' });
+});
+
+Deno.test('unit_code: missing / empty / non-string / over 40 chars → ignored, the invoice still succeeds unchanged', async () => {
+  for (const [i, code] of [undefined, '', '   ', 42, { a: 1 }, 'x'.repeat(41)].entries()) {
+    const { deps, seen } = capturingDeps();
+    const payload: Record<string, unknown> = { external_ref: 'INV-U3-' + i, amount: 100 };
+    if (code !== undefined) payload.unit_code = code;
+    const result = await handlePosIntake(JSON.stringify(payload), headers(VALID_TOKEN), deps);
+    assertEquals(result.status, 200);
+    assertEquals(seen[0], null);
+  }
+});
+
+Deno.test('unit_code: the top-level field wins over a metadata.unit_code sent by the cashier', async () => {
+  const { deps, seen } = capturingDeps();
+  const body = JSON.stringify({ external_ref: 'INV-U4', amount: 100, unit_code: 'DERM', metadata: { unit_code: 'OLD' } });
+  await handlePosIntake(body, headers(VALID_TOKEN), deps);
+  assertEquals(seen[0], { unit_code: 'DERM' });
+});
