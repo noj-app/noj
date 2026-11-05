@@ -809,6 +809,11 @@ const Store={
 // supabase-migration-unified-sectors.sql). 'أخرى' مفتاح قديم فقط: فواتير ما قبل
 // التوحيد تبقى بتصنيفها 'أخرى' (لا تُعدَّل الفواتير)، فتُعرض بنفس هيئة الخدمات.
 const CAT={'مطاعم':{c:'#7C5CE6',i:'store'},'بقالة':{c:'#3B82F6',i:'bag'},'تجزئة':{c:'#E07B39',i:'gift'},'مقاهي':{c:'#22A87A',i:'coffee'},'صحة':{c:'#0F6E6E',i:'hospital'},'خدمات':{c:'#64748B',i:'spark'},'أخرى':{c:'#64748B',i:'spark'}};
+// الأسماء الظاهرة المعتمدة للأقسام الستة (بقالة، تجزئة، مقهى، مطعم، صحي، خدمات). القيم
+// المخزَّنة (merchants.type وinvoices.category) تبقى كما هي وتُستعمل معرّفاتٍ في الكود
+// (CAT وBOOKING_COPY و'صحة' في شاشات الحجز/الطابور)؛ هذه للعرض فقط، و'أخرى' القديم يُعرض "خدمات".
+const SECTOR_LABEL={'بقالة':'بقالة','تجزئة':'تجزئة','مقاهي':'مقهى','مطاعم':'مطعم','صحة':'صحي','خدمات':'خدمات','أخرى':'خدمات'};
+function sectorLabel(t){return SECTOR_LABEL[t]||t||''}
 // Invoices, category totals, and rewards all come from Supabase now (see
 // loadUserData below) — these start empty and are populated right after
 // login, instead of holding mock fixtures.
@@ -922,7 +927,8 @@ function normalizeAr(s){
 
 function computeCats(){
   var totals={};
-  INVOICES.forEach(function(inv){totals[inv.c]=(totals[inv.c]||0)+inv.a});
+  // 'أخرى' القديم يُجمَع مع 'خدمات' (نفس الاسم الظاهر واللون) فلا يظهر القسم مرتين
+  INVOICES.forEach(function(inv){var k=inv.c==='أخرى'?'خدمات':inv.c;totals[k]=(totals[k]||0)+inv.a});
   var total=0;
   Object.keys(totals).forEach(function(k){total+=totals[k]});
   CATS=Object.keys(CAT).filter(function(k){return totals[k]>0}).map(function(k){
@@ -1302,7 +1308,7 @@ function home(){
   '<div class="duo">'+
     '<div class="box"><div class="box-head"><h3>تحليل المصروفات</h3><button data-go="spending">عرض الكل</button></div>'+
       '<div class="donut-row">'+donut(96,{b:total.toLocaleString('en-US'),s:'ريال'})+
-      '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+c.n+'</b><s>'+c.v+'%</s></div>'}).join('')+'</div></div></div>'+
+      '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+sectorLabel(c.n)+'</b><s>'+c.v+'%</s></div>'}).join('')+'</div></div></div>'+
     '<div class="box"><div class="box-head"><h3>الفواتير الذكية</h3><button data-go="invoices">عرض الكل</button></div>'+
       '<div class="inv-mini"><div class="inv-ico">'+ic('receipt',26,'#3B82F6')+'</div>'+
       '<div class="inv-info"><b>'+INVOICES.length+' فاتورة هذا الشهر</b><small>آخر فاتورة</small>'+
@@ -1371,13 +1377,13 @@ function bookListHtml(){
   var q=normalizeAr(S.bookQuery);
   var list=USER_MERCHANTS.filter(function(m){return m.bookingEnabled}).filter(function(m){
     if(!q)return true;
-    return normalizeAr(m.name+' '+(m.branch||'')).indexOf(q)>-1;
+    return normalizeAr(m.name+' '+(m.branch||'')+' '+sectorLabel(m.type)).indexOf(q)>-1;
   });
   if(!list.length)return '<div class="empty">لا توجد منشآت مطابقة لبحثك</div>';
   return '<div class="list">'+list.map(function(m){
     var cat=CAT[m.type]||CAT['أخرى'];
     return '<button class="row" data-open-merchant="'+m.merchantId+'"><div class="row-ico" style="background:'+cat.c+'18">'+ic(cat.i,22,cat.c)+'</div>'+
-      '<div class="row-txt"><b>'+m.name+(m.branch?' - '+m.branch:'')+'</b><small>'+m.type+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>';
+      '<div class="row-txt"><b>'+m.name+(m.branch?' - '+m.branch:'')+'</b><small>'+sectorLabel(m.type)+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>';
   }).join('')+'</div>';
 }
 
@@ -1443,11 +1449,11 @@ function invoiceModal(sel){
 }
 
 function invoices(){
-  var f=INVOICES.filter(function(i){return i.m.indexOf(S.query)>-1||i.c.indexOf(S.query)>-1});
+  var f=INVOICES.filter(function(i){return i.m.indexOf(S.query)>-1||i.c.indexOf(S.query)>-1||sectorLabel(i.c).indexOf(S.query)>-1});
   var sel=INVOICES.filter(function(i){return i.id===S.sel})[0];
   var grid=f.length!==0?'<div class="list">'+f.map(function(i){var m=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
       '<div class="row-ico" style="background:'+m.c+'18">'+ic(m.i,22,m.c)+'</div>'+
-      '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+i.c+'</span></div>'+
+      '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+sectorLabel(i.c)+'</span></div>'+
       '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
     :(INVOICES.length===0
       ?emptyState('لا توجد فواتير بعد','اربط جوالك عند أي متجر تزوره لتصلك فواتيرك تلقائيًا')
@@ -1550,7 +1556,7 @@ function merchantRewardsPage(){
   var title=fromMerchantDetail?'الولاء':m.name;
   var header='<div class="box"><div class="loy">'+
     '<div class="loy-ico" style="background:'+cat.c+'18">'+ic(cat.i,30,cat.c)+'</div>'+
-    '<div class="loy-mid"><small>'+m.type+'</small><b style="font-size:16px">'+m.name+'</b></div>'+
+    '<div class="loy-mid"><small>'+sectorLabel(m.type)+'</small><b style="font-size:16px">'+m.name+'</b></div>'+
   '</div>'+
   '<div class="stats2">'+
     '<div class="st"><b id="rwHdrPts" style="color:var(--orange)">'+m.points.toLocaleString('en-US')+'</b><small>رصيد النقاط</small></div>'+
@@ -1585,7 +1591,7 @@ function merchantsListHtml(){
   var q=normalizeAr(S.merchQuery);
   var list=USER_MERCHANTS.filter(function(m){
     if(!q)return true;
-    return normalizeAr(m.name+' '+(m.branch||'')+' '+m.type).indexOf(q)>-1;
+    return normalizeAr(m.name+' '+(m.branch||'')+' '+m.type+' '+sectorLabel(m.type)).indexOf(q)>-1;
   });
   if(!list.length)return '<div class="empty">لا توجد متاجر مطابقة لبحثك</div>';
   return '<div class="list">'+list.map(function(m){
@@ -1698,7 +1704,7 @@ function merchantDetail(){
 
   var header='<div class="box"><div class="loy">'+
     '<div class="loy-ico">'+ic(cat.i,30,cat.c)+'</div>'+
-    '<div class="loy-mid"><small>'+m.type+'</small><b style="font-size:16px">'+m.name+'</b>'+
+    '<div class="loy-mid"><small>'+sectorLabel(m.type)+'</small><b style="font-size:16px">'+m.name+'</b>'+
     (m.branch?'<p>'+m.branch+'</p>':'')+'</div>'+
   '</div></div>';
 
@@ -1710,7 +1716,7 @@ function merchantDetail(){
     var list='<div class="sec"><div class="sec-head"><h2>فواتيري</h2></div><div class="list">'+
       myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
         '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
-        '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
+        '<div class="row-txt"><b>'+i.d+'</b><small>'+sectorLabel(i.c)+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+
     '</div></div>';
     return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2></div>'+
@@ -1740,7 +1746,7 @@ function merchantInvoicesPage(){
   var list=myInvoices.length
     ?'<div class="list">'+myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
         '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
-        '<div class="row-txt"><b>'+i.d+'</b><small>'+i.c+'</small></div>'+
+        '<div class="row-txt"><b>'+i.d+'</b><small>'+sectorLabel(i.c)+'</small></div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
     :'<div class="empty">لا توجد فواتير لدى هذا المتجر</div>';
   return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2></div>'+
@@ -2052,7 +2058,7 @@ function spending(){
   '<div class="box"><small style="font-size:12px;color:var(--muted)">إجمالي الإنفاق هذا الشهر</small>'+
   '<div style="font-size:26px;font-weight:800;margin:4px 0 12px;direction:ltr;text-align:right">'+total.toLocaleString('en-US')+' ريال</div>'+
   '<div class="donut-row">'+donut(120,{b:total.toLocaleString('en-US'),s:'ريال'},true)+
-  '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+c.n+'</b><s>'+c.v+'% · '+c.a+'</s></div>'}).join('')+'</div></div></div>'+
+  '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+sectorLabel(c.n)+'</b><s>'+c.v+'% · '+c.a+'</s></div>'}).join('')+'</div></div></div>'+
   '<div class="box" style="margin-top:14px"><div class="box-head"><h3>الاتجاه الشهري</h3></div>'+
   '<div class="bars">'+TREND.map(function(d){return '<div class="bcol" title="'+d.t+' ريال"><div class="bfill" style="height:'+(d.t/max*105)+'px"></div><small>'+d.m+'</small></div>'}).join('')+'</div></div>'+
   '<div class="box" style="margin-top:14px"><div class="box-head"><h3>'+ic('spark',15,'#F59E0B')+' ماذا يقول NOJ؟</h3></div>'+
@@ -2073,7 +2079,7 @@ function reports(){
   '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
   '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
   '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/(INVOICES.length||1))+' ريال</span></div>'+
-  '<div class="mrow"><span>أعلى فئة</span><span>مطاعم (43%)</span></div>'+
+  '<div class="mrow"><span>أعلى فئة</span><span>مطعم (43%)</span></div>'+
   '<div class="mrow"><span>متاجر لديك رصيد نقاط فيها</span><span>'+loyMerchantCount+'</span></div>'+
   '<div class="dash"></div><div class="mrow"><span>وقت الانتظار الموفَّر</span><span>~2.5 ساعة</span></div></div>'+
   '<div class="box" style="margin-top:14px"><div class="box-head"><h3>أكثر المتاجر زيارة</h3></div>'+
