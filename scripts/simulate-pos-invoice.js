@@ -9,7 +9,7 @@
 //
 // الاستخدام:
 //   NOJ_TEST_POS_TOKEN=<توكن الفرع> SUPABASE_PROJECT_ID=<معرّف المشروع> \
-//     node scripts/simulate-pos-invoice.js --amount 125.50 [--vat 0] [--device-id <uuid>]
+//     node scripts/simulate-pos-invoice.js --amount 125.50 [--vat 0] [--device-id <uuid>] [--unit-code <رمز العيادة>]
 //
 // إرجاع فاتورة أُرسلت سابقاً (external_ref يُطبع عند إرسالها):
 //     node scripts/simulate-pos-invoice.js --refund-of <external_ref> --refund-amount 40
@@ -21,12 +21,13 @@
 // لا يطبع التوكن أبداً تحت أي ظرف.
 
 function parseArgs(argv) {
-  const out = { amount: null, vat: '0', deviceId: '', refundOf: '', refundAmount: '' };
+  const out = { amount: null, vat: '0', deviceId: '', unitCode: '', refundOf: '', refundAmount: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--amount') out.amount = argv[++i];
     else if (a === '--vat') out.vat = argv[++i];
     else if (a === '--device-id') out.deviceId = argv[++i];
+    else if (a === '--unit-code') out.unitCode = argv[++i];
     else if (a === '--refund-of') out.refundOf = argv[++i];
     else if (a === '--refund-amount') out.refundAmount = argv[++i];
     else {
@@ -71,7 +72,7 @@ async function main() {
   try {
     body = refundMode
       ? buildPosRefundPayload({ refundOf: args.refundOf, refundAmount: args.refundAmount, ci })
-      : buildPosInvoicePayload({ amount: args.amount, vat: args.vat, deviceId: args.deviceId, ci });
+      : buildPosInvoicePayload({ amount: args.amount, vat: args.vat, deviceId: args.deviceId, unitCode: args.unitCode, ci });
   } catch (err) {
     console.error(err.message || String(err));
     process.exit(1);

@@ -577,7 +577,7 @@ var M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[
   pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
   holdServer:null,holdSector:null,loadedSector:null,
   posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
-  view:'manage',inv:null,bk:null,bkConfirmCancelId:null};
+  view:'manage',inv:null,bk:null,bkConfirmCancelId:null,qu:null};
 
 /* الأقسام الستة بأسمائها العربية للعرض فقط. القسم واحد لكل تاجر
    (merchants.sector_code، راجع supabase-migration-unified-sectors.sql)؛
@@ -1090,6 +1090,8 @@ function bindInvoices(){
       if(v==='invoices'&&!M.inv){M.inv=newInvState();renderApp();loadInvoices(false);return}
       if(v==='bookings'){BK_ALERT.count=0}
       if(v==='bookings'&&!M.bk){M.bk=newBkState();renderApp();loadBookings();return}
+      if(v!=='queue')stopQueueWatch();
+      if(v==='queue'){if(!M.qu)M.qu=newQueueState();renderApp();loadQueue();return}
       renderApp();
     };
   });
@@ -1528,6 +1530,199 @@ function bindBookingSettings(S){
   flip('data-svc-booking','booking_enabled');
 }
 
+/* ================= الطابور (الصحي) =================
+   supabase-migration-clinic-queue.sql — لكل عيادة اليوم: قائمة الانتظار (اسم المريض
+   وآخر 4 أرقام فقط)، "نداء التالي" (merchant_queue_call_next)، و"انتهى"/"لم يحضر"
+   (merchant_queue_set_ticket_status) — للمالك والموظف. "رمز العيادة في نظام الكاشير"
+   (merchant_set_clinic_pos_code) للمالك فقط؛ الموظف يراه بلا تعديل. الأرقام تأتي من
+   الموعد عند الوصول (#112) أو بلا موعد من رمز العيادة الذي يرسله الكاشير مع الفاتورة.
+   التحديث التلقائي: Realtime على clinic_queue_state لعيادات التاجر (صف مجمَّع بلا
+   بيانات عميل) ثم إعادة القراءة، مع استعلام احتياطي عند انقطاع القناة
+   (window.__NOJ_QUEUE_POLL_MS__ للاختبار). لا تحميل ولا استماع قبل فتح التبويب. */
+var QUEUE_POLL_MS=window.__NOJ_QUEUE_POLL_MS__||20000;
+var MQ_WATCH={merchantId:null,channel:null,pollTimer:null,status:'',debounce:null};
+function queueTabVisible(){return M.loadedSector==='medical'||M.view==='queue'}
+function newQueueState(){return {loading:false,err:'',day:null,clinics:null,busyId:null,msg:{},codeDraft:{},codeSaving:null,codeMsg:{},req:0}}
+function queueErrorText(msg){
+  msg=msg||'';
+  if(/NOJ_QUEUE_EMPTY/.test(msg))return 'لا يوجد أحد بالانتظار في هذه العيادة.';
+  if(/NOJ_INVALID_TRANSITION|NOJ_TICKET_NOT_FOUND/.test(msg))return 'تغيّرت حالة هذا الرقم، حدّث القائمة.';
+  if(/NOJ_UNIT_CODE_TAKEN/.test(msg))return 'هذا الرمز مستخدم لعيادة أخرى لديك.';
+  if(/NOJ_INVALID_UNIT_CODE/.test(msg))return 'الرمز من 1 إلى 40 حرفاً.';
+  if(/NOJ_CLINIC_NOT_FOUND/.test(msg))return 'لم تعد هذه العيادة موجودة، حدّث القائمة.';
+  if(/NOJ_BOOKING_NOT_AVAILABLE/.test(msg))return 'الطابور للقسم الصحي فقط.';
+  if(/لا تملك صلاحية/.test(msg))return 'لا تملك صلاحية على هذا التاجر.';
+  return 'تعذّر تنفيذ العملية، حاول مرة أخرى.';
+}
+async function loadQueue(quiet){
+  var S=M.qu;
+  if(!S||!M.activeMerchantId)return;
+  var myReq=++S.req;
+  if(!quiet){S.loading=true;S.err='';renderApp()}
+  var sb=await getSb();
+  var res=sb?await sb.rpc('merchant_clinic_queue',{p_merchant_id:M.activeMerchantId}):{error:{message:'no-client'}};
+  if(M.qu!==S||myReq!==S.req)return;
+  S.loading=false;
+  if(res.error||!res.data){
+    if(!S.clinics)S.err=/NOJ_BOOKING_NOT_AVAILABLE/.test((res.error||{}).message||'')?'الطابور للقسم الصحي فقط.':'تعذّر تحميل الطابور، حاول مرة أخرى.';
+    if(!quiet||!S.clinics)renderApp();
+    return;
+  }
+  S.err='';S.day=res.data.day||null;S.clinics=res.data.clinics||[];
+  setupQueueWatch();
+  // لا إعادة رسم أثناء الكتابة في حقل رمز (يُعرض الجديد مع الإجراء التالي)
+  var a=document.activeElement;
+  if(quiet&&a&&a.hasAttribute&&a.hasAttribute('data-q-code-input'))return;
+  renderApp();
+}
+async function setupQueueWatch(){
+  var mid=M.activeMerchantId;
+  if(!mid||M.view!=='queue'){stopQueueWatch();return}
+  if(MQ_WATCH.merchantId===mid&&(MQ_WATCH.channel||MQ_WATCH.pollTimer))return;
+  stopQueueWatch();
+  MQ_WATCH.merchantId=mid;
+  var sb=await getSb();
+  if(!sb||MQ_WATCH.merchantId!==mid)return;
+  if(!sb.channel){startQueuePoll();return}
+  try{
+    var ss=await sb.auth.getSession();
+    var tok=ss&&ss.data&&ss.data.session&&ss.data.session.access_token;
+    if(tok&&sb.realtime&&sb.realtime.setAuth)sb.realtime.setAuth(tok);
+  }catch(e){}
+  if(MQ_WATCH.merchantId!==mid)return;
+  MQ_WATCH.channel=sb.channel('clinic-queue-merchant-'+mid)
+    .on('postgres_changes',{event:'*',schema:'public',table:'clinic_queue_state',filter:'merchant_id=eq.'+mid},function(){onQueueStateChange()})
+    .subscribe(function(status){
+      MQ_WATCH.status=status;
+      if(status==='SUBSCRIBED')stopQueuePoll();
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')startQueuePoll();
+    });
+}
+function stopQueueWatch(){
+  stopQueuePoll();
+  clearTimeout(MQ_WATCH.debounce);
+  if(MQ_WATCH.channel){
+    var ch=MQ_WATCH.channel;
+    getSb().then(function(sb){try{if(sb&&sb.removeChannel)sb.removeChannel(ch)}catch(e){}});
+  }
+  MQ_WATCH.channel=null;MQ_WATCH.merchantId=null;MQ_WATCH.status='';
+}
+function startQueuePoll(){
+  if(MQ_WATCH.pollTimer)return;
+  MQ_WATCH.pollTimer=setInterval(function(){if(M.view==='queue'&&M.qu)loadQueue(true)},QUEUE_POLL_MS);
+}
+function stopQueuePoll(){clearInterval(MQ_WATCH.pollTimer);MQ_WATCH.pollTimer=null}
+function onQueueStateChange(){
+  clearTimeout(MQ_WATCH.debounce);
+  MQ_WATCH.debounce=setTimeout(function(){if(M.view==='queue'&&M.qu&&MQ_WATCH.merchantId===M.activeMerchantId)loadQueue(true)},150);
+}
+function queueTicketHtml(t,busy){
+  var who=(t.customer_name?escAttr(t.customer_name):'مريض')+(t.customer_phone_last4?' · جوال ينتهي بـ <span class="num">'+escAttr(t.customer_phone_last4)+'</span>':'');
+  var kind=t.kind==='appointment'?'بموعد':'بدون موعد';
+  var actions=t.status==='called'
+    ?'<button type="button" class="approve-btn" data-q-done="'+t.id+'"'+(busy?' disabled':'')+'>انتهى</button>'+
+     '<button type="button" class="btn-outline" data-q-noshow="'+t.id+'"'+(busy?' disabled':'')+'>لم يحضر</button>'
+    :'<button type="button" class="btn-outline" data-q-noshow="'+t.id+'"'+(busy?' disabled':'')+'>لم يحضر</button>';
+  return '<div class="inv-row" data-q-ticket="'+t.id+'" data-q-status="'+escAttr(t.status)+'">'+
+    '<div class="inv-top"><b class="num" style="font-size:18px">#'+escAttr(t.ticket_number)+'</b>'+
+      '<span class="badge '+(t.status==='called'?'active':'warn')+'">'+(t.status==='called'?'مُنادى':'بالانتظار')+'</span></div>'+
+    '<div class="inv-sub">'+who+'</div>'+
+    '<div class="inv-sub">'+kind+' · وصل <span class="num">'+escAttr(t.created_at_riyadh||'')+'</span>'+
+      (t.called_at_riyadh?' · نُودي <span class="num">'+escAttr(t.called_at_riyadh)+'</span>':'')+'</div>'+
+    '<div class="bk-actions">'+actions+'</div>'+
+  '</div>';
+}
+function queueClinicHtml(S,c){
+  var owner=activeRole()==='owner';
+  var tickets=c.tickets||[];
+  var called=tickets.filter(function(t){return t.status==='called'});
+  var waiting=tickets.filter(function(t){return t.status==='waiting'});
+  var busyClinic=S.busyId===c.id;
+  var draft=S.codeDraft[c.id]!==undefined?S.codeDraft[c.id]:(c.pos_unit_code||'');
+  var codeHtml=owner
+    ?'<label class="form-f" style="margin-top:10px"><label>رمز العيادة في نظام الكاشير</label>'+
+      '<input type="text" maxlength="40" data-q-code-input="'+c.id+'" value="'+escAttr(draft)+'" placeholder="مثال: DENT-1"></label>'+
+      '<div class="bk-actions"><button type="button" class="btn-outline" data-q-code-save="'+c.id+'"'+(S.codeSaving===c.id?' disabled':'')+'>'+(S.codeSaving===c.id?'جارٍ الحفظ...':'حفظ الرمز')+'</button></div>'+
+      (S.codeMsg[c.id]?'<div class="hint" data-q-code-msg="'+c.id+'">'+escAttr(S.codeMsg[c.id])+'</div>':'')
+    :'<div class="inv-sub" data-q-code-ro="'+c.id+'">رمز الكاشير: <b class="num">'+(c.pos_unit_code?escAttr(c.pos_unit_code):'—')+'</b> <span class="hint">(تعديله للمالك فقط)</span></div>';
+  return '<div class="card" style="margin-bottom:14px" data-q-clinic="'+c.id+'">'+
+    '<div class="inv-top"><b>'+escAttr(c.name)+'</b>'+(c.doctor_name?'<span class="hint">'+escAttr(c.doctor_name)+'</span>':'')+'</div>'+
+    '<div class="inv-sub" data-q-mode>'+(c.walk_in_enabled?'بموعد وبدون موعد':'بموعد فقط (بلا أرقام لمن ليس له موعد)')+'</div>'+
+    '<div class="inv-sub">الرقم الحالي: <b class="num" data-q-now>'+(c.now_serving!=null?'#'+escAttr(c.now_serving):'—')+'</b>'+
+      ' · بالانتظار: <b class="num" data-q-waiting>'+waiting.length+'</b>'+
+      ' · انتهى: <span class="num">'+escAttr(c.done_count||0)+'</span> · لم يحضر: <span class="num">'+escAttr(c.no_show_count||0)+'</span></div>'+
+    '<div class="bk-actions"><button type="button" class="approve-btn" data-q-next="'+c.id+'"'+(busyClinic||!waiting.length?' disabled':'')+'>نداء التالي</button></div>'+
+    (S.msg[c.id]?'<div class="form-warn" data-q-msg="'+c.id+'" style="margin-top:8px">'+escAttr(S.msg[c.id])+'</div>':'')+
+    called.map(function(t){return queueTicketHtml(t,S.busyId===t.id)}).join('')+
+    (waiting.length?waiting.map(function(t){return queueTicketHtml(t,S.busyId===t.id)}).join(''):'<div class="hint" style="margin-top:8px" data-q-empty>لا أحد بالانتظار.</div>')+
+    codeHtml+
+  '</div>';
+}
+function queueViewHtml(){
+  var S=M.qu;
+  if(!S)return '';
+  var html='<div class="sec-h"><h2>الطابور'+(S.day?' <span class="hint num">'+escAttr(S.day)+'</span>':'')+'</h2><button type="button" class="btn-outline" id="quRefresh">تحديث</button></div>';
+  if(S.loading&&!S.clinics)return html+'<div class="loading-row" id="quLoading">جارٍ التحميل...</div>';
+  if(S.err&&!S.clinics){
+    return html+'<div class="card"><div class="form-warn" id="quErr">'+escAttr(S.err)+'</div>'+
+      '<button type="button" class="btn-outline" id="quRetry" style="margin-top:10px">إعادة المحاولة</button></div>';
+  }
+  if(!S.clinics)return html;
+  html+='<p class="hint" style="margin:0 2px 12px">أرقام اليوم لكل عيادة: من الموعد عند الوصول، أو بلا موعد حين يرسل الكاشير رمز العيادة مع الفاتورة (للعيادات "بموعد وبدون موعد").</p>';
+  if(!S.clinics.length)return html+'<div class="card"><div class="empty" id="quNoClinics">لا توجد عيادات مسجَّلة.</div></div>';
+  return html+'<div id="queueView">'+S.clinics.map(function(c){return queueClinicHtml(S,c)}).join('')+'</div>';
+}
+async function queueAction(clinicId,ticketId,fn,args){
+  var S=M.qu;
+  if(!S||S.busyId)return;
+  S.busyId=ticketId||clinicId;S.msg={};renderApp();
+  var sb=await getSb();
+  var res=sb?await sb.rpc(fn,args):{error:{message:'no-client'}};
+  if(M.qu!==S)return;
+  S.busyId=null;
+  if(res.error){S.msg[clinicId]=queueErrorText(res.error.message);renderApp();return}
+  await loadQueue(true);
+  if(M.qu===S)renderApp();
+}
+function bindQueue(){
+  var S=M.qu;
+  if(!S||M.view!=='queue')return;
+  var r1=document.getElementById('quRefresh');if(r1)r1.onclick=function(){loadQueue()};
+  var r2=document.getElementById('quRetry');if(r2)r2.onclick=function(){loadQueue()};
+  var clinicOf=function(el){var c=el.closest('[data-q-clinic]');return c?c.getAttribute('data-q-clinic'):null};
+  [].forEach.call(document.querySelectorAll('[data-q-next]'),function(b){
+    b.onclick=function(){var cid=b.getAttribute('data-q-next');queueAction(cid,null,'merchant_queue_call_next',{p_clinic_id:cid})};
+  });
+  [].forEach.call(document.querySelectorAll('[data-q-done]'),function(b){
+    b.onclick=function(){var id=b.getAttribute('data-q-done');queueAction(clinicOf(b),id,'merchant_queue_set_ticket_status',{p_ticket_id:id,p_status:'done'})};
+  });
+  [].forEach.call(document.querySelectorAll('[data-q-noshow]'),function(b){
+    b.onclick=function(){var id=b.getAttribute('data-q-noshow');queueAction(clinicOf(b),id,'merchant_queue_set_ticket_status',{p_ticket_id:id,p_status:'no_show'})};
+  });
+  [].forEach.call(document.querySelectorAll('[data-q-code-input]'),function(inp){
+    inp.oninput=function(){S.codeDraft[inp.getAttribute('data-q-code-input')]=inp.value};
+  });
+  [].forEach.call(document.querySelectorAll('[data-q-code-save]'),function(b){
+    b.onclick=async function(){
+      var cid=b.getAttribute('data-q-code-save');
+      if(S.codeSaving)return;
+      var inp=document.querySelector('[data-q-code-input="'+cid+'"]');
+      var code=(inp?inp.value:'').trim();
+      S.codeSaving=cid;S.codeMsg={};renderApp();
+      var sb=await getSb();
+      var res=sb?await sb.rpc('merchant_set_clinic_pos_code',{p_clinic_id:cid,p_code:code}):{error:{message:'no-client'}};
+      if(M.qu!==S)return;
+      S.codeSaving=null;
+      if(res.error){S.codeMsg[cid]=queueErrorText(res.error.message);renderApp();return}
+      var saved=res.data&&res.data.pos_unit_code!==undefined?res.data.pos_unit_code:(code||null);
+      delete S.codeDraft[cid];
+      (S.clinics||[]).forEach(function(c){if(c.id===cid)c.pos_unit_code=saved});
+      S.codeMsg[cid]=saved?'حُفظ الرمز.':'أُزيل الرمز.';
+      renderApp();
+    };
+  });
+}
+
 /* ================= تنبيه الحجوزات الجديدة (Realtime) =================
    صف booking_alerts واحد لكل حجز جديد (بلا أي بيانات عميل) يكتبه مشغّل في
    الخادم حين booking_alerts_enabled مفعّل للتاجر. اللوحة تستمع له عبر Realtime
@@ -1630,8 +1825,9 @@ function renderApp(){
       '<button type="button" data-view="manage" class="'+(M.view==='manage'?'on':'')+'">الإدارة</button>'+
       '<button type="button" data-view="invoices" class="'+(M.view==='invoices'?'on':'')+'">الفواتير</button>'+
       (bookingsTabVisible()?'<button type="button" data-view="bookings" class="'+(M.view==='bookings'?'on':'')+'">'+(M.loadedSector==='medical'?'المواعيد':'الحجوزات')+(BK_ALERT.count>0?'<span id="bkBadge" class="tab-badge">'+BK_ALERT.count+'</span>':'')+'</button>':'')+
+      (queueTabVisible()?'<button type="button" data-view="queue" class="'+(M.view==='queue'?'on':'')+'">الطابور</button>':'')+
     '</div>'+
-    (M.view==='invoices'?invoicesViewHtml():M.view==='bookings'?bookingsViewHtml():
+    (M.view==='invoices'?invoicesViewHtml():M.view==='bookings'?bookingsViewHtml():M.view==='queue'?queueViewHtml():
     '<div class="sec-h"><h2>الأجهزة</h2></div>'+
     '<div class="card" style="margin-bottom:20px">'+devicesListHtml()+'</div>'+
     '<div class="sec-h"><h2>اعتماد شاشة نوج جديدة</h2></div>'+
@@ -1648,14 +1844,17 @@ function bindApp(){
   var ms=document.getElementById('merchantSelect');
   if(ms)ms.onchange=async function(){
     M.activeMerchantId=ms.value;
-    M.inv=null;M.bk=null;M.bkConfirmCancelId=null;
+    M.inv=null;M.bk=null;M.bkConfirmCancelId=null;M.qu=null;
+    stopQueueWatch();
     await loadDashboardData();
     if(M.view==='invoices'){M.inv=newInvState();loadInvoices(false)}
     if(M.view==='bookings'){M.bk=newBkState();loadBookings()}
+    if(M.view==='queue'){M.qu=newQueueState();loadQueue()}
   };
 
   bindInvoices();
   bindBookings();
+  bindQueue();
 
   var logout=document.getElementById('logoutBtn');
   if(logout)logout.onclick=doLogout;
@@ -1897,6 +2096,7 @@ function bindApp(){
 async function doLogout(){
   var sb=await getSb();
   stopBookingAlerts();
+  stopQueueWatch();
   if(sb)await sb.auth.signOut();
   stopIdleTimer();
   M={merchants:[],merchantNames:{},activeMerchantId:null,branches:[],devices:[],loading:false,approving:false,confirmRevokeId:null,
@@ -1904,7 +2104,7 @@ async function doLogout(){
     pendingMode:null,pinInput:'',pinSaving:false,pinMsg:'',pinErr:'',
     holdServer:null,holdSector:null,loadedSector:null,
     posToken:null,posTokenConfirm:false,posTokenIssuing:false,posTokenErr:'',posConnections:null,
-    view:'manage',inv:null,bk:null,bkConfirmCancelId:null};
+    view:'manage',inv:null,bk:null,bkConfirmCancelId:null,qu:null};
   A={phone:'',code:'',step:'phone',err:'',secs:0,timer:null};
   var appEl=document.getElementById('app');
   appEl.style.display='none';appEl.innerHTML='';

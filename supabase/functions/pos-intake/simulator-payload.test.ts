@@ -134,6 +134,25 @@ Deno.test('simulator payload: 115 شاملاً 15 ضريبة يمرّ عبر pos
   assertEquals(result.status, 200);
 });
 
+Deno.test('simulator payload: unit_code (رمز العيادة) يصل مقصوصاً ويمرّ عبر pos-intake إلى metadata.unit_code', async () => {
+  const payload = buildPosInvoicePayload({ amount: '230', vat: '30', deviceId: '', unitCode: '  DENT-1 ', ci: null }) as Record<string, unknown>;
+  assertEquals(payload.unit_code, 'DENT-1');
+  let seen: Record<string, unknown> | null = null;
+  const deps = makeDeps({ intakeTransaction: (args) => { seen = args.metadata; return Promise.resolve({ ok: true, row: { id: 'x', status: 'pending', external_ref: args.externalRef } }); } });
+  const result = await handlePosIntake(JSON.stringify(payload), headers(VALID_TOKEN), deps);
+  assertEquals(result.status, 200);
+  assertEquals((seen as unknown as Record<string, unknown>).unit_code, 'DENT-1');
+  assertEquals((seen as unknown as Record<string, unknown>).source, 'cli-simulator');
+});
+
+Deno.test('simulator payload: unit_code فارغ يُحذف كلياً، وأطول من 40 حرفاً يُرفض قبل الإرسال', () => {
+  const p = buildPosInvoicePayload({ amount: '10', vat: '0', deviceId: '', unitCode: '   ', ci: null });
+  assertEquals(Object.prototype.hasOwnProperty.call(p, 'unit_code'), false);
+  let threw = false;
+  try { buildPosInvoicePayload({ amount: '10', vat: '0', deviceId: '', unitCode: 'x'.repeat(41), ci: null }); } catch { threw = true; }
+  assertEquals(threw, true);
+});
+
 // ---------------------------------------------------------------------------
 // Refund simulation — the SAME single source of truth, through the real handler
 // ---------------------------------------------------------------------------

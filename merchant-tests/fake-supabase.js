@@ -191,6 +191,52 @@
         var apo = Object.assign({}, ap); delete apo.merchant_id;
         return Promise.resolve({ data: apo, error: null });
       }
+      // طابور العيادات (supabase-migration-clinic-queue.sql)
+      if (name === 'merchant_clinic_queue') {
+        (state.queueListCalls = state.queueListCalls || []).push(args);
+        if (!isMemberOf(args.p_merchant_id)) return Promise.resolve(noAccess);
+        var qm = (scenario.merchants || []).find(function (x) { return x.id === args.p_merchant_id; }) || {};
+        if (qm.sector_code !== 'medical') return Promise.resolve({ data: null, error: { message: 'NOJ_BOOKING_NOT_AVAILABLE' } });
+        return Promise.resolve({ data: { day: '2030-03-11', clinics: JSON.parse(JSON.stringify(scenario.queueClinics || [])) }, error: null });
+      }
+      if (name === 'merchant_queue_call_next') {
+        (state.queueActionCalls = state.queueActionCalls || []).push({ fn: name, args: args });
+        var qc = (scenario.queueClinics || []).find(function (c) { return c.id === args.p_clinic_id; });
+        if (!qc) return Promise.resolve({ data: null, error: { message: 'NOJ_CLINIC_NOT_FOUND' } });
+        if (!isMemberOf('merchant-1')) return Promise.resolve(noAccess);
+        var nxt = (qc.tickets || []).filter(function (t) { return t.status === 'waiting'; }).sort(function (a, b) { return a.ticket_number - b.ticket_number; })[0];
+        if (!nxt) return Promise.resolve({ data: null, error: { message: 'NOJ_QUEUE_EMPTY' } });
+        nxt.status = 'called'; nxt.called_at_riyadh = '10:15'; qc.now_serving = nxt.ticket_number;
+        return Promise.resolve({ data: JSON.parse(JSON.stringify(nxt)), error: null });
+      }
+      if (name === 'merchant_queue_set_ticket_status') {
+        (state.queueActionCalls = state.queueActionCalls || []).push({ fn: name, args: args });
+        if (['done', 'no_show'].indexOf(args.p_status) === -1) return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_STATUS' } });
+        var tc = null, tk = null;
+        (scenario.queueClinics || []).forEach(function (c) { (c.tickets || []).forEach(function (t) { if (t.id === args.p_ticket_id) { tc = c; tk = t; } }); });
+        if (!tk) return Promise.resolve({ data: null, error: { message: 'NOJ_TICKET_NOT_FOUND' } });
+        if (!isMemberOf('merchant-1')) return Promise.resolve(noAccess);
+        if ((args.p_status === 'done' && tk.status !== 'called') || (args.p_status === 'no_show' && ['called', 'waiting'].indexOf(tk.status) === -1)) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_TRANSITION' } });
+        }
+        tk.status = args.p_status;
+        tc.tickets = tc.tickets.filter(function (t) { return t !== tk; });
+        if (args.p_status === 'done') tc.done_count = (tc.done_count || 0) + 1; else tc.no_show_count = (tc.no_show_count || 0) + 1;
+        return Promise.resolve({ data: JSON.parse(JSON.stringify(tk)), error: null });
+      }
+      if (name === 'merchant_set_clinic_pos_code') {
+        (state.codeCalls = state.codeCalls || []).push(args);
+        var pc = (scenario.queueClinics || []).find(function (c) { return c.id === args.p_clinic_id; });
+        if (!pc) return Promise.resolve({ data: null, error: { message: 'NOJ_CLINIC_NOT_FOUND' } });
+        if (!isMemberOf('merchant-1', true)) return Promise.resolve(noAccess);
+        var code = (args.p_code || '').trim() || null;
+        if (code && code.length > 40) return Promise.resolve({ data: null, error: { message: 'NOJ_INVALID_UNIT_CODE' } });
+        if (code && (scenario.queueClinics || []).some(function (c) { return c !== pc && c.pos_unit_code && c.pos_unit_code.toLowerCase() === code.toLowerCase(); })) {
+          return Promise.resolve({ data: null, error: { message: 'NOJ_UNIT_CODE_TAKEN' } });
+        }
+        pc.pos_unit_code = code;
+        return Promise.resolve({ data: { id: pc.id, name: pc.name, pos_unit_code: code }, error: null });
+      }
       if (name === 'merchant_set_clinic_booking') {
         (state.clinicCalls = state.clinicCalls || []).push(args);
         var cl = (scenario.clinics || []).find(function (c) { return c.id === args.p_clinic_id; });
@@ -433,6 +479,17 @@
           });
         });
       },
+      emitQueueStateChange: function (merchantId) {
+        (state.channels || []).forEach(function (c) {
+          if (c.removed) return;
+          c.handlers.forEach(function (h) {
+            if (h.filter && h.filter.table === 'clinic_queue_state' && h.filter.filter === 'merchant_id=eq.' + merchantId) h.cb({ eventType: 'UPDATE', new: { merchant_id: merchantId } });
+          });
+        });
+      },
+      getQueueListCalls: function () { return (state.queueListCalls || []).slice(); },
+      getQueueActionCalls: function () { return (state.queueActionCalls || []).slice(); },
+      getCodeCalls: function () { return (state.codeCalls || []).slice(); },
       setChannelStatus: function (st) { (state.channels || []).forEach(function (c) { if (!c.removed && c.statusCb) c.statusCb(st); }); },
       getAlertPolls: function () { return state.alertPolls || 0; },
       getSetAuthCalls: function () { return (state.setAuthCalls || []).slice(); },

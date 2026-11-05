@@ -17,6 +17,13 @@
 //       "vat": <number, 0 <= vat < amount, optional, default 0 — the VAT
 //              portion already CONTAINED in amount, not added on top of it>,
 //       "device_id": "<uuid, optional>",
+//       "unit_code": "<string, optional — the clinic's code in the cashier
+//                     system (health centers): a patient without an
+//                     appointment that day gets a queue number in that
+//                     clinic. Trimmed, 1..40 chars; anything else is ignored,
+//                     never a reason to reject the invoice. Travels to the
+//                     database as metadata.unit_code, so
+//                     intake_pos_transaction() keeps its signature>",
 //       "metadata": {<object, optional, size-capped>} }
 //   Response: {"ok": true, "transaction_id": "...", "status": "pending",
 //     "external_ref": "..."} on success, {"ok": false, "error": "..."} with
@@ -61,6 +68,18 @@ const MAX_BODY_BYTES = 10_000; // 10KB — a single invoice payload has no busin
 const MAX_EXTERNAL_REF_LENGTH = 200;
 const MAX_METADATA_JSON_LENGTH = 2000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_UNIT_CODE_LENGTH = 40;
+
+// unit_code is best-effort by contract: a missing, empty, non-string or
+// over-long value is dropped (null) — the invoice itself is never rejected
+// because of it (supabase-migration-clinic-queue.sql: no code / unknown code
+// = an invoice without a queue number).
+export function normalizeUnitCode(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const code = raw.trim();
+  if (code.length === 0 || code.length > MAX_UNIT_CODE_LENGTH) return null;
+  return code;
+}
 
 export interface RequestHeaders {
   authorization: string | null;
@@ -72,6 +91,7 @@ export interface NormalizedPayload {
   amount: number;
   vat: number;
   deviceId: string | null;
+  unitCode: string | null;
   metadata: Record<string, unknown> | null;
 }
 
@@ -193,7 +213,7 @@ function genericAdapter(raw: unknown): NormalizedPayload {
     metadata = r.metadata as Record<string, unknown>;
   }
 
-  return { externalRef: r.external_ref, amount: r.amount, vat, deviceId, metadata };
+  return { externalRef: r.external_ref, amount: r.amount, vat, deviceId, unitCode: normalizeUnitCode(r.unit_code), metadata };
 }
 
 function genericRefundAdapter(raw: unknown): NormalizedRefund {
@@ -295,6 +315,13 @@ export async function handlePosIntake(
     return errorResult(400, e instanceof Error ? e.message : 'حمولة غير صالحة');
   }
 
+  // the clinic code rides inside metadata (overriding a metadata.unit_code the
+  // cashier may also have sent) — no new parameter on intake_pos_transaction(),
+  // so deploying this function before or after the SQL file breaks nothing
+  const metadata = payload.unitCode
+    ? { ...(payload.metadata || {}), unit_code: payload.unitCode }
+    : payload.metadata;
+
   const result = await deps.intakeTransaction({
     branchId,
     deviceId: payload.deviceId,
@@ -302,7 +329,7 @@ export async function handlePosIntake(
     amount: payload.amount,
     vat: payload.vat,
     sourceAdapter: vendor,
-    metadata: payload.metadata,
+    metadata,
   });
 
   if (!result.ok || !result.row) {

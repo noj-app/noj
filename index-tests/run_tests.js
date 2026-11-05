@@ -67,7 +67,7 @@ async function openApp(browser, scenario, timezoneId) {
   const page = await context.newPage();
   await page.route(/^https?:\/\//, (route) => route.abort());
   await page.addInitScript(() => { localStorage.setItem('noj_session', 'true'); });
-  await page.addInitScript((s) => { window.__NOJ_SCENARIO__ = s; }, scenario);
+  await page.addInitScript((s) => { window.__NOJ_SCENARIO__ = s; if (s.queuePollMs) window.__NOJ_QUEUE_POLL_MS__ = s.queuePollMs; }, scenario);
   await page.addInitScript({ path: FAKE_SB_PATH });
   await page.goto(INDEX_URL);
   await page.waitForFunction(() => typeof S !== 'undefined' && S.dataLoading === false && document.querySelector('.nav button[data-tab="merchants"]'), null, { timeout: 8000 });
@@ -411,6 +411,53 @@ const appText = (page) => page.textContent('#app');
     await page.click('[data-toggle-appt-picker]');
     check('21) قبل تطبيق الملف: قائمة المواعيد وزر الحجز يعملان، بلا سجل ولا خطأ ظاهر',
       /عيادة الأسنان/.test(await page.textContent('#apptList')) && (await page.$$('[data-book-clinic]')).length === 2 && !(await page.$('#apptHistory')));
+    await context.close();
+  }
+
+  // 22-27) طابور العيادات الحي (supabase-migration-clinic-queue.sql): رقم دور حقيقي
+  //        اليوم، "أمامك X" يتحدّث تلقائياً (Realtime على clinic_queue_state + استعلام احتياطي)
+  const liveTicket = (over) => [Object.assign({ ticket_id: 'q-1', merchant_id: HEALTH, merchant_name: 'مركز النور الطبي', clinic_id: 'c-2',
+    clinic_name: 'عيادة الجلدية', doctor_name: 'د. نورة', ticket_number: 7, status: 'waiting', ahead: 3, now_serving: 4 }, over || {})];
+  const openQueue = async (page) => { await page.evaluate(() => { S.tab = 'queue'; render(); }); await page.waitForTimeout(100); };
+  {
+    const { context, page } = await openApp(browser, baseScenario({ myQueue: liveTicket() }));
+    await openQueue(page);
+    const card = (await page.$('[data-live-queue-card]')) ? await page.textContent('[data-live-queue-card]') : '';
+    check('22) رقم دور حقيقي اليوم: بطاقة الدور بالرقم والعيادة وعدد من قبلك والرقم الحالي — بلا زر المحاكاة',
+      /#7/.test(card) && /مركز النور الطبي - عيادة الجلدية/.test(card) && (await page.textContent('[data-q-ahead]')) === '3' &&
+      (await page.textContent('[data-q-now]')) === '#4' && /يتحدّث تلقائياً/.test(card) && !(await page.$('#qbtn')));
+    const chans = await page.evaluate(() => window.__TEST__.getChannels());
+    check('22) يستمع لطابور عيادة التذكرة فقط (clinic_queue_state، clinic_id=eq.c-2) بعد setAuth صريح بتوكن الجلسة',
+      chans.length === 1 && chans[0].filter.table === 'clinic_queue_state' && chans[0].filter.filter === 'clinic_id=eq.c-2' &&
+      JSON.stringify(await page.evaluate(() => window.__TEST__.getSetAuthTokens())) === JSON.stringify(['fake']));
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.myQueue[0].ahead = 1; window.__NOJ_SCENARIO__.myQueue[0].now_serving = 6; window.__TEST__.pushQueueStateChange('c-2'); });
+    await page.waitForFunction(() => document.querySelector('[data-q-ahead]') && document.querySelector('[data-q-ahead]').textContent === '1', null, { timeout: 3000 }).catch(() => {});
+    check('23) تغيّر في الطابور (Realtime): "عدد الأشخاص قبلك" والرقم الحالي يتحدّثان تلقائياً بلا أي ضغطة',
+      (await page.textContent('[data-q-ahead]')) === '1' && (await page.textContent('[data-q-now]')) === '#6');
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.myQueue[0].status = 'called'; window.__NOJ_SCENARIO__.myQueue[0].ahead = 0; window.__TEST__.pushQueueStateChange('c-2'); });
+    await page.waitForSelector('[data-q-called]', { timeout: 3000 }).catch(() => {});
+    check('24) نُودي على الرقم: "حان دورك الآن" مع اسم الطبيب', !!(await page.$('[data-q-called]')) && /حان دورك الآن/.test(await page.textContent('[data-live-queue-card]')) && /د\. نورة/.test(await page.textContent('[data-q-called]')));
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.myQueue = []; window.__TEST__.pushQueueStateChange('c-2'); });
+    await page.waitForFunction(() => !document.querySelector('[data-live-queue-card]'), null, { timeout: 3000 }).catch(() => {});
+    check('25) انتهى الدور (حضر/لم يحضر): تختفي بطاقة الدور الحي وتُغلق القناة',
+      !(await page.$('[data-live-queue-card]')) && (await page.evaluate(() => window.__TEST__.getChannels()))[0].removed === true);
+    await context.close();
+  }
+  {
+    // القناة لا تعمل: الاستعلام الاحتياطي الدوري يحدّث الرقم
+    const { context, page } = await openApp(browser, baseScenario({ myQueue: liveTicket(), channelStatus: 'CHANNEL_ERROR', queuePollMs: 150 }));
+    await openQueue(page);
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.myQueue[0].ahead = 2; });
+    await page.waitForFunction(() => document.querySelector('[data-q-ahead]') && document.querySelector('[data-q-ahead]').textContent === '2', null, { timeout: 3000 }).catch(() => {});
+    check('26) انقطاع Realtime: الاستعلام الاحتياطي يحدّث "عدد الأشخاص قبلك" تلقائياً', (await page.textContent('[data-q-ahead]')) === '2');
+    await context.close();
+  }
+  {
+    // لا تذكرة حية (أو قبل تطبيق الملف: الدالة غير موجودة) ⇒ صفحة الانتظار كما كانت تماماً
+    const { context, page } = await openApp(browser, baseScenario({ myQueueError: 'function get_my_queue_status() does not exist' }));
+    await openQueue(page);
+    check('27) بلا تذكرة حية / قبل تطبيق الملف: صفحة الانتظار كما كانت (زر المحاكاة)، بلا قناة',
+      !!(await page.$('#qbtn')) && !(await page.$('[data-live-queue-card]')) && (await page.evaluate(() => window.__TEST__.getChannels())).length === 0);
     await context.close();
   }
 

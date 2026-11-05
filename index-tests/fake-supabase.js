@@ -50,6 +50,10 @@
       if (name === 'claim_unclaimed_invoices') return Promise.resolve({ data: null, error: null });
       if (name === 'get_merchant_clinics') return Promise.resolve({ data: scenario.clinics || [], error: null });
       if (name === 'get_merchant_queue_stats') return Promise.resolve({ data: [], error: null });
+      if (name === 'get_my_queue_status') {
+        if (scenario.myQueueError) return Promise.resolve({ data: null, error: { message: scenario.myQueueError } });
+        return Promise.resolve({ data: JSON.parse(JSON.stringify(scenario.myQueue || [])), error: null });
+      }
       if (name === 'create_reservation') {
         if (scenario.createReservationError) return Promise.resolve({ data: null, error: { message: scenario.createReservationError } });
         var m = (tables.merchants || []).find(function (x) { return x.id === args.p_merchant_id; });
@@ -94,6 +98,8 @@
       return Promise.resolve({ data: null, error: null });
     }
 
+    // Realtime: channel().on('postgres_changes', {filter}, cb).subscribe(statusCb)
+    var channels = [], setAuthTokens = [];
     var client = {
       auth: {
         getSession: function () { return Promise.resolve({ data: { session: { user: { id: 'auth-1' }, access_token: 'fake' } } }); },
@@ -101,11 +107,37 @@
       },
       rpc: rpc,
       from: function (table) { return makeBuilder(table); },
+      realtime: { setAuth: function (t) { setAuthTokens.push(t); } },
+      channel: function (name) {
+        var ch = { name: name, handlers: [], statusCb: null, removed: false };
+        ch.on = function (type, filter, cb) { ch.handlers.push({ type: type, filter: filter, cb: cb }); return ch; };
+        ch.subscribe = function (cb) {
+          ch.statusCb = cb;
+          var st = scenario.channelStatus || 'SUBSCRIBED';
+          setTimeout(function () { if (cb) cb(st); }, 0);
+          return ch;
+        };
+        channels.push(ch);
+        return ch;
+      },
+      removeChannel: function (ch) { ch.removed = true; return Promise.resolve('ok'); },
     };
     window.__TEST__ = {
       getCalls: function (name) { return calls.filter(function (c) { return !name || c.name === name; }); },
       getQueries: function (table) { return queries.filter(function (q) { return q.table === table; }); },
       getTable: function (t) { return JSON.parse(JSON.stringify(tables[t] || [])); },
+      getChannels: function () { return channels.map(function (c) { return { name: c.name, removed: c.removed, filter: c.handlers[0] && c.handlers[0].filter }; }); },
+      getSetAuthTokens: function () { return setAuthTokens.slice(); },
+      // a change on clinic_queue_state for that clinic, as Realtime would deliver it
+      pushQueueStateChange: function (clinicId) {
+        channels.forEach(function (c) {
+          if (c.removed) return;
+          c.handlers.forEach(function (h) {
+            if (h.filter && h.filter.table === 'clinic_queue_state' && h.filter.filter === 'clinic_id=eq.' + clinicId) h.cb({ eventType: 'UPDATE', new: { clinic_id: clinicId } });
+          });
+        });
+      },
+      setChannelStatus: function (st) { channels.forEach(function (c) { if (!c.removed && c.statusCb) c.statusCb(st); }); },
     };
     return client;
   }

@@ -678,6 +678,70 @@ async function openAdminSettingsViaPin(page, pin) {
     await enterPhoneAndConfirm(page, '512345678');
     await page.waitForSelector('.ok', { timeout: 4000 });
     check('31) قطاع غير صحي: لا نداء kiosk_appointment_checkin ولا بطاقة موعد', (await page.evaluate(() => window.__TEST__.getCheckinCalls())).length === 0 && !(await page.$('[data-live-appt]')));
+    check('35) قطاع غير صحي: لا نداء kiosk_queue_checkin ولا بطاقة "عيادتك"', (await page.evaluate(() => window.__TEST__.getQueueCheckinCalls())).length === 0 && !(await page.$('[data-live-walkin]')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 32-35) طابور العيادات (supabase-migration-clinic-queue.sql): مريض بلا موعد
+  //        اليوم أرسل الكاشير رمز عيادته "بموعد وبدون موعد" ⇒ رقم دور حقيقي
+  // =========================================================================
+  {
+    const sc = medicalLive({ checkins: {}, queueCheckins: { 'txn-m': { data: { clinic_name: 'عيادة الجلدية', doctor_name: 'د. خالد العمر', queue_number: 7, ahead: 3 } } } });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    await pushTxn(page, 'txn-m');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('[data-live-queue]', { timeout: 4000 }).catch(() => {});
+    const okText = await page.textContent('.ok');
+    check('32) بلا موعد اليوم: يُطلب الموعد أولاً ثم رقم الدور بلا موعد لهذه العملية بالذات (kiosk_queue_checkin)',
+      JSON.stringify(await page.evaluate(() => window.__TEST__.getCheckinCalls())) === JSON.stringify(['txn-m']) &&
+      JSON.stringify(await page.evaluate(() => window.__TEST__.getQueueCheckinCalls())) === JSON.stringify(['txn-m']));
+    check('33) بطاقة "عيادتك" (العيادة والطبيب، بلا وقت موعد) لا "موعدك"',
+      !!(await page.$('[data-live-walkin]')) && !(await page.$('[data-live-appt]')) && /عيادتك/.test(okText) && !/موعدك/.test(okText) &&
+      /عيادة الجلدية/.test(okText) && /د\. خالد العمر/.test(okText));
+    const qt = (await page.$('[data-live-queue]')) ? await page.textContent('[data-live-queue]') : '';
+    check('33) رقم الدور الحقيقي في طابور العيادة ("رقم دورك" 7، أمامك 3)', qt.includes('7') && /رقم دورك/.test(qt) && /أمامك 3/.test(qt));
+    await context.close();
+  }
+  {
+    // له موعد اليوم: الموعد يحدّد العيادة (#112) — لا يُطلب رقم بلا موعد أصلاً
+    const sc = medicalLive({
+      checkins: { 'txn-m': { data: { clinic_name: 'عيادة الأسنان', doctor_name: 'د. سارة القحطاني', scheduled_time_riyadh: '10:30', queue_number: 45, ahead: 2 } } },
+      queueCheckins: { 'txn-m': { data: { clinic_name: 'عيادة الجلدية', doctor_name: 'x', queue_number: 99, ahead: 0 } } },
+    });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    await pushTxn(page, 'txn-m');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok', { timeout: 4000 });
+    check('34) له موعد اليوم: بطاقة الموعد ورقمه فقط، بلا نداء kiosk_queue_checkin',
+      (await page.evaluate(() => window.__TEST__.getQueueCheckinCalls())).length === 0 && !!(await page.$('[data-live-appt]')) &&
+      !(await page.$('[data-live-walkin]')) && (await page.textContent('[data-live-queue]')).includes('45'));
+    await context.close();
+  }
+  {
+    // لا رمز / رمز غير معروف / عيادة "بموعد فقط" / تعذّرت القراءة: نجاح عادي بلا رقم
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: medicalLive({ checkins: {}, queueCheckinError: 'boom' }) });
+    await pushTxn(page, 'txn-m');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    const shown = await page.waitForSelector('.ok', { timeout: 4000 }).then(() => true, () => false);
+    check('35) بلا رقم دور (أو تعذّرت القراءة): شاشة النجاح كالمعتاد بلا بطاقة ولا رقم',
+      shown && !(await page.$('[data-live-walkin]')) && !(await page.$('[data-live-queue]')) && /تم الربط بنجاح/.test(await page.textContent('.ok')));
+    await context.close();
+  }
+  {
+    // عميل غير مسجَّل: لا رقم دور (الخادم لا يعطيه) ولا نداء أصلاً
+    const sc = medicalLive({ claimResults: { 'txn-m': { row: { is_registered: false, prev_points: 0, added_points: 0, total_points: 0 } } },
+      queueCheckins: { 'txn-m': { data: { clinic_name: 'عيادة الجلدية', doctor_name: 'x', queue_number: 7, ahead: 0 } } } });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    await pushTxn(page, 'txn-m');
+    await waitForCheckout(page);
+    await enterPhoneAndConfirm(page, '512345678');
+    await page.waitForSelector('.ok', { timeout: 4000 }).catch(() => {});
+    check('35) عميل غير مسجَّل: لا نداء kiosk_queue_checkin ولا بطاقة "عيادتك"',
+      (await page.evaluate(() => window.__TEST__.getQueueCheckinCalls())).length === 0 && !(await page.$('[data-live-walkin]')));
     await context.close();
   }
 
