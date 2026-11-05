@@ -37,7 +37,7 @@ function baseScenario(overrides) {
   }, overrides);
 }
 
-async function openKiosk(browser, { mode, scenario, pollMs, dbMode, localMode }) {
+async function openKiosk(browser, { mode, scenario, pollMs, dbMode, localMode, preStorage, waitFor }) {
   const context = await browser.newContext();
   const page = await context.newPage();
   // no live network at all — fail fast instead of waiting out real timeouts
@@ -58,6 +58,14 @@ async function openKiosk(browser, { mode, scenario, pollMs, dbMode, localMode })
   await page.addInitScript((settings) => {
     localStorage.setItem('noj_kiosk_settings', JSON.stringify(settings));
   }, { mode: localMode || mode });
+  if (preStorage) {
+    // مرة واحدة فقط (لا عند كل تحميل) كي لا يُعاد زرع المفتاح القديم بعد ترحيله
+    await page.addInitScript((kv) => {
+      if (sessionStorage.getItem('__seeded')) return;
+      sessionStorage.setItem('__seeded', '1');
+      Object.keys(kv).forEach((k) => localStorage.setItem(k, kv[k]));
+    }, preStorage);
+  }
   await page.addInitScript((s) => {
     window.__NOJ_SCENARIO__ = s;
   }, scenarioWithMode);
@@ -67,7 +75,7 @@ async function openKiosk(browser, { mode, scenario, pollMs, dbMode, localMode })
   await page.addInitScript({ path: FAKE_SB_PATH });
 
   await page.goto(KIOSK_URL);
-  await page.waitForSelector('.idle', { timeout: 5000 });
+  await page.waitForSelector(waitFor || '.idle', { timeout: 5000 });
   return { context, page };
 }
 
@@ -288,7 +296,8 @@ async function openAdminSettingsViaPin(page, pin) {
     const { context, page } = await openKiosk(browser, { mode: 'live', scenario });
     await sleep(100); // تأكيد استقرار حالة SUBSCRIBED قبل إرسال الحدث
     const pollBefore = await page.evaluate(() => window.__TEST__.getPollCount());
-    check('7) القناة SUBSCRIBED: لا استعلام احتياطي قبل أي حدث', pollBefore === 0);
+    // قراءة لحاق واحدة فقط عند الاشتراك (لا شيء معلّق هنا) — لا استطلاع دوري
+    check('7) القناة SUBSCRIBED: قراءة لحاق واحدة عند الاشتراك فقط، لا استطلاع دوري', pollBefore === 1);
     await page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), {
       id: 'txn-7', branch_id: 'branch-1', amount: '33.00', vat: '0',
       status: 'pending', expires_at: new Date(Date.now() + 5 * 60000).toISOString(),
@@ -298,7 +307,7 @@ async function openAdminSettingsViaPin(page, pin) {
     const amountText = reached ? await page.textContent('.inv-chip b') : '';
     check('7) المبلغ صحيح (33.00)', /33\.00/.test(amountText));
     const pollAfter = await page.evaluate(() => window.__TEST__.getPollCount());
-    check('7) لم يُستدعَ الاستعلام الاحتياطي إطلاقاً — الالتقاط عبر Realtime فعلياً لا عبر poll', pollAfter === 0);
+    check('7) لم يُستدعَ أي استعلام بعد الاشتراك — الالتقاط عبر Realtime فعلياً لا عبر poll', pollAfter === pollBefore);
     await context.close();
   }
 
@@ -742,6 +751,93 @@ async function openAdminSettingsViaPin(page, pin) {
     await page.waitForSelector('.ok', { timeout: 4000 }).catch(() => {});
     check('35) عميل غير مسجَّل: لا نداء kiosk_queue_checkin ولا بطاقة "عيادتك"',
       (await page.evaluate(() => window.__TEST__.getQueueCheckinCalls())).length === 0 && !(await page.$('[data-live-walkin]')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 36-38) فاتورة وصلت والشاشة مطفأة / غير مربوطة / القناة منقطعة: تظهر عند
+  //        عودة الشاشة ما دامت معلّقة وضمن صلاحيتها (expires_at)، ولا أقدم.
+  // =========================================================================
+  const validTxn = (id, amount) => ({ id, branch_id: 'branch-1', amount, vat: '0', status: 'pending', expires_at: new Date(Date.now() + 4 * 60000).toISOString() });
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({ pendingTxns: [validTxn('txn-off', '64.00')] }), waitFor: '.idle, .nfc' });
+    const reached = await waitForCheckout(page, 3000);
+    check('36) فاتورة وصلت والشاشة مطفأة: تظهر عند إقلاعها (معلّقة وضمن صلاحيتها)', reached && /64\.00/.test(await page.textContent('.inv-chip b')));
+    await context.close();
+  }
+  {
+    const expired = { id: 'txn-old', branch_id: 'branch-1', amount: '99.00', vat: '0', status: 'pending', expires_at: new Date(Date.now() - 60000).toISOString() };
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({ pendingTxns: [expired] }) });
+    await sleep(300);
+    check('36) فاتورة انتهت صلاحيتها لا تظهر عند الإقلاع (تبقى شاشة الانتظار)', !(await page.$('.nfc')) && !!(await page.$('.idle')));
+    await context.close();
+  }
+  {
+    const sc = baseScenario({ deviceRow: { id: 'device-1', branch_id: null, pairing_code: '482913' }, pendingTxns: [] });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    check('37) جهاز غير مربوط: شاشة رمز الربط', /482913/.test(await page.textContent('#screen')));
+    await page.evaluate((row) => {
+      window.__NOJ_SCENARIO__.deviceRow = { id: 'device-1', branch_id: 'branch-1', pairing_code: null };
+      window.__TEST__.setPendingTxns([row]);
+    }, validTxn('txn-pair', '58.00'));
+    await page.click('#pairingRecheckBtn');
+    const reached = await waitForCheckout(page, 3000);
+    check('37) بعد ربط الشاشة: تبدأ الاستماع، وتظهر الفاتورة التي وصلت قبل الربط',
+      reached && /58\.00/.test(await page.textContent('.inv-chip b')) && (await page.evaluate(() => window.__TEST__.getChannelCreateCount())) >= 1);
+    await context.close();
+  }
+  {
+    const sc = baseScenario({ deviceRow: { id: 'device-1', branch_id: null, pairing_code: '482913' }, pendingTxns: [] });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: sc });
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.deviceRow = { id: 'device-1', branch_id: 'branch-1', pairing_code: null }; });
+    await page.click('#pairingRecheckBtn');
+    await page.waitForFunction(() => window.__TEST__.getChannelCreateCount() >= 1, null, { timeout: 3000 }).catch(() => {});
+    await sleep(100);
+    await page.evaluate((row) => window.__TEST__.pushRealtimeInsert(row), validTxn('txn-rt', '21.00'));
+    check('37) بعد الربط من شاشة الرمز: فاتورة جديدة تصل عبر Realtime بلا إعادة تحميل', await waitForCheckout(page, 3000));
+    await context.close();
+  }
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({ pendingTxns: [] }) });
+    await page.evaluate(() => window.__TEST__.setChannelStatus('CHANNEL_ERROR'));
+    await page.evaluate((row) => window.__TEST__.setPendingTxns([row]), validTxn('txn-gap', '37.00'));
+    await page.evaluate(() => window.__TEST__.setChannelStatus('SUBSCRIBED'));
+    const reached = await waitForCheckout(page, 3000);
+    check('38) عودة القناة بعد انقطاع: تلتقط فوراً ما وصل أثناء الانقطاع', reached && /37\.00/.test(await page.textContent('.inv-chip b')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 39-40) جلسة الشاشة في مفتاح تخزين خاص بها (لا يمسّها تطبيق نوج في نفس المتصفح)
+  // =========================================================================
+  const LEGACY = 'sb-jqddjswxsacejbqjeehw-auth-token', KIOSK_KEY = 'sb-noj-kiosk-auth';
+  const sess = (anon) => JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: 1, user: { id: anon ? 'device-auth-1' : 'customer-1', is_anonymous: anon } });
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({}) });
+    const consts = await page.evaluate(() => [KIOSK_STORAGE_KEY, LEGACY_SB_STORAGE_KEY]);
+    const src = require('fs').readFileSync(path.join(__dirname, '..', 'kiosk.html'), 'utf8');
+    check('39) مفتاح جلسة الشاشة خاص بها، والقديم هو الافتراضي الفعلي لـsupabase-js، وcreateClient يستعمل الخاص',
+      consts[0] === KIOSK_KEY && consts[1] === LEGACY && /createClient\(SUPABASE_URL,SUPABASE_KEY,\{auth:\{storageKey:KIOSK_STORAGE_KEY\}\}\)/.test(src));
+    await context.close();
+  }
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({}), preStorage: { [LEGACY]: sess(true) } });
+    const st = await page.evaluate((k) => [localStorage.getItem(k[0]), localStorage.getItem(k[1])], [KIOSK_KEY, LEGACY]);
+    check('40) شاشة مربوطة اليوم (جلسة مجهولة في المفتاح القديم): تُنقل لمفتاحها الخاص وتُحذف من القديم — لا إعادة ربط',
+      st[0] === sess(true) && st[1] === null);
+    await context.close();
+  }
+  {
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({}), preStorage: { [LEGACY]: sess(false) } });
+    const st = await page.evaluate((k) => [localStorage.getItem(k[0]), localStorage.getItem(k[1])], [KIOSK_KEY, LEGACY]);
+    check('40) جلسة عميل سجّل دخوله (غير مجهولة) في المفتاح القديم: لا تُمَس ولا تنتقل للشاشة', st[0] === null && st[1] === sess(false));
+    await context.close();
+  }
+  {
+    const mine = JSON.stringify({ access_token: 'k', user: { id: 'device-auth-1', is_anonymous: true } });
+    const { context, page } = await openKiosk(browser, { mode: 'live', scenario: baseScenario({}), preStorage: { [KIOSK_KEY]: mine, [LEGACY]: sess(true) } });
+    const st = await page.evaluate((k) => [localStorage.getItem(k[0]), localStorage.getItem(k[1])], [KIOSK_KEY, LEGACY]);
+    check('40) للشاشة جلستها الخاصة أصلاً: لا ترحيل ولا مساس بالمفتاح الافتراضي (جلسة تطبيق نوج)', st[0] === mine && st[1] === sess(true));
     await context.close();
   }
 
