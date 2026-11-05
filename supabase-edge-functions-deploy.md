@@ -64,7 +64,7 @@ functions.yml`.
 `push` أو دمج PR، حتى لو عدّلت كود الدالتين. شغّل هذه الخطوة بنفسك بعد كل
 تعديل تريد نشره فعلياً.
 
-**إصدار Supabase CLI مثبَّت** في الـworkflow (`version: 3.0.0`، لا `latest`)، وأوامر النشر بـ`--yes`
+**إصدار Supabase CLI مثبَّت** في الـworkflow (الإجراء `supabase/setup-cli@v3.0.0` و`version: 3.0.0`، لا `latest`)، وأوامر النشر بـ`--yes`
 (كل تغيير على المشروع الحي في 3.x يطلب تأكيداً، والمشغّل بلا طرفية) و`--remote=<معرّف المشروع>` (بدل
 `--project-ref` المهجور). رسالة "Confirmation required ... stdout is not a terminal" تعني أن أحد هذين
 سقط من الأمر؛ و"Nothing was changed" فيها صادقة: لا شيء نُشر. ترقية الإصدار في PR مستقل فقط.
