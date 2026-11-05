@@ -49,7 +49,7 @@ function baseScenario(overrides) {
   }, overrides);
 }
 
-async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp, alertPollMs }) {
+async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp, alertPollMs, queuePollMs }) {
   const context = await browser.newContext();
   const page = await context.newPage();
   // no live network at all — fail fast instead of waiting out real timeouts
@@ -70,6 +70,9 @@ async function openMerchant(browser, { scenario, idleMs, preSeedOtherApp, alertP
   }
   if (alertPollMs) {
     await page.addInitScript((ms) => { window.__NOJ_ALERT_POLL_MS__ = ms; }, alertPollMs);
+  }
+  if (queuePollMs) {
+    await page.addInitScript((ms) => { window.__NOJ_QUEUE_POLL_MS__ = ms; }, queuePollMs);
   }
   await page.addInitScript({ path: FAKE_SB_PATH });
   // fake-turnstile.js يقرأ window.__NOJ_SCENARIO__ عند التنفيذ أيضاً — مُسجَّل
@@ -1540,6 +1543,126 @@ async function loginFlow(page, phone, otp) {
     check('77) تنبيه موعد جديد للصحي: استماع على booking_alerts للتاجر، صوت + عدّاد على تبويب "المواعيد"',
       ch.length === 1 && ch[0].filter.table === 'booking_alerts' && (await page.textContent('#bkBadge')) === '1' && (await page.evaluate(() => BK_ALERT.sounds)) === 1 &&
       /المواعيد/.test(await page.textContent('#viewTabs [data-view="bookings"]')));
+    await context.close();
+  }
+
+  // =========================================================================
+  // 78-85) الطابور (supabase-migration-clinic-queue.sql): نداء التالي/انتهى/لم يحضر
+  //        للمالك والموظف، رمز الكاشير للمالك فقط، وتحديث تلقائي (Realtime + احتياطي)
+  // =========================================================================
+  const queueScenario = (over) => apptScenario(Object.assign({
+    queueClinics: [
+      { id: 'c-1', name: 'عيادة الأسنان', doctor_name: 'د. سارة', booking_enabled: true, walk_in_enabled: true, pos_unit_code: null, now_serving: 3, done_count: 3, no_show_count: 0, tickets: [
+        { id: 't-4', clinic_id: 'c-1', ticket_number: 4, status: 'called', kind: 'appointment', created_at_riyadh: '09:40', called_at_riyadh: '10:05', customer_name: 'لينا', customer_phone_last4: '1111' },
+        { id: 't-5', clinic_id: 'c-1', ticket_number: 5, status: 'waiting', kind: 'walk_in', created_at_riyadh: '09:50', called_at_riyadh: null, customer_name: 'فهد', customer_phone_last4: '2222' },
+        { id: 't-6', clinic_id: 'c-1', ticket_number: 6, status: 'waiting', kind: 'appointment', created_at_riyadh: '09:55', called_at_riyadh: null, customer_name: 'عمر', customer_phone_last4: '6543' },
+      ] },
+      { id: 'c-2', name: 'عيادة الجلدية', doctor_name: 'د. نورة', booking_enabled: true, walk_in_enabled: false, pos_unit_code: 'DERM', now_serving: null, done_count: 0, no_show_count: 0, tickets: [] },
+    ],
+  }, over || {}));
+  const openQueueTab = async (scenario, opts) => {
+    const { context, page } = await openMerchant(browser, Object.assign({ scenario }, opts || {}));
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="queue"]', { timeout: 3000 });
+    return { context, page };
+  };
+  const qClinic = (page, id) => page.textContent('[data-q-clinic="' + id + '"]');
+  {
+    const { context, page } = await openQueueTab(queueScenario());
+    check('78) تاجر صحي: تبويب "الطابور" ظاهر، ولا تحميل ولا استماع قبل فتحه',
+      /الطابور/.test(await page.textContent('#viewTabs [data-view="queue"]')) && (await page.evaluate(() => window.__TEST__.getQueueListCalls())).length === 0 &&
+      !(await page.evaluate(() => window.__TEST__.getChannels())).some((c) => c.filter && c.filter.table === 'clinic_queue_state'));
+    await page.click('#viewTabs [data-view="queue"]');
+    await page.waitForSelector('[data-q-clinic="c-1"]', { timeout: 3000 });
+    const c1 = await qClinic(page, 'c-1');
+    check('79) لكل عيادة: الاسم والطبيب والنمط، الرقم الحالي وعدد المنتظرين، وكل رقم باسم المريض وآخر 4 أرقام ونوعه (بموعد/بدون موعد)',
+      (await page.evaluate(() => window.__TEST__.getQueueListCalls()))[0].p_merchant_id === 'merchant-1' &&
+      /عيادة الأسنان/.test(c1) && /د\. سارة/.test(c1) && /بموعد وبدون موعد/.test(c1) && (await page.textContent('[data-q-clinic="c-1"] [data-q-now]')) === '#3' &&
+      (await page.textContent('[data-q-clinic="c-1"] [data-q-waiting]')) === '2' && /فهد/.test(c1) && /2222/.test(c1) && /بدون موعد/.test(c1) &&
+      /بموعد فقط/.test(await qClinic(page, 'c-2')) && !!(await page.$('[data-q-clinic="c-2"] [data-q-empty]')));
+    check('79) الرقم المُنادى: "انتهى" و"لم يحضر"؛ المنتظر: "لم يحضر" فقط',
+      !!(await page.$('[data-q-done="t-4"]')) && !!(await page.$('[data-q-noshow="t-4"]')) && !(await page.$('[data-q-done="t-5"]')) && !!(await page.$('[data-q-noshow="t-5"]')) &&
+      (await page.$eval('[data-q-next="c-2"]', (b) => b.disabled)) === true);
+    await page.click('[data-q-done="t-4"]');
+    await page.waitForFunction(() => !document.querySelector('[data-q-ticket="t-4"]'), null, { timeout: 3000 });
+    const a1 = await page.evaluate(() => window.__TEST__.getQueueActionCalls());
+    check('80) "انتهى" يستدعي merchant_queue_set_ticket_status(done) ويختفي الرقم من القائمة',
+      a1.length === 1 && a1[0].fn === 'merchant_queue_set_ticket_status' && a1[0].args.p_ticket_id === 't-4' && a1[0].args.p_status === 'done');
+    await page.click('[data-q-next="c-1"]');
+    await page.waitForFunction(() => (document.querySelector('[data-q-ticket="t-5"]') || {}).getAttribute && document.querySelector('[data-q-ticket="t-5"]').getAttribute('data-q-status') === 'called', null, { timeout: 3000 });
+    const a2 = await page.evaluate(() => window.__TEST__.getQueueActionCalls());
+    check('81) "نداء التالي" يستدعي merchant_queue_call_next(c-1): أصغر رقم منتظر (5) يصبح مُنادى والرقم الحالي #5',
+      a2[1].fn === 'merchant_queue_call_next' && a2[1].args.p_clinic_id === 'c-1' && (await page.textContent('[data-q-clinic="c-1"] [data-q-now]')) === '#5' &&
+      (await page.textContent('[data-q-clinic="c-1"] [data-q-waiting]')) === '1');
+    await page.click('[data-q-noshow="t-6"]');
+    await page.waitForFunction(() => !document.querySelector('[data-q-ticket="t-6"]'), null, { timeout: 3000 });
+    check('82) "لم يحضر" لرقم منتظر: merchant_queue_set_ticket_status(no_show)', (await page.evaluate(() => window.__TEST__.getQueueActionCalls()))[2].args.p_status === 'no_show');
+    // سباق: أُفرغ الطابور في الخادم بعد آخر عرض — رسالة واضحة لا خطأ عام
+    await page.evaluate(() => { const c = window.__NOJ_SCENARIO__.queueClinics[0]; c.tickets.push({ id: 't-7', clinic_id: 'c-1', ticket_number: 7, status: 'waiting', kind: 'walk_in', created_at_riyadh: '10:20', customer_name: 'جود', customer_phone_last4: '3333' }); });
+    await page.click('#quRefresh');
+    await page.waitForSelector('[data-q-ticket="t-7"]', { timeout: 3000 });
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.queueClinics[0].tickets = window.__NOJ_SCENARIO__.queueClinics[0].tickets.filter((t) => t.id !== 't-7'); });
+    await page.click('[data-q-next="c-1"]');
+    await page.waitForSelector('[data-q-msg="c-1"]', { timeout: 3000 });
+    check('82) نداء التالي على طابور أُفرغ للتو: "لا يوجد أحد بالانتظار"', /لا يوجد أحد بالانتظار/.test(await page.textContent('[data-q-msg="c-1"]')));
+    // رمز الكاشير (المالك)
+    await page.fill('[data-q-code-input="c-1"]', '  DENT-1 ');
+    await page.click('[data-q-code-save="c-1"]');
+    await page.waitForSelector('[data-q-code-msg="c-1"]', { timeout: 3000 });
+    const cc = await page.evaluate(() => window.__TEST__.getCodeCalls());
+    check('83) المالك يحفظ "رمز العيادة في نظام الكاشير": merchant_set_clinic_pos_code(c-1, DENT-1)',
+      cc.length === 1 && cc[0].p_clinic_id === 'c-1' && cc[0].p_code === 'DENT-1' && /حُفظ الرمز/.test(await page.textContent('[data-q-code-msg="c-1"]')) &&
+      (await page.inputValue('[data-q-code-input="c-1"]')) === 'DENT-1');
+    await page.fill('[data-q-code-input="c-1"]', 'derm');
+    await page.click('[data-q-code-save="c-1"]');
+    await page.waitForFunction(() => /مستخدم لعيادة أخرى/.test((document.querySelector('[data-q-code-msg="c-1"]') || {}).textContent || ''), null, { timeout: 3000 }).catch(() => {});
+    check('83) رمز مستخدم لعيادة أخرى لدى التاجر (أياً كانت حالة الأحرف): رسالة واضحة', /مستخدم لعيادة أخرى/.test(await page.textContent('[data-q-code-msg="c-1"]')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openQueueTab(queueScenario({ merchantMembers: [{ merchant_id: 'merchant-1', role: 'staff' }] }));
+    await page.click('#viewTabs [data-view="queue"]');
+    await page.waitForSelector('[data-q-clinic="c-1"]', { timeout: 3000 });
+    check('84) الموظف: نداء التالي وانتهى ولم يحضر متاحة، والرمز للعرض فقط ("للمالك فقط") بلا حقل تعديل',
+      !!(await page.$('[data-q-next="c-1"]')) && !!(await page.$('[data-q-done="t-4"]')) && !(await page.$('[data-q-code-input]')) &&
+      /DERM/.test(await page.textContent('[data-q-code-ro="c-2"]')) && /للمالك فقط/.test(await page.textContent('[data-q-code-ro="c-2"]')));
+    await page.click('[data-q-next="c-1"]');
+    await page.waitForFunction(() => window.__TEST__.getQueueActionCalls().length === 1, null, { timeout: 3000 });
+    const direct = await page.evaluate(async () => (await window.__NOJ_SUPABASE_CLIENT__.rpc('merchant_set_clinic_pos_code', { p_clinic_id: 'c-1', p_code: 'X' })).error);
+    check('84) الموظف ينادي التالي؛ ونداء merchant_set_clinic_pos_code بجلسته مباشرة يُرفض (دفاع في العمق)',
+      (await page.evaluate(() => window.__TEST__.getQueueActionCalls()))[0].fn === 'merchant_queue_call_next' && direct && /لا تملك صلاحية/.test(direct.message));
+    await context.close();
+  }
+  {
+    const { context, page } = await openQueueTab(queueScenario());
+    await page.click('#viewTabs [data-view="queue"]');
+    await page.waitForSelector('[data-q-clinic="c-1"]', { timeout: 3000 });
+    await page.waitForFunction(() => MQ_WATCH.status === 'SUBSCRIBED', null, { timeout: 3000 });
+    const ch = (await page.evaluate(() => window.__TEST__.getChannels())).filter((c) => c.filter && c.filter.table === 'clinic_queue_state');
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.queueClinics[0].tickets.push({ id: 't-9', clinic_id: 'c-1', ticket_number: 9, status: 'waiting', kind: 'walk_in', created_at_riyadh: '10:30', customer_name: 'وعد', customer_phone_last4: '9999' }); window.__TEST__.emitQueueStateChange('merchant-1'); });
+    await page.waitForSelector('[data-q-ticket="t-9"]', { timeout: 3000 }).catch(() => {});
+    check('85) Realtime على clinic_queue_state لعيادات التاجر: مريض جديد يظهر في القائمة تلقائياً',
+      ch.length === 1 && ch[0].filter.filter === 'merchant_id=eq.merchant-1' && !!(await page.$('[data-q-ticket="t-9"]')) &&
+      (await page.textContent('[data-q-clinic="c-1"] [data-q-waiting]')) === '3');
+    await page.click('#viewTabs [data-view="manage"]');
+    await page.waitForTimeout(100);
+    check('85) مغادرة التبويب تُغلق قناة الطابور', (await page.evaluate(() => window.__TEST__.getChannels())).filter((c) => c.filter && c.filter.table === 'clinic_queue_state').every((c) => c.removed));
+    await context.close();
+  }
+  {
+    const { context, page } = await openQueueTab(queueScenario({ alertChannelStatus: 'CHANNEL_ERROR' }), { queuePollMs: 150 });
+    await page.click('#viewTabs [data-view="queue"]');
+    await page.waitForSelector('[data-q-clinic="c-1"]', { timeout: 3000 });
+    await page.evaluate(() => { window.__NOJ_SCENARIO__.queueClinics[0].tickets.push({ id: 't-8', clinic_id: 'c-1', ticket_number: 8, status: 'waiting', kind: 'walk_in', created_at_riyadh: '10:25', customer_name: 'ريم', customer_phone_last4: '8888' }); });
+    await page.waitForSelector('[data-q-ticket="t-8"]', { timeout: 3000 }).catch(() => {});
+    check('85) انقطاع Realtime: الاستعلام الاحتياطي يُظهر المريض الجديد تلقائياً', !!(await page.$('[data-q-ticket="t-8"]')));
+    await context.close();
+  }
+  {
+    const { context, page } = await openMerchant(browser, { scenario: bkScenario() });
+    await loginFlow(page, '512345678', '123456');
+    await page.waitForSelector('#viewTabs [data-view="bookings"]', { timeout: 3000 });
+    check('78) تاجر غير صحي (مطعم): لا تبويب "الطابور"', !(await page.$('#viewTabs [data-view="queue"]')));
     await context.close();
   }
 

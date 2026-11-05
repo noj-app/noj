@@ -91,6 +91,12 @@
         if (ck && ck.delayMs) return new Promise(function (r) { setTimeout(function () { r({ data: ck.data, error: null }); }, ck.delayMs); });
         return Promise.resolve({ data: ck ? ck.data : null, error: null });
       }
+      if (name === 'kiosk_queue_checkin') {
+        (state.queueCheckinCalls = state.queueCheckinCalls || []).push(args.p_transaction_id);
+        if (scenario.queueCheckinError) return Promise.resolve({ data: null, error: { message: scenario.queueCheckinError } });
+        var qk = (scenario.queueCheckins || {})[args.p_transaction_id];
+        return Promise.resolve({ data: qk ? qk.data : null, error: null });
+      }
       if (name === 'kiosk_lookup_customer_points') {
         return Promise.resolve({ data: scenario.loyaltyPoints != null ? scenario.loyaltyPoints : 0, error: null });
       }
@@ -140,6 +146,7 @@
     window.__TEST__ = {
       getServicesQueries: function () { return state.servicesQueries || 0; },
       getCheckinCalls: function () { return (state.checkinCalls || []).slice(); },
+      getQueueCheckinCalls: function () { return (state.queueCheckinCalls || []).slice(); },
       pushRealtimeInsert: function (row) { if (state.channelCb) state.channelCb({ new: row }); },
       setChannelStatus: function (status) { if (state.channelStatusCb) state.channelStatusCb(status); },
       setPendingTxns: function (rows) { scenario.pendingTxns = rows; },

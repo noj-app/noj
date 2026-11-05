@@ -968,9 +968,97 @@ async function loadUserData(profileId){
     QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:''),merchantId:t.merchant_id,unitName:t.unit_name};
     S.q={ahead:t.position,min:t.est_minutes,now:t.position<=0};
   }
+  // رقم الدور الحقيقي في طابور عيادة (إن وُجد اليوم) يحلّ محل ما سبق
+  await loadLiveQueue();
 
   await loadUserReservations(profileId);
   await loadUserMerchants(profileId);
+}
+
+/* ================= طابور العيادات الحي =================
+   (supabase-migration-clinic-queue.sql) رقم دور حقيقي للعميل اليوم في عيادة —
+   من موعده عند وصوله (#112) أو بلا موعد من رمز العيادة الذي أرسله الكاشير.
+   get_my_queue_status() تعيد تذاكره المنتظرة/المنادى عليها اليوم مع "أمامك"
+   والرقم الحالي. التحديث التلقائي: Realtime على clinic_queue_state (صف مجمَّع
+   واحد لكل عيادة، بلا أي بيانات عميل) لعيادة التذكرة فقط، ثم إعادة القراءة؛ مع
+   استعلام احتياطي دوري عند انقطاع القناة (window.__NOJ_QUEUE_POLL_MS__
+   للاختبار) — نفس نمط شاشة نوج ولوحة التاجر. أفضل جهد: فشلها لا يمس شيئاً آخر،
+   ويبقى عرض الانتظار القديم كما كان حين لا تذكرة حية. */
+var LIVE_Q={clinicId:null,channel:null,pollTimer:null,status:'',debounce:null};
+var QUEUE_POLL_MS=window.__NOJ_QUEUE_POLL_MS__||20000;
+async function loadLiveQueue(){
+  try{
+    var sb=await getSb();
+    if(!sb||!sb.rpc)return;
+    var res=await sb.rpc('get_my_queue_status');
+    if(res.error)throw res.error;
+    var t=Array.isArray(res.data)?res.data[0]:null;
+    if(t&&t.ticket_number!=null){
+      QUEUE={ticket:t.ticket_number,label:(t.merchant_name||'')+(t.clinic_name?' - '+t.clinic_name:''),merchantId:t.merchant_id,
+        unitName:t.clinic_name,clinicId:t.clinic_id,doctorName:t.doctor_name||null,status:t.status,live:true};
+      S.q={ahead:Number(t.ahead)||0,min:0,now:t.status==='called',nowServing:t.now_serving!=null?Number(t.now_serving):null};
+    }else if(QUEUE.live){
+      // انتهى الدور (حضر/لم يحضر) أو انقضى اليوم: لا تذكرة حية بعد الآن
+      QUEUE={ticket:null,label:'',merchantId:null,unitName:null};
+      S.q={ahead:0,min:0,now:false,finished:true};
+    }
+  }catch(e){
+    console.error('NOJ live queue error:',e);
+  }
+  syncLiveQueueWatch();
+}
+async function syncLiveQueueWatch(){
+  var cid=QUEUE.live?QUEUE.clinicId:null;
+  if(!cid){stopLiveQueueWatch();return}
+  if(LIVE_Q.clinicId===cid&&(LIVE_Q.channel||LIVE_Q.pollTimer))return;
+  stopLiveQueueWatch();
+  LIVE_Q.clinicId=cid;
+  var sb=await getSb();
+  if(!sb||LIVE_Q.clinicId!==cid)return;
+  if(!sb.channel){startLiveQueuePoll();return}
+  try{
+    var ss=await sb.auth.getSession();
+    var tok=ss&&ss.data&&ss.data.session&&ss.data.session.access_token;
+    if(tok&&sb.realtime&&sb.realtime.setAuth)sb.realtime.setAuth(tok);
+  }catch(e){}
+  if(LIVE_Q.clinicId!==cid)return;
+  LIVE_Q.channel=sb.channel('clinic-queue-'+cid)
+    .on('postgres_changes',{event:'*',schema:'public',table:'clinic_queue_state',filter:'clinic_id=eq.'+cid},function(){onLiveQueueChange()})
+    .subscribe(function(status){
+      LIVE_Q.status=status;
+      if(status==='SUBSCRIBED')stopLiveQueuePoll();
+      else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')startLiveQueuePoll();
+    });
+}
+function stopLiveQueueWatch(){
+  stopLiveQueuePoll();
+  clearTimeout(LIVE_Q.debounce);
+  if(LIVE_Q.channel){
+    var ch=LIVE_Q.channel;
+    getSb().then(function(sb){try{if(sb&&sb.removeChannel)sb.removeChannel(ch)}catch(e){}});
+  }
+  LIVE_Q.channel=null;LIVE_Q.clinicId=null;LIVE_Q.status='';
+}
+function startLiveQueuePoll(){
+  if(LIVE_Q.pollTimer)return;
+  LIVE_Q.pollTimer=setInterval(function(){onLiveQueueChange(true)},QUEUE_POLL_MS);
+}
+function stopLiveQueuePoll(){clearInterval(LIVE_Q.pollTimer);LIVE_Q.pollTimer=null}
+// تغيّر في طابور العيادة: إعادة قراءة تذكرة العميل (وإحصاء عيادات المركز إن
+// كانت صفحته مفتوحة)، ثم إعادة رسم الشاشة فقط إن كانت تعرض الدور ولا حقل
+// كتابة مُركَّز (فلا يُقاطَع بحث جارٍ).
+function onLiveQueueChange(now){
+  clearTimeout(LIVE_Q.debounce);
+  LIVE_Q.debounce=setTimeout(async function(){
+    if(!PROFILE.id)return;
+    var mid=QUEUE.merchantId;
+    await loadLiveQueue();
+    if(S.tab==='merchantQueue'&&S.selMerchant&&S.selMerchant===mid)await loadMerchantClinics(mid);
+    var shows=S.tab==='queue'||S.tab==='merchantQueue';
+    var a=document.activeElement;
+    var typing=a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA');
+    if(shows&&!typing&&!S.sel&&!S.confirmRedeem&&!S.showConsent)render();
+  },now?0:150);
 }
 
 // حجوزات العميل القادمة للمطعم والخدمات — عبر سياسة "select own appointments"
@@ -1293,9 +1381,32 @@ function bookListHtml(){
   }).join('')+'</div>';
 }
 
+// بطاقة الدور الحي (طابور عيادة حقيقي): بلا زر محاكاة ولا وقت متوقع تقديري —
+// عدد المنتظرين قبلك والرقم الحالي فقط، ويتحدّث تلقائياً.
+function liveQueueCard(){
+  var q=S.q;
+  return '<div class="qcard" data-live-queue-card><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
+    '<small>'+ic('pin',12,'#fff')+' '+escRes(QUEUE.label||'—')+'</small>'+
+    '<div class="qnum">#'+escRes(QUEUE.ticket)+'</div>'+
+    '<div class="qstate">'+(q.now?'حان دورك الآن — تفضّل إلى العيادة':'رقم دورك')+'</div></div>'+
+  '<div class="qbody">'+
+    (q.now
+      ?'<div class="now-alert" data-q-called style="display:flex;gap:10px;align-items:center;background:#FEF2F2;padding:12px;border-radius:12px;font-size:13px;font-weight:600">'+ic('check',20,'#E4572E')+' نُودي على رقمك'+(QUEUE.doctorName?' — '+escRes(QUEUE.doctorName):'')+'</div>'
+      :'<div class="qrow"><span>عدد الأشخاص قبلك</span><span data-q-ahead>'+q.ahead+'</span></div>'+
+       '<div class="qrow"><span>الرقم الحالي بالعيادة</span><span data-q-now>#'+(q.nowServing!=null?q.nowServing:'—')+'</span></div>'+
+       '<div class="track"><div class="fill" style="width:'+Math.max(8,100-q.ahead*18)+'%"></div></div>')+
+    '<p style="font-size:12px;color:var(--muted);text-align:center;margin-top:10px">يتحدّث تلقائياً</p>'+
+  '</div></div>';
+}
 function queue(){
   var q=S.q;
   var bookable=USER_MERCHANTS.filter(function(m){return m.bookingEnabled});
+  if(QUEUE.live){
+    return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+liveQueueCard()+
+      (bookable.length?'<div class="sec"><div class="sec-head"><h2>احجز مسبقاً</h2></div>'+
+        '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="bookQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.bookQuery+'"></div>'+
+        '<div id="bookList">'+bookListHtml()+'</div></div>':'');
+  }
   return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+
   '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
     '<small>'+ic('pin',12,'#fff')+' '+(QUEUE.label||'—')+'</small>'+
@@ -1863,10 +1974,10 @@ function clinicRowHtml(c,isMine){
   if(isMine){
     return '<div class="qcard" style="margin-bottom:14px"><div class="qtop">'+
       '<small>'+ic('pin',12,'#fff')+' '+c.clinicName+(c.doctorName?' - '+c.doctorName:'')+'</small>'+
-      '<div class="qnum">#'+QUEUE.ticket+'</div><div class="qstate">دورك أنت</div></div>'+
+      '<div class="qnum">#'+QUEUE.ticket+'</div><div class="qstate">'+(QUEUE.live&&S.q.now?'حان دورك الآن':'دورك أنت')+'</div></div>'+
       '<div class="qbody">'+
       '<div class="qrow"><span>عدد الأشخاص قبلك</span><span>'+S.q.ahead+'</span></div>'+
-      '<div class="qrow"><span>الرقم الحالي بالعيادة</span><span>#'+(c.nowServing!=null?c.nowServing:'—')+'</span></div>'+
+      '<div class="qrow"><span>الرقم الحالي بالعيادة</span><span>#'+(QUEUE.live&&S.q.nowServing!=null?S.q.nowServing:(c.nowServing!=null?c.nowServing:'—'))+'</span></div>'+
       '<div class="qrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>'+
       '</div></div>';
   }
@@ -2443,6 +2554,7 @@ function logoutFlow(){
   A={step:'phone',phone:'',code:'',err:'',sending:false,secs:0,timer:null,verifyType:null};
   PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
   QUEUE={ticket:null,label:'',merchantId:null};
+  stopLiveQueueWatch();
   INVOICES=[];CATS=[];MERCHANT_LOYALTY=[];USER_MERCHANTS=[];MERCHANT_QUEUE_STATS={};USER_RESERVATIONS={};MERCHANT_SERVICES={};BOOKING_POLICY={};S.resForm=null;
   S.selMerchant=null;
   S.showConsent=false;S.consentDetailsOpen=false;

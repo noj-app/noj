@@ -905,7 +905,11 @@ var LIVE_CLAIM_RESULT=null;
    ذلك اليوم فقد رُبطت الفاتورة به وأخذ رقم دوره من حجزه (الخادم يفعل ذلك داخل
    نفس الربط — supabase-migration-health-appointments.sql). هنا فقط ما تعرضه
    الشاشة: {clinic_name, doctor_name, scheduled_time_riyadh, queue_number, ahead}
-   من kiosk_appointment_checkin، أو null (لا موعد اليوم / تعذّرت القراءة). */
+   من kiosk_appointment_checkin، أو null (لا موعد اليوم / تعذّرت القراءة).
+   بلا موعد اليوم: إن أرسل الكاشير رمز عيادة "بموعد وبدون موعد" فقد أخذ المريض
+   رقم دور في طابورها (supabase-migration-clinic-queue.sql) — يُقرأ عبر
+   kiosk_queue_checkin {clinic_name, doctor_name, queue_number, ahead} ويُحفظ هنا
+   أيضاً بعلم walk_in=true (بطاقة "عيادتك" بدل "موعدك"). */
 var LIVE_APPT_CHECKIN=null;
 var liveRealtimeChannel=null;
 var liveFallbackPollTimer=null;
@@ -1738,8 +1742,8 @@ function success(){
   /* موعد اليوم (الصحي، الوضع المباشر): بطاقة الموعد حدث حقيقي من الخادم، ورقم
      الدور رقم حقيقي أخذه المريض من حجزه — لا قيمة قالب تجريبية. */
   var appt=live?LIVE_APPT_CHECKIN:null;
-  var apptCard=appt?'<div class="g" data-live-appt><div class="g-i" style="background:#0F6E6E18">'+ic('calchk',22,'#0F6E6E')+'</div>'+
-    '<b>موعدك</b><small>'+escAttr(appt.clinic_name||'')+(appt.doctor_name?' · '+escAttr(appt.doctor_name):'')+(appt.scheduled_time_riyadh?' · '+escAttr(appt.scheduled_time_riyadh):'')+'</small></div>':'';
+  var apptCard=appt?'<div class="g" '+(appt.walk_in?'data-live-walkin':'data-live-appt')+'><div class="g-i" style="background:#0F6E6E18">'+ic('calchk',22,'#0F6E6E')+'</div>'+
+    '<b>'+(appt.walk_in?'عيادتك':'موعدك')+'</b><small>'+escAttr(appt.clinic_name||'')+(appt.doctor_name?' · '+escAttr(appt.doctor_name):'')+(appt.scheduled_time_riyadh?' · '+escAttr(appt.scheduled_time_riyadh):'')+'</small></div>':'';
   var gotCards=[okHtml[0]||''].concat(loyaltyOkCard(c)).concat(live?[apptCard]:okHtml.slice(1)).filter(Boolean).join('');
   var gotRow=gotCards?'<div class="got">'+gotCards+'</div>':'';
   var liveTicket=(appt&&appt.queue_number!=null&&cardOn('queueNumber'))
@@ -2063,21 +2067,24 @@ async function sendInvoice(){
 
 /* القطاع الصحي: ما ربطه الخادم للتو (موعد اليوم + رقم الدور) لهذه العملية.
    أفضل جهد وبمهلة قصيرة — فشلها أو تأخرها لا يمنع شاشة النجاح (الربط نفسه
-   تمّ في الخادم أصلاً). window.__NOJ_CHECKIN_WAIT_MS__ للاختبار فقط. */
-async function fetchApptCheckin(txnId){
+   تمّ في الخادم أصلاً). window.__NOJ_CHECKIN_WAIT_MS__ للاختبار فقط.
+   rpc: kiosk_appointment_checkin (افتراضياً) أو kiosk_queue_checkin (رقم دور بلا
+   موعد، من رمز العيادة الذي أرسله الكاشير). */
+async function fetchApptCheckin(txnId,rpc){
+  rpc=rpc||'kiosk_appointment_checkin';
   try{
     var sb=await getSb();
     if(!sb||!txnId)return null;
     var wait=window.__NOJ_CHECKIN_WAIT_MS__||3000;
     var res=await Promise.race([
-      sb.rpc('kiosk_appointment_checkin',{p_transaction_id:txnId}),
+      sb.rpc(rpc,{p_transaction_id:txnId}),
       new Promise(function(resolve){setTimeout(function(){resolve({data:null,error:{message:'timeout'}})},wait)})
     ]);
     if(res.error)throw res.error;
     var d=Array.isArray(res.data)?res.data[0]:res.data;
     return d&&typeof d==='object'&&d.clinic_name?d:null;
   }catch(e){
-    console.error('NOJ kiosk: kiosk_appointment_checkin error',e);
+    console.error('NOJ kiosk: '+rpc+' error',e);
     return null;
   }
 }
@@ -2133,6 +2140,12 @@ function handlePhoneSubmit(phone){
         if(r.row&&r.row.is_registered!==false&&SETTINGS.sector==='medical'){
           LIVE_APPT_CHECKIN=await fetchApptCheckin(claimedTxnId);
           if(S.page!=='checkout')return;
+          // بلا موعد اليوم: رقم دور بلا موعد إن أعطاه الخادم (رمز العيادة من الكاشير)
+          if(!LIVE_APPT_CHECKIN){
+            var walkIn=await fetchApptCheckin(claimedTxnId,'kiosk_queue_checkin');
+            if(S.page!=='checkout')return;
+            if(walkIn){walkIn.walk_in=true;LIVE_APPT_CHECKIN=walkIn;}
+          }
         }
         S.view='ok';renderLayer();
         return;
