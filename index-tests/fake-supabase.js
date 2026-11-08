@@ -88,6 +88,10 @@
         (tables.appointments = tables.appointments || []).push(appt);
         return Promise.resolve({ data: JSON.parse(JSON.stringify(appt)), error: null });
       }
+      if (name === 'redeem_reward') {
+        if (scenario.redeemError) return Promise.resolve({ data: null, error: { message: scenario.redeemError } });
+        return Promise.resolve({ data: { points: scenario.redeemPoints }, error: null });
+      }
       if (name === 'cancel_appointment') {
         if (scenario.cancelError) return Promise.resolve({ data: null, error: { message: scenario.cancelError } });
         var a = (tables.appointments || []).find(function (x) { return x.id === args.p_appointment_id; });

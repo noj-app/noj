@@ -488,6 +488,205 @@ const appText = (page) => page.textContent('#app');
     await context.close();
   }
 
+  // ===================== PR3: الرصيد الموحّد، القيد عند الاستبدال، الإرجاع، ولا أرقام مختلقة =====================
+  // مفاتيح أشهر الرياض (الحالي والسابق) — الفواتير تُبنى نسبةً إليهما فلا يتعلق الاختبار بتاريخ التشغيل
+  const riyadhMonth = (t) => { const p = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit' }).formatToParts(t); const g = {}; p.forEach((x) => { g[x.type] = x.value; }); return g.year + '-' + g.month; };
+  const shiftMonth = (k, d) => { let y = +k.slice(0, 4), m = +k.slice(5, 7) - 1 + d; y += Math.floor(m / 12); m = ((m % 12) + 12) % 12; return y + '-' + String(m + 1).padStart(2, '0'); };
+  const CUR = riyadhMonth(new Date()), PREV = shiftMonth(CUR, -1);
+  const atMonth = (k, day) => new Date(k + '-' + String(day || 1).padStart(2, '0') + 'T12:00:00+03:00').toISOString();
+  const riyadhDMY = (iso) => { const p = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(iso)); const g = {}; p.forEach((x) => { g[x.type] = x.value; }); return g.day + '/' + g.month + '/' + g.year; };
+  const invAt = (id, merchant, type, amount, at, extra) => Object.assign({ id, user_id: PROFILE.id, amount, category: type, items: [], created_at: at, merchant_id: merchant, merchants: { name: merchant === REST ? 'مطعم مذاق' : 'مقهى نجل', branch: null } }, extra || {});
+  const REL1 = inDays(3), REL2 = inDays(6);
+  function loyaltyScenario(over) {
+    const sc = baseScenario(over);
+    sc.tables.merchant_loyalty = [{ merchant_id: CAFE, user_id: PROFILE.id, points: 100, tier: 'برونزي', merchants: { name: 'مقهى نجل', type: 'مقاهي', branch: null, logo_color: null } }];
+    sc.tables.rewards = [
+      { id: 'rw-big', title: 'قهوة مجانية', cost_points: 120, merchant_id: CAFE, active: true, merchants: { name: 'مقهى نجل' } },
+      { id: 'rw-small', title: 'كعكة', cost_points: 50, merchant_id: CAFE, active: true, merchants: { name: 'مقهى نجل' } },
+    ];
+    sc.tables.point_transactions = [
+      { id: 'pt-1', user_id: PROFILE.id, merchant_id: CAFE, type: 'earn', points_delta: 25, intended_delta: null, status: 'pending', release_at: REL2, invoice_id: 'i-4', created_at: inDays(-1) },
+      { id: 'pt-2', user_id: PROFILE.id, merchant_id: CAFE, type: 'earn', points_delta: 15, intended_delta: null, status: 'pending', release_at: REL1, invoice_id: 'i-4', created_at: inDays(-2) },
+      { id: 'pt-3', user_id: PROFILE.id, merchant_id: CAFE, type: 'earn', points_delta: 30, intended_delta: null, status: 'cancelled', release_at: inDays(4), invoice_id: 'i-9', created_at: inDays(-3) },
+      { id: 'pt-4', user_id: PROFILE.id, merchant_id: CAFE, type: 'refund_adjustment', points_delta: -20, intended_delta: -35, status: 'available', release_at: null, invoice_id: 'i-8', created_at: inDays(-4) },
+      { id: 'pt-5', user_id: PROFILE.id, merchant_id: CAFE, type: 'redeem', points_delta: -50, intended_delta: null, status: 'available', release_at: null, invoice_id: null, created_at: inDays(-5) },
+      { id: 'pt-6', user_id: PROFILE.id, merchant_id: CAFE, type: 'earn', points_delta: 170, intended_delta: null, status: 'available', release_at: null, invoice_id: 'i-7', created_at: inDays(-6) },
+      // تاجر آخر: لا يدخل في رصيد المقهى
+      { id: 'pt-x', user_id: PROFILE.id, merchant_id: REST, type: 'earn', points_delta: 999, intended_delta: null, status: 'pending', release_at: inDays(1), invoice_id: 'i-1', created_at: inDays(-1) },
+    ];
+    return sc;
+  }
+  async function openRewards(page, merchantId) {
+    await page.click('.nav button[data-tab="loyalty"]');
+    await page.click('[data-open-loyalty="' + merchantId + '"]');
+    await page.waitForSelector('#rwHdrPts');
+    await page.waitForSelector('#ptHist [data-pt-row], #ptHistEmpty, #ptHistErr', { timeout: 3000 }).catch(() => {});
+  }
+  {
+    // 28-29) رقم واحد = المتاح (100) + المعلّق (15 + 25) = 140، بلا أي تفصيل أو ذكر للتعليق
+    const { context, page } = await openApp(browser, loyaltyScenario({ redeemError: 'رصيد النقاط غير كافٍ لدى هذا التاجر' }));
+    await page.click('.nav button[data-tab="loyalty"]');
+    check('28) بطاقة الولاء: رصيد واحد موحّد 140 (المتاح 100 + المعلّق 40)', /140 نقطة/.test(await page.textContent('[data-open-loyalty="' + CAFE + '"]')));
+    await page.click('[data-open-loyalty="' + CAFE + '"]');
+    await page.waitForSelector('#rwHdrPts');
+    check('28) صفحة مكافآت التاجر: نفس الرقم الموحّد 140', (await page.textContent('#rwHdrPts')).trim() === '140');
+    const txt = await appText(page);
+    check('28) لا تمييز ولا ذكر للتعليق في العرض (لا "معلّق"، ولا "يصبح متاحاً" قبل أي محاولة استبدال)', !/معل[ّ]?ق|تعليق|يصبح متاحاً/.test(txt));
+    check('28) مكافأة 120 نقطة تبدو قابلة للاستبدال (الرصيد المعروض 140 يكفيها)', !(await page.$eval('[data-redeem="rw-big"]', (b) => b.disabled)));
+    // 29) المتاح 100 لا يكفي: الخادم يرفض ⇒ رسالة القيد بتاريخ أقرب إتاحة (REL1 لا REL2)
+    await page.click('[data-redeem="rw-big"]');
+    await page.waitForSelector('#confirmRedeemBtn');
+    await page.click('#confirmRedeemBtn');
+    await page.waitForFunction(() => /يصبح متاحاً/.test(document.getElementById('toast-text').textContent), null, { timeout: 3000 }).catch(() => {});
+    const t = await toastText(page);
+    check('29) رفض الاستبدال لعدم كفاية المتاح: "جزء من نقاطك لدى مقهى نجل يصبح متاحاً للاستبدال في ' + riyadhDMY(REL1) + '" (أقرب تاريخ)',
+      t === 'جزء من نقاطك لدى مقهى نجل يصبح متاحاً للاستبدال في ' + riyadhDMY(REL1));
+    const q = (await page.evaluate(() => window.__TEST__.getQueries('point_transactions'))).filter((x) => x.select === 'release_at');
+    check('29) تاريخ الإتاحة يُقرأ عند المحاولة فقط، لنفس التاجر وصفوفه المعلّقة',
+      q.length === 1 && q[0].filters.some((f) => f.col === 'merchant_id' && f.val === CAFE) && q[0].filters.some((f) => f.col === 'status' && f.val === 'pending'));
+    check('29) الرصيد المعروض لا يتغيّر بعد الرفض (140)', (await page.textContent('#rwHdrPts')).trim() === '140');
+    await context.close();
+  }
+  {
+    // 30) استبدال ناجح: redeem_reward تعيد المتاح الجديد (50) ⇒ المعروض 50 + 40 معلّق = 90
+    const { context, page } = await openApp(browser, loyaltyScenario({ redeemPoints: 50 }));
+    await openRewards(page, CAFE);
+    await page.click('[data-redeem="rw-small"]');
+    await page.click('#confirmRedeemBtn');
+    await page.waitForFunction(() => document.getElementById('rwHdrPts') && document.getElementById('rwHdrPts').textContent.trim() === '90', null, { timeout: 3000 }).catch(() => {});
+    check('30) استبدال ناجح: المعروض = المتاح الجديد 50 + المعلّق 40 = 90', (await page.textContent('#rwHdrPts')).trim() === '90' && /تم استبدال: كعكة/.test(await toastText(page)));
+    await context.close();
+  }
+  {
+    // 31) لا نقاط معلّقة: رفض عدم الكفاية ⇒ الرسالة العامة بلا تاريخ
+    const sc = loyaltyScenario({ redeemError: 'رصيد النقاط غير كافٍ لدى هذا التاجر' });
+    sc.tables.point_transactions = sc.tables.point_transactions.filter((r) => r.status !== 'pending');
+    sc.tables.merchant_loyalty[0].points = 130;
+    const { context, page } = await openApp(browser, sc);
+    await openRewards(page, CAFE);
+    check('31) بلا معلّق: الرصيد = المتاح وحده (130)', (await page.textContent('#rwHdrPts')).trim() === '130');
+    await page.click('[data-redeem="rw-big"]');
+    await page.click('#confirmRedeemBtn');
+    await page.waitForFunction(() => /غير كافية/.test(document.getElementById('toast-text').textContent), null, { timeout: 3000 }).catch(() => {});
+    check('31) …ورفض الخادم يعرض "غير كافية" بلا ذكر إتاحة لاحقة', /غير كافية/.test(await toastText(page)) && !/يصبح متاحاً/.test(await toastText(page)));
+    await context.close();
+  }
+  {
+    // 32) سجل النقاط: الكسب، الاستبدال، وسطرا الإرجاع (نقاط ملغاة، خصم بسبب إرجاع)
+    const { context, page } = await openApp(browser, loyaltyScenario());
+    await openRewards(page, CAFE);
+    const rows = await page.$$eval('#ptHist [data-pt-row]', (els) => els.map((e) => ({ type: e.getAttribute('data-pt-row'), cancelled: e.hasAttribute('data-pt-cancelled'), text: e.textContent, amt: e.querySelector('[data-pt-amount]').textContent })));
+    check('32) سجل النقاط: كل حركات هذا التاجر فقط (6)، الأحدث أولاً', rows.length === 6 && rows[0].amt === '+25 نقطة' && !rows.some((r) => /999/.test(r.text)));
+    check('32) نقاط ملغاة بإرجاع (صف معلّق أُلغي): "نقاط ملغاة — فاتورة مُرجَعة"', rows.some((r) => r.cancelled && /نقاط ملغاة — فاتورة مُرجَعة/.test(r.text) && r.amt === 'ملغاة'));
+    check('32) خصم بسبب إرجاع: سطر مستقل بالمخصوم فعلاً (−20)', rows.some((r) => r.type === 'refund_adjustment' && /خصم بسبب إرجاع/.test(r.text) && r.amt === '−20 نقطة'));
+    check('32) الاستبدال والكسب: "استبدال مكافأة −50" و"نقاط فاتورة +170"', rows.some((r) => r.type === 'redeem' && r.amt === '−50 نقطة') && rows.some((r) => r.type === 'earn' && r.amt === '+170 نقطة'));
+    check('32) الصفوف المعلّقة تظهر كسباً عادياً بلا تمييز', rows.filter((r) => r.type === 'earn' && !r.cancelled).every((r) => /نقاط فاتورة/.test(r.text)) && !/معل[ّ]?ق/.test(await page.textContent('#ptHist')));
+    await context.close();
+  }
+  {
+    // 32) السجل أفضل جهد: فشل قراءته لا يعطّل الصفحة
+    const sc = loyaltyScenario({ failSelectContaining: 'intended_delta' });
+    const { context, page } = await openApp(browser, sc);
+    await openRewards(page, CAFE);
+    check('32) تعذّر قراءة السجل: رسالة في قسمه فقط، والمكافآت والرصيد كما هي', !!(await page.$('#ptHistErr')) && (await page.textContent('#rwHdrPts')).trim() === '140' && !!(await page.$('[data-redeem="rw-small"]')));
+    await context.close();
+  }
+  {
+    // 33) الفواتير المُرجَعة: كاملة (status بلا refunded_amount = أقدم صيغة) وجزئية، مع الصافي
+    const sc = baseScenario();
+    sc.tables.invoices = [
+      invAt('r-full', CAFE, 'مقاهي', 60, atMonth(CUR, 1), { status: 'refunded', refunded_amount: null }),
+      invAt('r-part', CAFE, 'مقاهي', 50, atMonth(CUR, 1), { status: 'paid', refunded_amount: 20 }),
+      invAt('r-none', CAFE, 'مقاهي', 40, atMonth(CUR, 1), { status: 'paid', refunded_amount: null }),
+    ];
+    const { context, page } = await openApp(browser, sc);
+    await page.click('.tile[data-go="invoices"]');
+    await page.waitForSelector('[data-inv="r-full"]');
+    const badge = async (id) => { const el = await page.$('[data-inv="' + id + '"] [data-inv-refund]'); return el ? (await el.textContent()) : null; };
+    check('33) فاتورة مُرجَعة بالكامل: شارة "مُرجَعة"، وجزئياً "مُرجَعة جزئياً"، وبلا إرجاع: لا شارة',
+      (await badge('r-full')) === 'مُرجَعة' && (await badge('r-part')) === 'مُرجَعة جزئياً' && (await badge('r-none')) === null);
+    await page.click('[data-inv="r-part"]');
+    await page.waitForSelector('[data-inv-net]');
+    check('33) تفاصيل الفاتورة الجزئية: المبلغ المُرجَع −20.00 والصافي 30.00', /المبلغ المُرجَع/.test(await page.textContent('[data-inv-refunded]')) && /−20\.00/.test(await page.textContent('[data-inv-refunded]')) && /30\.00/.test(await page.textContent('[data-inv-net]')));
+    await page.click('#cls');
+    await page.click('[data-inv="r-full"]');
+    await page.waitForSelector('[data-inv-net]');
+    check('33) تفاصيل المُرجَعة بالكامل: "مُرجَعة بالكامل" والصافي 0.00', /مُرجَعة بالكامل/.test(await page.textContent('[data-inv-refunded]')) && /0\.00/.test(await page.textContent('[data-inv-net]')));
+    await page.click('#cls');
+    await page.click('.nav button[data-tab="home"]');
+    check('33) الإنفاق يُحسب بالصافي: هذا الشهر 0 + 30 + 40 = 70.00', (await page.getAttribute('#heroNum', 'data-target')) === '70');
+    await context.close();
+  }
+  {
+    // 34) الرئيسية: إنفاق هذا الشهر وتغيّره عن الشهر الماضي من الفواتير الفعلية، والمنحنى من أشهر حقيقية
+    const sc = baseScenario();
+    sc.tables.invoices = [
+      invAt('c-1', CAFE, 'مقاهي', 100, atMonth(CUR, 1)), invAt('c-2', REST, 'مطاعم', 50, atMonth(CUR, 1)),
+      invAt('p-1', CAFE, 'مقاهي', 100, atMonth(PREV, 15)),
+      invAt('o-1', CAFE, 'مقاهي', 999, atMonth(shiftMonth(CUR, -9), 10)),
+    ];
+    const { context, page } = await openApp(browser, sc);
+    await page.waitForSelector('#heroNum');
+    check('34) "هذا الشهر" = فواتير الشهر الحالي فقط (150، لا كل الفواتير)', (await page.getAttribute('#heroNum', 'data-target')) === '150');
+    check('34) التغيّر محسوب: 150 مقابل 100 ⇒ "أعلى من الشهر الماضي 50%"', /أعلى من الشهر الماضي\s*50%/.test(await page.textContent('.hero-delta')));
+    check('34) المنحنى من بيانات حقيقية (شهران فيهما إنفاق) لا مسار ثابت', !!(await page.$('#heroSpark polyline')) && (await page.$$('.spark path')).length === 0);
+    check('34) "فاتورة هذا الشهر" = عدد فواتير الشهر (2)', /^2 فاتورة هذا الشهر$/.test((await page.textContent('#homeInvCount')).trim()));
+    check('34) لا قيمة 12% الثابتة', !/12%/.test(await appText(page)));
+    // 38) تحليل المصروفات: أعمدة الأشهر الستة الحقيقية والملاحظات من الأرقام نفسها
+    await page.click('.hero-btn');
+    await page.waitForSelector('#trendBox');
+    const bars = await page.$$eval('[data-trend-month]', (els) => els.map((e) => [e.getAttribute('data-trend-month'), e.getAttribute('title')]));
+    check('38) الاتجاه الشهري: آخر ستة أشهر فعلية تنتهي بالشهر الحالي بمبالغها', bars.length === 6 && bars[5][0] === CUR && bars[5][1] === '150 ريال' && bars[4][0] === PREV && bars[4][1] === '100 ريال');
+    const ins = await page.textContent('#insightsBox');
+    check('38) "ماذا يقول NOJ؟" من الأرقام الفعلية (أعلى 50%، أكثر فئة مقهى 67%) بلا جمل ثابتة', /أعلى من الشهر الماضي بنسبة 50%/.test(ins) && /مقهى بنسبة 67%/.test(ins) && !/18%|43%|60 ريال/.test(ins));
+    // 39) التقارير: ملخص الشهر الحالي + أكثر المتاجر زيارة بعدد الزيارات
+    await page.click('.nav button[data-tab="reports"]');
+    await page.waitForSelector('#monthSummary');
+    check('39) ملخص الشهر: 150 ريال و2 فاتورة وأعلى فئة مقهى (67%)، بلا "وقت الانتظار الموفَّر"',
+      /150 ريال/.test(await page.textContent('[data-rep-total]')) && (await page.textContent('[data-rep-count]')) === '2' && /مقهى \(67%\)/.test(await page.textContent('[data-rep-top]')) && !/الموفَّر|43%/.test(await appText(page)));
+    check('39) أكثر المتاجر زيارة: بعدد الفواتير الفعلي', /1\. مقهى نجل\s*3 زيارات/.test(await page.textContent('#topMerchants')) && /2\. مطعم مذاق\s*1 زيارة/.test(await page.textContent('#topMerchants')));
+    await context.close();
+  }
+  {
+    // 35) لا إنفاق في الشهر الماضي ⇒ لا نسبة؛ شهر واحد فقط ⇒ لا منحنى
+    const sc = baseScenario();
+    sc.tables.invoices = [invAt('c-1', CAFE, 'مقاهي', 80, atMonth(CUR, 1))];
+    const { context, page } = await openApp(browser, sc);
+    await page.waitForSelector('#heroNum');
+    check('35) بلا فواتير للشهر الماضي: لا سطر تغيّر إطلاقاً', !(await page.$('.hero-delta')) && (await page.getAttribute('#heroNum', 'data-target')) === '80');
+    check('35) شهر واحد فيه إنفاق: لا منحنى', !(await page.$('.spark')));
+    await context.close();
+  }
+  {
+    // 35) فواتير قديمة فقط (يناير): هذا الشهر صفر، لا نسبة، لا منحنى، لا تحليل شهري ولا ملاحظات
+    const { context, page } = await openApp(browser, baseScenario());
+    await page.waitForSelector('#heroNum');
+    check('35) فواتير قديمة فقط: هذا الشهر 0، بلا نسبة ولا منحنى، "0 فاتورة هذا الشهر"',
+      (await page.getAttribute('#heroNum', 'data-target')) === '0' && !(await page.$('.hero-delta')) && !(await page.$('.spark')) && /^0 فاتورة هذا الشهر$/.test((await page.textContent('#homeInvCount')).trim()));
+    // 36) لا تنبيهات مختلقة: لا قسم في الرئيسية، وصفحة التنبيهات حالة فارغة
+    check('36) الرئيسية بلا قسم "التنبيهات" (لا أمثلة ثابتة)', !(await page.$('#homeAlerts')) && !/مطعم مذاق · 120\.50|بقي شخصان قبلك/.test(await appText(page)));
+    await page.click('.hero-btn');
+    await page.waitForSelector('.sec-head h2');
+    check('35) تحليل المصروفات بلا بيانات حديثة: لا أعمدة شهرية ولا ملاحظات مختلقة', !(await page.$('#trendBox')) && !(await page.$('#insightsBox')) && !/مارس|أغسطس/.test(await appText(page)));
+    await page.evaluate(() => { S.tab = 'alerts'; render(); });
+    check('36) صفحة التنبيهات: حالة فارغة', /لا توجد تنبيهات/.test(await appText(page)));
+    await page.evaluate(() => { S.tab = 'profile'; render(); });
+    check('36) الملف الشخصي: لا بريد مختلق ولا "٤ متاجر محفوظة"، وفواتير الشهر 0', !/ahmed@noj\.app|٤ متاجر|المنزل، العمل/.test(await appText(page)) && (await page.textContent('[data-prof-count]')) === '0');
+    await context.close();
+  }
+  {
+    // 37) التحية: الاسم الافتراضي 'عميل NOJ' ليس اسماً ⇒ "مرحباً 👋"؛ اسم حقيقي ⇒ أول كلمة منه
+    const { context, page } = await openApp(browser, baseScenario({ profile: Object.assign({}, PROFILE, { name: 'عميل NOJ' }) }));
+    check('37) بلا اسم (عميل NOJ): "مرحباً 👋" بلا "عميل"', (await page.textContent('#greetTitle')).trim() === 'مرحباً 👋');
+    await context.close();
+    const b = await openApp(browser, baseScenario({ profile: Object.assign({}, PROFILE, { name: '' }) }));
+    check('37) اسم فارغ: "مرحباً 👋"', (await b.page.textContent('#greetTitle')).trim() === 'مرحباً 👋');
+    await b.context.close();
+    const c = await openApp(browser, baseScenario({ profile: Object.assign({}, PROFILE, { name: 'سارة أحمد' }) }));
+    check('37) اسم حقيقي: "مرحباً سارة 👋"', (await c.page.textContent('#greetTitle')).trim() === 'مرحباً سارة 👋');
+    await c.context.close();
+  }
+
   await browser.close();
   console.log('\n=== INDEX E2E SUMMARY:', pass, 'passed,', fail, 'failed ===');
   if (failures.length) console.log('Failures:', JSON.stringify(failures, null, 2));

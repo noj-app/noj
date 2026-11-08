@@ -153,6 +153,9 @@ async function openAdminSettingsViaPin(page, pin) {
     check('2) إجمالي النقاط المعروض هو الرصيد الحقيقي من الخادم (142)، لا تقدير محلي', /142/.test(ptsText));
     const breakdown = await page.textContent('.g-pts-break').catch(() => '');
     check('2) تفصيل الرصيد يطابق الاستجابة الحقيقية (سابق 100 + مضاف 42)', /100/.test(breakdown) && /42/.test(breakdown));
+    // النقاط المعلّقة (مدة التعليق للبقالة/التجزئة) لا تُذكر في شاشة نوج إطلاقاً: "+X نقطة" فقط
+    const okText = await page.innerText('body').catch(() => '');
+    check('2) شاشة النجاح بلا أي ذكر لتعليق النقاط أو مدته (لا "معلّق" ولا "تعليق" ولا "متاحاً للاستبدال")', !/معل[ّ]?ق|تعليق|متاح(اً|ة)? للاستبدال|يصبح متاح/.test(okText));
     await context.close();
   }
 
