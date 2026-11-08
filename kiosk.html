@@ -783,14 +783,42 @@ function leftoverOkItem(c){
    الديناميكي حتى يبقى هذا السكربت classic بلا type="module". */
 const SUPABASE_URL='https://jqddjswxsacejbqjeehw.supabase.co';
 const SUPABASE_KEY='sb_publishable_tv2luaaynJu1c5Ce9loWFg_GQmMRTD-';
+/* جلسة شاشة نوج في مفتاح تخزين خاص بها (لا المفتاح الافتراضي لـsupabase-js).
+   شاشة نوج وتطبيق نوج ولوحة التاجر من نفس الأصل على GitHub Pages فـlocalStorage
+   واحد للثلاثة، وكان index.html وkiosk.html يتشاركان المفتاح الافتراضي: فتح تطبيق
+   نوج في متصفح الشاشة (دخول عميل بـsignInWithOtp، أو "خروج" بـsignOut) يستبدل جلسة
+   الجهاز أو يمسحها، فتُقلع الشاشة بعدها بجلسة مجهولة جديدة = جهاز جديد غير مربوط
+   ⇒ "رمز ربط جديد" بلا أي مسح لبيانات المتصفح. (نفس سبب MERCHANT_STORAGE_KEY في
+   merchant.html.) ?v= في العنوان لا يغيّر الأصل فلا يمس التخزين. */
+const KIOSK_STORAGE_KEY='sb-noj-kiosk-auth';
+const LEGACY_SB_STORAGE_KEY='sb-'+new URL(SUPABASE_URL).hostname.split('.')[0]+'-auth-token';
+/* ترحيل لمرة واحدة: شاشة مربوطة اليوم جلستها في المفتاح الافتراضي — تُنقل لمفتاحها
+   الخاص فلا يُطلب من أي محل إعادة الربط بعد هذا التحديث. تُنقل الجلسة المجهولة فقط
+   (جلسة الجهاز دائماً مجهولة؛ جلسة عميل سجّل دخوله ليست مجهولة فتبقى لتطبيق نوج)،
+   وتُحذف من المفتاح الافتراضي كي لا يجدّد تطبيق نوج نفس رمز التجديد فيُبطله على
+   الشاشة. لا شيء إن كان لمفتاح الشاشة جلسة أصلاً. */
+function migrateKioskSessionStorage(){
+  try{
+    if(localStorage.getItem(KIOSK_STORAGE_KEY))return false;
+    var raw=localStorage.getItem(LEGACY_SB_STORAGE_KEY);
+    if(!raw)return false;
+    var parsed=JSON.parse(raw);
+    var user=parsed&&(parsed.user||(parsed.currentSession&&parsed.currentSession.user));
+    if(!user||user.is_anonymous!==true)return false;
+    localStorage.setItem(KIOSK_STORAGE_KEY,raw);
+    localStorage.removeItem(LEGACY_SB_STORAGE_KEY);
+    return true;
+  }catch(e){return false}
+}
 let __sbPromise=null;
 function getSb(){
   if(!__sbPromise){
     __sbPromise=(async function(){
+      migrateKioskSessionStorage();
       if(window.__NOJ_SUPABASE_CLIENT__) return window.__NOJ_SUPABASE_CLIENT__;
       try{
         const mod=await import('https://esm.sh/@supabase/supabase-js@2');
-        return mod.createClient(SUPABASE_URL,SUPABASE_KEY);
+        return mod.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{storageKey:KIOSK_STORAGE_KEY}});
       }catch(e){
         console.error('NOJ kiosk: تعذّر تحميل مكتبة Supabase',e);
         return null;
@@ -997,7 +1025,11 @@ async function startLiveTxnWatch(){
     })
     .subscribe(function(status){
       LIVE_RT_STATUS=status;LIVE_RT_STATUS_AT=new Date();
-      if(status==='SUBSCRIBED'){stopLiveFallbackPoll();return}
+      // Realtime يبثّ ما يُدرَج **بعد** الاشتراك فقط: فاتورة وصلت والشاشة مطفأة أو
+      // قبل ربطها أو أثناء انقطاع القناة لا تصل عبره أبداً. فعند كل اشتراك ناجح
+      // (إقلاع، ربط جديد، إعادة اتصال، تجديد توكن) قراءة واحدة تلتقط الأحدث المعلّق
+      // ما دام ضمن صلاحيته (expires_at من الخادم، 5 دقائق من وصولها) — لا أقدم.
+      if(status==='SUBSCRIBED'){stopLiveFallbackPoll();pollForPendingTxn();return}
       if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED')startLiveFallbackPoll();
     });
 }
@@ -1881,6 +1913,9 @@ async function checkPairingStatus(){
       clearTimeout(pairingPollTimer);
       await loadDeviceContext(res.data.branch_id);
       S.page='idle';render();
+      // كان الإقران من هذه الشاشة يصل للانتظار بلا أي اشتراك (الاشتراك يبدأ في
+      // bootKiosk فقط) فلا تصل أي فاتورة حتى إعادة تحميل الصفحة
+      startLiveTxnWatch();
       return;
     }
     S.pairingCodeLive=res.data.pairing_code;

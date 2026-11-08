@@ -414,6 +414,33 @@ const appText = (page) => page.textContent('#app');
     await context.close();
   }
 
+  // 28-30) الأسماء الظاهرة للأقسام الستة (بقالة، تجزئة، مقهى، مطعم، صحي، خدمات) — القيم المخزّنة كما هي
+  {
+    const sc = baseScenario();
+    sc.tables.invoices.push(inv('i-old', SERV, 'أخرى'));
+    const { context, page } = await openApp(browser, sc);
+    await page.evaluate(() => { S.tab = 'queue'; render(); });
+    await page.waitForSelector('#bookList', { timeout: 3000 });
+    const book = await page.textContent('#bookList');
+    check('28) "احجز مسبقاً": صحي ومطعم ومقهى وخدمات — لا "صحة" ولا "مطاعم" ولا "مقاهي"',
+      /صحي/.test(book) && /مطعم/.test(book) && /مقهى/.test(book) && /خدمات/.test(book) && !/صحة|مطاعم|مقاهي/.test(book));
+    await page.fill('#bookQ', 'صحي');
+    await page.waitForTimeout(100);
+    check('28) البحث بالاسم الظاهر "صحي" يجد المركز الصحي', /مركز النور الطبي/.test(await page.textContent('#bookList')));
+    await page.evaluate(() => { S.tab = 'invoices'; render(); });
+    const invTxt = await page.textContent('#view');
+    check('29) سجل الفواتير: شارات "مطعم/خدمات/صحي/مقهى"، و"أخرى" القديم يظهر "خدمات"',
+      /مطعم/.test(invTxt) && /صحي/.test(invTxt) && /مقهى/.test(invTxt) && !/صحة|مطاعم|مقاهي|أخرى/.test(invTxt));
+    await page.evaluate(() => { S.tab = 'spending'; render(); });
+    const legend = await page.$$eval('.legend .lg b', (els) => els.map((e) => e.textContent));
+    check('30) توزيع الإنفاق: الأسماء الستة المعتمدة، و"أخرى" القديم مجموع مع "خدمات" (لا تكرار)',
+      legend.length > 0 && legend.filter((x) => x === 'خدمات').length === 1 && legend.includes('صحي') && legend.includes('مطعم') &&
+      !legend.some((x) => /صحة|مطاعم|مقاهي|أخرى/.test(x)));
+    check('30) القيم المخزّنة لم تتغيّر (category يبقى "مطاعم" و"أخرى"، type يبقى "صحة")',
+      (await page.evaluate(() => INVOICES.some((i) => i.c === 'أخرى') && INVOICES.some((i) => i.c === 'مطاعم') && USER_MERCHANTS.some((m) => m.type === 'صحة'))));
+    await context.close();
+  }
+
   // 22-27) طابور العيادات الحي (supabase-migration-clinic-queue.sql): رقم دور حقيقي
   //        اليوم، "أمامك X" يتحدّث تلقائياً (Realtime على clinic_queue_state + استعلام احتياطي)
   const liveTicket = (over) => [Object.assign({ ticket_id: 'q-1', merchant_id: HEALTH, merchant_name: 'مركز النور الطبي', clinic_id: 'c-2',
