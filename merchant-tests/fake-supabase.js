@@ -19,7 +19,7 @@
     var storageKey = scenario.storageKey || MERCHANT_STORAGE_KEY;
     var state = {
       lastApproveCall: null, lastUpdateCall: null, usedCaptchaTokens: [],
-      invoiceCalls: [], invoicesErrored: false,
+      invoiceCalls: [], invoicesErrored: false, refundSummaryCalls: [],
       lastBranchSettingsUpdate: null, lastSetPinCall: null, lastIssuedPosToken: null, issuedPosTokenCount: 0
     };
 
@@ -329,6 +329,12 @@
         if (mrow) mrow.points_hold_days = args.p_days;
         return Promise.resolve({ data: args.p_days, error: null });
       }
+      if (name === 'merchant_refunds_summary') {
+        state.refundSummaryCalls.push(args);
+        // بلا scenario.refundsSummary = قبل تطبيق الملف على الحي (الدالة غير موجودة)
+        if (!scenario.refundsSummary) return Promise.resolve({ data: null, error: { message: 'function merchant_refunds_summary does not exist' } });
+        return Promise.resolve({ data: JSON.parse(JSON.stringify(scenario.refundsSummary)), error: null });
+      }
       if (name === 'merchant_list_invoices') {
         state.invoiceCalls.push(args);
         var delay = (scenario.invoicesDelays || [])[state.invoiceCalls.length - 1] || 0;
@@ -461,6 +467,7 @@
       getDevices: function () { return scenario.devices || []; },
       getUsedCaptchaTokens: function () { return state.usedCaptchaTokens.slice(); },
       getInvoiceCalls: function () { return state.invoiceCalls.slice(); },
+      getRefundSummaryCalls: function () { return state.refundSummaryCalls.slice(); },
       getVerifyCalls: function () { return (state.verifyCalls || []).slice(); },
       getLastBranchSettingsUpdate: function () { return state.lastBranchSettingsUpdate; },
       getBranchSettings: function (branchId) { return (scenario.branchSettings || []).find(function (s) { return s.branch_id === branchId; }) || null; },

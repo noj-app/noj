@@ -885,6 +885,61 @@ async function loginFlow(page, phone, otp) {
     await context.close();
   }
 
+  // 33ب) المرتجعات (PR4): "المبلغ المرتجع" والصافي وشارة كاملة/جزئية على الفاتورة، وبطاقة
+  //      "نقاط غير مستردة من مرتجعات" من merchant_refunds_summary (نفس الفترة والفرع).
+  {
+    const rows = [
+      inv('full', TODAY, '11:00', 'branch-1', 'فرع الملقا', 60, 9, 6, 'pos', { status: 'refunded', refunded_amount: 60 }),
+      inv('part', TODAY, '10:00', 'branch-1', 'فرع الملقا', 115, 15, 115, 'pos', { refunded_amount: 50 }),
+      inv('none', TODAY, '09:00', 'branch-2', 'فرع العليا', 40, 6, 4, 'pos'),
+    ];
+    const RS = { refund_count: 3, refund_amount: 160, points_cancelled: 20, points_deducted: 15, points_unrecovered: 22 };
+    const { context, page } = await openInvoices(invScenario(rows, { refundsSummary: RS }));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invRefundPoints', { timeout: 3000 });
+    const cards = await page.textContent('#invCards');
+    check('33ب) بطاقة "المبلغ المرتجع" (بدل "المسترد") = 110.00، والصافي 105.00', /المبلغ المرتجع/.test(cards) && !/المسترد/.test(cards) && /110\.00/.test(cards) && /105\.00/.test(cards));
+    const badges = await page.$$eval('#invList .inv-row', (els) => els.map((e) => { const b = e.querySelector('[data-inv-refund]'); return b ? b.textContent : null; }));
+    check('33ب) الشارة: "مُرجَعة" للكاملة، "مُرجَعة جزئياً" للجزئية، ولا شيء لغير المُرجَعة', JSON.stringify(badges) === JSON.stringify(['مُرجَعة', 'مُرجَعة جزئياً', null]));
+    const partRow = (await page.$$('#invList .inv-row'))[1];
+    const partTxt = await partRow.textContent();
+    check('33ب) الفاتورة الجزئية: "المبلغ المرتجع 50.00" و"الصافي 65.00"', /المبلغ المرتجع\s*50\.00/.test(partTxt) && /الصافي\s*65\.00/.test(partTxt));
+    const card = await page.textContent('#invRefundPoints');
+    check('33ب) بطاقة "نقاط غير مستردة من مرتجعات" = 22، مع عدد العمليات ومبلغها والمخصوم والملغى',
+      (await page.textContent('#invUnrecovered')).trim() === '22' && /نقاط غير مستردة من مرتجعات/.test(card) && /3\s*عمليات إرجاع/.test(card) &&
+      /160\.00/.test(card) && /خُصم من أرصدة العملاء\s*15\s*نقطة/.test(card) && /أُلغي\s*20\s*نقطة قبل إتاحتها/.test(card));
+    const rc = await page.evaluate(() => window.__TEST__.getRefundSummaryCalls());
+    check('33ب) merchant_refunds_summary: نفس التاجر والفترة، كل الفروع', rc.length === 1 && rc[0].p_merchant_id === 'merchant-1' && rc[0].p_from === TODAY && rc[0].p_to === TODAY && rc[0].p_branch_id === null);
+    await page.selectOption('#invBranch', 'branch-2');
+    await page.waitForFunction(() => window.__TEST__.getRefundSummaryCalls().length === 2, null, { timeout: 3000 }).catch(() => {});
+    const rc2 = await page.evaluate(() => window.__TEST__.getRefundSummaryCalls());
+    check('33ب) تغيير الفرع يعيد طلب الملخص بالفرع المختار', rc2.length === 2 && rc2[1].p_branch_id === 'branch-2');
+    await context.close();
+  }
+  {
+    // قبل تطبيق الملف (الدالة غير موجودة) أو فشلها: الفواتير كما هي، والبطاقة لا تظهر (لا أرقام مختلقة)
+    const { context, page } = await openInvoices(invScenario([inv('a', TODAY, '10:00', 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos')]));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invCards', { timeout: 3000 });
+    check('33ب) تعذّر الملخص: لا بطاقة نقاط غير مستردة، والفواتير تعمل', !(await page.$('#invRefundPoints')) && (await page.textContent('#invCount')).trim() === '1');
+    await context.close();
+  }
+  {
+    // "تحميل المزيد" لا يعيد طلب الملخص (نفس الفترة)، وفترة بلا مرتجعات تعرض صفراً بنص صريح
+    const many = [];
+    for (let i = 0; i < 30; i++) many.push(inv('m' + i, TODAY, '10:' + String(59 - i).padStart(2, '0'), 'branch-1', 'فرع الملقا', 10, 1.5, 1, 'pos'));
+    const { context, page } = await openInvoices(invScenario(many, { refundsSummary: { refund_count: 0, refund_amount: 0, points_cancelled: 0, points_deducted: 0, points_unrecovered: 0 } }));
+    await page.click('#viewTabs [data-view="invoices"]');
+    await page.waitForSelector('#invMore', { timeout: 3000 });
+    check('33ب) فترة بلا مرتجعات: صفر و"لم تصل أي عملية إرجاع في هذه الفترة"', (await page.textContent('#invUnrecovered')).trim() === '0' && /لم تصل أي عملية إرجاع في هذه الفترة/.test(await page.textContent('#invRefundPoints')));
+    await page.click('#invMore');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().length === 2, null, { timeout: 3000 });
+    await page.waitForTimeout(100);
+    check('33ب) تحميل المزيد: نداء فواتير ثانٍ فقط، بلا إعادة طلب الملخص، والبطاقة باقية',
+      (await page.evaluate(() => window.__TEST__.getRefundSummaryCalls())).length === 1 && !!(await page.$('#invRefundPoints')));
+    await context.close();
+  }
+
   // =========================================================================
   // 34-40) الأقسام الستة + مدة تعليق النقاط (supabase-migration-unified-sectors.sql)
   // =========================================================================
