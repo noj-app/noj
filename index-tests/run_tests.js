@@ -480,11 +480,35 @@ const appText = (page) => page.textContent('#app');
     await context.close();
   }
   {
-    // لا تذكرة حية (أو قبل تطبيق الملف: الدالة غير موجودة) ⇒ صفحة الانتظار كما كانت تماماً
+    // تغيّر عمداً (قرار: لا أرقام مختلقة): كان "صفحة الانتظار كما كانت (زر المحاكاة)". فشل القراءة ⇒ نفس الحالة الفارغة
     const { context, page } = await openApp(browser, baseScenario({ myQueueError: 'function get_my_queue_status() does not exist' }));
     await openQueue(page);
-    check('27) بلا تذكرة حية / قبل تطبيق الملف: صفحة الانتظار كما كانت (زر المحاكاة)، بلا قناة',
-      !!(await page.$('#qbtn')) && !(await page.$('[data-live-queue-card]')) && (await page.evaluate(() => window.__TEST__.getChannels())).length === 0);
+    check('27) بلا تذكرة حية / تعذّر القراءة: حالة فارغة "لا يوجد لديك رقم دور حالياً"، بلا زر محاكاة، بلا قناة',
+      /لا يوجد لديك رقم دور حالياً/.test(await page.textContent('#queueEmpty')) && !(await page.$('#qbtn')) && !(await page.$('[data-live-queue-card]')) &&
+      (await page.evaluate(() => window.__TEST__.getChannels())).length === 0);
+    await context.close();
+  }
+  {
+    // 27ب) لا تذكرة حية اليوم، وصف queue_tickets قديم "waiting" (رقم/موقع/وقت بلا مصدر حي) لا يظهر كأنه حالي
+    const sc = baseScenario({ myQueue: [] });
+    sc.tables.merchants.find((m) => m.id === HEALTH).queue_enabled = true;
+    sc.clinics = sc.clinics.concat([{ clinic_id: 'c-2', clinic_name: 'عيادة الجلدية', doctor_name: 'د. نورة', booking_enabled: true, now_serving: 1, waiting_count: 0, est_minutes: 0 }]);
+    sc.tables.queue_tickets = [{ user_id: PROFILE.id, ticket_number: 77, unit_name: 'عيادة قديمة', position: 3, est_minutes: 12, merchant_id: HEALTH, status: 'waiting', created_at: inDays(-9), merchants: { name: 'مركز النور الطبي' } }];
+    const { context, page } = await openApp(browser, sc);
+    await openQueue(page);
+    const txt = await appText(page);
+    check('27ب) الحالة الفارغة: لا رقم تجريبي ولا "أهدأ وقت لزيارة هذا الفرع" ولا وقت متوقع مختلق',
+      !!(await page.$('#queueEmpty')) && !/أهدأ وقت|محاكاة|#77|#—|الوقت المتوقع/.test(txt) && !(await page.$('.qcard')));
+    check('27ب) …وقسم "احجز مسبقاً" باقٍ للمتاجر التي تتيح الحجز', !!(await page.$('#bookList')));
+    check('27ب) لا قراءة لـqueue_tickets القديمة إطلاقاً', (await page.evaluate(() => window.__TEST__.getQueries('queue_tickets'))).length === 0);
+    // الوقت المتوقع في قائمة عيادات المركز: يظهر فقط حين يوجد تقدير فعلي (> 0)، لا "~0 دقيقة"
+    await page.click('.nav button[data-tab="merchants"]');
+    await page.click('[data-open-merchant="' + HEALTH + '"]');
+    await page.waitForSelector('[data-open-section="queue"]', { timeout: 3000 });
+    await page.click('[data-open-section="queue"]');
+    await page.waitForFunction(() => /عيادة الأسنان/.test(document.getElementById('app').textContent) && /عيادة الجلدية/.test(document.getElementById('app').textContent), null, { timeout: 3000 }).catch(() => {});
+    const qtxt = await appText(page);
+    check('27ب) عيادات المركز: "~10 دقيقة" للعيادة التي لها تقدير، ولا "~0 دقيقة" لغيرها', /~10 دقيقة/.test(qtxt) && !/~0 دقيقة/.test(qtxt));
     await context.close();
   }
 
