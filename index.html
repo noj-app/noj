@@ -819,21 +819,17 @@ function sectorLabel(t){return SECTOR_LABEL[t]||t||''}
 // login, instead of holding mock fixtures.
 let INVOICES=[];
 let CATS=[];
-const TREND=[{m:'مارس',t:1420},{m:'أبريل',t:1600},{m:'مايو',t:1510},{m:'يونيو',t:1980},{m:'يوليو',t:2540},{m:'أغسطس',t:2850}];
-const INSIGHTS=[{t:'up',x:'إنفاقك على المطاعم ارتفع 18% مقارنة بالشهر الماضي'},{t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر هي المطاعم بنسبة 43%'},{t:'down',x:'يمكنك توفير نحو 60 ريال شهريًا بتقليل زيارات المقاهي'}];
-// Still Mock, kept out of the bottom nav now but reachable via the bell
-// icon — home() also shows a 2-item preview of this same array.
+/* لا أرقام مختلقة: كل رقم أو رسم في الرئيسية والتحليل والتقارير يُحسب من فواتير العميل الفعلية
+   (INVOICES، بصافيها بعد الإرجاع) بأشهر توقيت الرياض — spendStats() أدناه — ويُخفى حين لا بيانات له. */
+const AR_MONTHS=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+// لا مصدر حقيقي للتنبيهات بعد: القائمة فارغة (كانت أمثلة ثابتة تُعرض كأنها حقيقية)،
+// فتعرض صفحة التنبيهات حالتها الفارغة وتختفي معاينتها من الرئيسية.
 // `merchantId` is optional and only set on entries that genuinely belong to
 // one specific merchant — merchantDetail()'s "التنبيهات" tile activates
 // only when a real (tagged) entry exists for that merchant, so untagged
 // generic alerts never spuriously turn that section on for every merchant
 // whose name happens to appear in an alert's text.
-const ALERTS=[{i:'clock',c:'#7C5CE6',t:'اقترب دورك في مطعم مذاق',s:'بقي شخصان قبلك — قبل 4 دقائق'},
-       {i:'receipt',c:'#3B82F6',t:'وصلت فاتورتك الرقمية',s:'مطعم مذاق · 120.50 ريال — اليوم'},
-       {i:'gift',c:'#22A87A',t:'حصلت على 45 نقطة ولاء',s:'من مشترياتك اليوم'},
-       {i:'up',c:'#F59E0B',t:'تنبيه إنفاق',s:'تجاوزت 80% من ميزانية المطاعم — أمس'},
-       {i:'clock',c:'#0F6E6E',t:'اقترب دورك في عيادة الجلدية',s:'مركز النور الطبي — بقي شخص واحد قبلك',merchantId:'20000000-0000-0000-0000-00000000000d'},
-       {i:'receipt',c:'#0F6E6E',t:'تذكير بموعدك القادم',s:'مركز النور الطبي — عيادة الأسنان غدًا 10:00 صباحًا',merchantId:'20000000-0000-0000-0000-00000000000d'}];
+const ALERTS=[];
 // Loyalty points belong to merchants, not to NOJ itself — there is no
 // platform-wide points pool, and no screen ever sums balances across
 // merchants into one number. Each entry is one merchant relationship:
@@ -928,7 +924,7 @@ function normalizeAr(s){
 function computeCats(){
   var totals={};
   // 'أخرى' القديم يُجمَع مع 'خدمات' (نفس الاسم الظاهر واللون) فلا يظهر القسم مرتين
-  INVOICES.forEach(function(inv){var k=inv.c==='أخرى'?'خدمات':inv.c;totals[k]=(totals[k]||0)+inv.a});
+  INVOICES.forEach(function(inv){var k=inv.c==='أخرى'?'خدمات':inv.c;totals[k]=(totals[k]||0)+invNet(inv)});
   var total=0;
   Object.keys(totals).forEach(function(k){total+=totals[k]});
   CATS=Object.keys(CAT).filter(function(k){return totals[k]>0}).map(function(k){
@@ -949,7 +945,7 @@ async function loadUserData(profileId){
 
   INVOICES=(invRes.data||[]).map(function(row){
     var mName=row.merchants?row.merchants.name+(row.merchants.branch?' - '+row.merchants.branch:''):'متجر';
-    return {id:row.id,m:mName,d:formatDate(row.created_at),a:Number(row.amount),c:row.category,merchantId:row.merchant_id,
+    return {id:row.id,m:mName,d:formatDate(row.created_at),at:row.created_at,a:Number(row.amount),r:0,c:row.category,merchantId:row.merchant_id,
       items:(row.items||[]).map(function(it){return {n:it.n,p:it.p}})};
   });
   computeCats();
@@ -961,13 +957,18 @@ async function loadUserData(profileId){
     return {merchantId:row.merchant_id,name:row.merchants?row.merchants.name:'تاجر',
       type:row.merchants?row.merchants.type:'أخرى',branch:row.merchants?row.merchants.branch:null,
       logoColor:row.merchants?row.merchants.logo_color:null,
-      points:Number(row.points),tier:row.tier,rewards:[]};
+      // points = الرصيد المعروض (المتاح + المعلّق، رقم واحد بلا تفصيل)؛ available = ما يمكن
+      // استبداله فعلاً (merchant_loyalty.points)؛ pending يُملأ في loadPendingPoints.
+      available:Number(row.points),pending:0,nextRelease:null,points:Number(row.points),tier:row.tier,rewards:[]};
   });
   var rewardsByMerchant={};
   (rewardRes.data||[]).forEach(function(row){
     (rewardsByMerchant[row.merchant_id]=rewardsByMerchant[row.merchant_id]||[]).push({id:row.id,t:row.title,c:row.cost_points});
   });
   MERCHANT_LOYALTY.forEach(function(m){m.rewards=rewardsByMerchant[m.merchantId]||[]});
+  // قراءتان منفصلتان أفضل جهد (كل منهما تلتقط خطأها) — بالتوازي
+  await Promise.all([loadPendingPoints(profileId),loadInvoiceRefunds(profileId)]);
+  computeCats();
 
   if(ticketRes.data&&ticketRes.data[0]){
     var t=ticketRes.data[0];
@@ -1065,6 +1066,181 @@ function onLiveQueueChange(now){
     var typing=a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA');
     if(shows&&!typing&&!S.sel&&!S.confirmRedeem&&!S.showConsent)render();
   },now?0:150);
+}
+
+/* النقاط المعلّقة (supabase-migration-pending-points.sql): الرصيد المعروض للعميل رقم واحد =
+   المتاح (merchant_loyalty.points) + كل صفوف point_transactions المعلّقة لنفس التاجر — نفس قاعدة
+   kiosk_lookup_customer_points، فلا يتأثر الرقم بتأخر مهمة التحرير. قراءة RLS عادية أفضل جهد:
+   فشلها يبقي الرصيد = المتاح كما كان. */
+async function loadPendingPoints(profileId){
+  try{
+    var sb=await getSb();
+    var res=await sb.from('point_transactions').select('merchant_id, points_delta, release_at').eq('user_id',profileId).eq('status','pending');
+    if(res.error)throw res.error;
+    var by={};
+    (res.data||[]).forEach(function(r){
+      var b=by[r.merchant_id]=by[r.merchant_id]||{sum:0,next:null};
+      b.sum+=Number(r.points_delta)||0;
+      if(r.release_at&&(!b.next||r.release_at<b.next))b.next=r.release_at;
+    });
+    MERCHANT_LOYALTY.forEach(function(m){
+      var b=by[m.merchantId];
+      m.pending=b?b.sum:0;m.nextRelease=b?b.next:null;
+      m.points=m.available+m.pending;
+    });
+  }catch(e){console.error('NOJ pending points error:',e)}
+}
+/* الإرجاع (supabase-migration-pos-refunds.sql): المبلغ المُرجَع لكل فاتورة — status='refunded' بلا
+   refunded_amount (صفوف أقدم) = مُرجَعة بالكامل. قراءة منفصلة أفضل جهد: فشلها لا يعطّل الفواتير. */
+async function loadInvoiceRefunds(profileId){
+  try{
+    var sb=await getSb();
+    var res=await sb.from('invoices').select('id, status, refunded_amount').eq('user_id',profileId);
+    if(res.error)throw res.error;
+    var by={};
+    (res.data||[]).forEach(function(r){by[r.id]=r});
+    INVOICES.forEach(function(inv){
+      var r=by[inv.id];
+      if(!r){inv.r=0;return}
+      var ref=r.refunded_amount!=null?Number(r.refunded_amount):(r.status==='refunded'?inv.a:0);
+      inv.r=Math.min(inv.a,Math.max(0,ref||0));
+    });
+  }catch(e){console.error('NOJ invoice refunds error:',e)}
+}
+// صافي الفاتورة بعد الإرجاع (هو ما يُحتسب في الإنفاق)
+function invNet(inv){return Math.max(0,inv.a-(inv.r||0))}
+// مفتاح الشهر بتوقيت الرياض 'YYYY-MM' (فاتورة 00:30 بالرياض أول الشهر تتبع شهرها لا الشهر السابق بـUTC)
+function riyadhMonthKey(t){
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit'}).formatToParts(t instanceof Date?t:new Date(t));
+  var g={};parts.forEach(function(p){g[p.type]=p.value});
+  return g.year+'-'+g.month;
+}
+function shiftMonthKey(key,delta){
+  var y=Number(key.slice(0,4)),m=Number(key.slice(5,7))-1+delta;
+  y+=Math.floor(m/12);m=((m%12)+12)%12;
+  return y+'-'+String(m+1).padStart(2,'0');
+}
+// إحصاءات الإنفاق الحقيقية: هذا الشهر، الشهر الماضي، نسبة التغيّر (null حين لا إنفاق للشهر الماضي ⇒ تُخفى)،
+// آخر ستة أشهر للرسم، وأعلى فئة هذا الشهر. كلها من INVOICES فقط.
+function spendStats(){
+  var cur=riyadhMonthKey(new Date()),prev=shiftMonthKey(cur,-1);
+  var by={},count={},catThis={};
+  INVOICES.forEach(function(inv){
+    if(!inv.at)return;
+    var k=riyadhMonthKey(inv.at),net=invNet(inv);
+    by[k]=(by[k]||0)+net;count[k]=(count[k]||0)+1;
+    if(k===cur){var c=inv.c==='أخرى'?'خدمات':inv.c;catThis[c]=(catThis[c]||0)+net}
+  });
+  var thisMonth=by[cur]||0,lastMonth=by[prev]||0;
+  var trend=[];
+  for(var d=-5;d<=0;d++){var k=shiftMonthKey(cur,d);trend.push({key:k,m:AR_MONTHS[Number(k.slice(5,7))-1],t:Math.round((by[k]||0)*100)/100})}
+  var top=null;
+  Object.keys(catThis).forEach(function(c){if(catThis[c]>0&&(!top||catThis[c]>catThis[top]))top=c});
+  return {
+    thisMonth:Math.round(thisMonth*100)/100,lastMonth:Math.round(lastMonth*100)/100,thisCount:count[cur]||0,
+    pct:lastMonth>0?Math.round((thisMonth-lastMonth)/lastMonth*100):null,
+    trend:trend,activeMonths:trend.filter(function(x){return x.t>0}).length,
+    topCat:top,topPct:top&&thisMonth>0?Math.round(catThis[top]/thisMonth*100):null
+  };
+}
+// منحنى الأشهر الستة الأخيرة الحقيقي (لا مسار ثابت) — يُرسم فقط إن كان للعميل إنفاق في شهرين على الأقل منها.
+function sparkSvg(trend){
+  var max=Math.max.apply(null,trend.map(function(x){return x.t}));
+  if(!(max>0))return '';
+  var pts=trend.map(function(x,i){return [Math.round(i*(184/(trend.length-1))+8),Math.round(62-x.t/max*50)]});
+  var last=pts[pts.length-1];
+  return '<svg class="spark" id="heroSpark" viewBox="0 0 200 70" preserveAspectRatio="none">'+
+    '<polyline points="'+pts.map(function(p){return p.join(',')}).join(' ')+'" fill="none" stroke="#60A5FA" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<circle cx="'+last[0]+'" cy="'+last[1]+'" r="6.5" fill="#fff"/></svg>';
+}
+// الاسم الافتراضي لملف لم يُدخل صاحبه اسماً (profiles.name الافتراضي 'عميل NOJ') ليس اسماً ⇒ تحية بلا اسم
+function greetingName(){
+  var n=String(PROFILE.name||'').trim();
+  if(!n||n==='عميل NOJ'||n==='عميل'||/^عميل\s/.test(n))return '';
+  return n.split(/\s+/)[0];
+}
+function refundBadgeHtml(inv){
+  if(!inv.r)return '';
+  var full=inv.r>=inv.a;
+  return '<span class="badge" data-inv-refund style="background:#EF444418;color:#DC2626;margin-inline-start:4px">'+(full?'مُرجَعة':'مُرجَعة جزئياً')+'</span>';
+}
+
+/* الاستبدال يصرف من المتاح فقط (redeem_reward لم تتغيّر): المعروض للعميل رقم واحد (متاح + معلّق)،
+   فإن رفض الخادم لعدم كفاية المتاح ولدى العميل نقاط معلّقة لهذا التاجر نعرض تاريخ أقرب إتاحة —
+   هذا هو الموضع الوحيد الذي يظهر فيه القيد (لا عند كل زيارة). */
+function applyRedeemResult(m,res){
+  m.available=Number(res.data.points);
+  m.points=m.available+(m.pending||0);
+}
+function isInsufficientPointsError(e){
+  var msg=String((e&&e.message)||'');
+  return msg.indexOf('غير كافٍ')!==-1||msg.indexOf('لا يوجد رصيد نقاط')!==-1;
+}
+function formatRiyadhDate(iso){
+  var parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Riyadh',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(iso));
+  var g={};parts.forEach(function(p){g[p.type]=p.value});
+  return g.day+'/'+g.month+'/'+g.year;
+}
+async function nearestPendingRelease(m){
+  try{
+    var sb=await getSb();
+    var res=await sb.from('point_transactions').select('release_at').eq('user_id',PROFILE.id).eq('merchant_id',m.merchantId).eq('status','pending').order('release_at',{ascending:true}).limit(1);
+    if(res.error)throw res.error;
+    var row=(res.data||[])[0];
+    return row&&row.release_at?row.release_at:null;
+  }catch(e){console.error('NOJ pending release lookup error:',e);return m.nextRelease||null}
+}
+async function redeemErrorMessage(m,e){
+  if(!isInsufficientPointsError(e))return 'تعذّر إتمام الاستبدال، حاول مرة أخرى';
+  var rel=await nearestPendingRelease(m);
+  if(!rel)return 'نقاطك لدى '+m.name+' غير كافية لاستبدال هذه المكافأة';
+  if(new Date(rel).getTime()<=Date.now())return 'جزء من نقاطك لدى '+m.name+' يصبح متاحاً للاستبدال خلال دقائق';
+  return 'جزء من نقاطك لدى '+m.name+' يصبح متاحاً للاستبدال في '+formatRiyadhDate(rel);
+}
+
+/* سجل النقاط لدى تاجر (قراءة RLS "select own point transactions"): الكسب، الاستبدال، وسطور الإرجاع —
+   نقاط ملغاة (صف معلّق أُلغي بإرجاع كامل) أو خصم بسبب إرجاع (refund_adjustment). لا تمييز بصري
+   بين المتاح والمعلّق (رقم واحد). أفضل جهد: undefined = جارٍ التحميل، null = تعذّر. */
+var POINT_HISTORY={};
+async function loadPointHistory(merchantId){
+  if(!PROFILE.id)return;
+  try{
+    var sb=await getSb();
+    var res=await sb.from('point_transactions').select('id, type, points_delta, intended_delta, status, invoice_id, created_at').eq('user_id',PROFILE.id).eq('merchant_id',merchantId).order('created_at',{ascending:false}).limit(50);
+    if(res.error)throw res.error;
+    POINT_HISTORY[merchantId]=res.data||[];
+  }catch(e){
+    console.error('NOJ point history error:',e);
+    POINT_HISTORY[merchantId]=null;
+  }
+}
+function pointHistoryRow(t){
+  var d=Number(t.points_delta)||0,label,amount,color;
+  if(t.type==='refund_adjustment'){label='خصم بسبب إرجاع';amount=d;color='#DC2626'}
+  else if(t.type==='earn'&&t.status==='cancelled'){label='نقاط ملغاة — فاتورة مُرجَعة';amount=0;color='#8A93AD'}
+  else if(t.type==='earn'){label='نقاط فاتورة';amount=d;color='#22A87A'}
+  else if(t.type==='redeem'){label='استبدال مكافأة';amount=d;color='#12235C'}
+  else if(t.type==='opening_balance'){label='رصيد افتتاحي';amount=d;color='#22A87A'}
+  else {label='تعديل رصيد';amount=d;color=d<0?'#DC2626':'#22A87A'}
+  var txt=t.type==='earn'&&t.status==='cancelled'?'ملغاة':(amount>0?'+':amount<0?'−':'')+Math.abs(amount).toLocaleString('en-US')+' نقطة';
+  return '<div class="rw" data-pt-row="'+escRes(t.type)+'"'+(t.status==='cancelled'?' data-pt-cancelled':'')+'><div><b>'+label+'</b><small>'+formatRiyadhDate(t.created_at)+'</small></div>'+
+    '<b style="color:'+color+';font-size:14px" data-pt-amount>'+txt+'</b></div>';
+}
+function pointHistoryHtml(merchantId){
+  var list=POINT_HISTORY[merchantId];
+  if(list===undefined)return '<div class="empty" id="ptHistLoading">جارٍ تحميل السجل...</div>';
+  if(list===null)return '<div class="empty" id="ptHistErr">تعذّر تحميل سجل النقاط</div>';
+  if(!list.length)return '<div class="empty" id="ptHistEmpty">لا توجد حركات نقاط بعد</div>';
+  return list.map(pointHistoryRow).join('');
+}
+function openPointHistory(merchantId){
+  var before=JSON.stringify(POINT_HISTORY[merchantId]);
+  loadPointHistory(merchantId).then(function(){
+    if(S.tab==='merchantRewards'&&S.selMerchant===merchantId&&JSON.stringify(POINT_HISTORY[merchantId])!==before){
+      var el=document.getElementById('ptHist');
+      if(el)el.innerHTML=pointHistoryHtml(merchantId);
+    }
+  });
 }
 
 // حجوزات العميل القادمة للمطعم والخدمات — عبر سياسة "select own appointments"
@@ -1262,30 +1438,26 @@ function heroDeltaHtml(pct){
 function home(){
   if(S.dataLoading)return homeSkeleton();
   var total=CATS.reduce(function(s,c){return s+c.a},0);
-  // TODO: نسبة تغيّر حقيقية عن الشهر الماضي تتطلب تخزين إجمالي الشهر
-  // السابق فعليًا (لا يوجد حاليًا في المخطط) — قيمة تجريبية ثابتة مؤقتًا؛
-  // heroDeltaHtml أعلاه يطبّق المنطق الصحيح الكامل (زيادة/نقصان/بلا تغيير)
-  // بصرف النظر عن مصدر الرقم.
-  var spendPctChange=12;
-  var last=INVOICES[0]||{m:'—',a:0,d:'—'};
-  var firstName=(PROFILE.name||'').split(' ')[0]||'بك';
+  // البطاقة الرئيسية = إنفاق هذا الشهر الفعلي (بتوقيت الرياض، صافي الإرجاع)، والتغيّر عن الشهر
+  // الماضي يُحسب من الفواتير نفسها ويُخفى حين لا إنفاق للشهر الماضي (لا نسبة بلا أساس).
+  var st=spendStats();
+  var last=INVOICES[0];
+  var firstName=greetingName();
   return ''+
-  '<div class="greet"><h1>مرحباً '+firstName+' 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
+  '<div class="greet"><h1 id="greetTitle">مرحباً'+(firstName?' '+escRes(firstName):'')+' 👋</h1><p>التجربة الذكية تبدأ من هنا</p></div>'+
   '<div class="hero">'+
     '<div class="hero-top">'+
       '<div class="hero-chart">'+
         '<svg class="hero-grid" viewBox="0 0 200 70" preserveAspectRatio="none">'+
           [20,60,100,140,180].map(function(x){return '<line x1="'+x+'" y1="0" x2="'+x+'" y2="70" stroke="rgba(255,255,255,.05)" stroke-width="1" stroke-dasharray="3 4"/>'}).join('')+
         '</svg>'+
-        '<svg class="spark" viewBox="0 0 200 70" preserveAspectRatio="none">'+
-          '<path d="M0 58 C 25 52, 35 26, 55 34 S 85 56, 105 42 S 135 14, 160 24" fill="none" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>'+
-          '<circle cx="160" cy="24" r="6.5" fill="#fff"/></svg>'+
+        (st.activeMonths>=2?sparkSvg(st.trend):'')+
       '</div>'+
       '<div class="hero-text">'+
         '<div class="hero-label">إجمالي المصروفات</div>'+
-        '<div class="hero-amount"><span id="heroNum">'+total.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
+        '<div class="hero-amount"><span id="heroNum" data-target="'+st.thisMonth+'">'+st.thisMonth.toLocaleString('en-US',{minimumFractionDigits:2})+'</span><s>SAR</s></div>'+
         '<div class="hero-sub">هذا الشهر</div>'+
-        heroDeltaHtml(spendPctChange)+
+        (st.pct!==null?heroDeltaHtml(st.pct):'')+
       '</div>'+
     '</div>'+
     '<button class="hero-btn" data-go="spending">'+
@@ -1311,14 +1483,16 @@ function home(){
       '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+sectorLabel(c.n)+'</b><s>'+c.v+'%</s></div>'}).join('')+'</div></div></div>'+
     '<div class="box"><div class="box-head"><h3>الفواتير الذكية</h3><button data-go="invoices">عرض الكل</button></div>'+
       '<div class="inv-mini"><div class="inv-ico">'+ic('receipt',26,'#3B82F6')+'</div>'+
-      '<div class="inv-info"><b>'+INVOICES.length+' فاتورة هذا الشهر</b><small>آخر فاتورة</small>'+
-      '<small style="color:var(--text);font-weight:700">'+last.m+'</small>'+
-      '<small class="amt">'+last.a.toFixed(2)+' ريال</small><small>'+last.d+'</small></div></div></div>'+
+      '<div class="inv-info"><b id="homeInvCount">'+st.thisCount+' فاتورة هذا الشهر</b>'+
+      (last?'<small>آخر فاتورة</small>'+
+        '<small style="color:var(--text);font-weight:700">'+last.m+'</small>'+
+        '<small class="amt">'+last.a.toFixed(2)+' ريال</small><small>'+last.d+'</small>'
+        :'<small>لا توجد فواتير بعد</small>')+'</div></div></div>'+
   '</div>'+
-  '<div class="sec"><div class="sec-head"><h2>التنبيهات</h2><button data-go="alerts">عرض الكل</button></div>'+
+  (ALERTS.length?'<div class="sec" id="homeAlerts"><div class="sec-head"><h2>التنبيهات</h2><button data-go="alerts">عرض الكل</button></div>'+
     '<div class="list">'+ALERTS.slice(0,2).map(function(a){return '<button class="row" data-go="alerts"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
       '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div>'+ic('chevron',18,'#8A93AD')+'</button>'}).join('')+
-    '</div></div>'+
+    '</div></div>':'')+
   '<div class="sec"><div class="sec-head"><h2>الولاء</h2><button data-go="loyalty">عرض الكل</button></div>'+loyTeaser()+'</div>';
 }
 
@@ -1444,7 +1618,10 @@ function invoiceModal(sel){
       '<div class="dash"></div>'+
       sel.items.map(function(t){return '<div class="mrow"><span>'+t.n+'</span><span>'+t.p+' ريال</span></div>'}).join('')+
     '</div>'+
-    '<div class="sheet-foot"><div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div></div>'+
+    '<div class="sheet-foot"><div class="dash"></div><div class="mtotal"><b>الإجمالي</b><s>'+sel.a.toFixed(2)+' ريال</s></div>'+
+      (sel.r?'<div class="mrow" data-inv-refunded style="color:#DC2626"><span>'+(sel.r>=sel.a?'مُرجَعة بالكامل':'المبلغ المُرجَع')+'</span><span>−'+sel.r.toFixed(2)+' ريال</span></div>'+
+        '<div class="mrow" data-inv-net><span>الصافي</span><span>'+invNet(sel).toFixed(2)+' ريال</span></div>':'')+
+    '</div>'+
   '</div></div>';
 }
 
@@ -1453,7 +1630,7 @@ function invoices(){
   var sel=INVOICES.filter(function(i){return i.id===S.sel})[0];
   var grid=f.length!==0?'<div class="list">'+f.map(function(i){var m=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
       '<div class="row-ico" style="background:'+m.c+'18">'+ic(m.i,22,m.c)+'</div>'+
-      '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+sectorLabel(i.c)+'</span></div>'+
+      '<div class="row-txt"><b>'+i.m+'</b><small>'+i.d+'</small><span class="badge" style="background:'+m.c+'18;color:'+m.c+'">'+sectorLabel(i.c)+'</span>'+refundBadgeHtml(i)+'</div>'+
       '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
     :(INVOICES.length===0
       ?emptyState('لا توجد فواتير بعد','اربط جوالك عند أي متجر تزوره لتصلك فواتيرك تلقائيًا')
@@ -1566,6 +1743,8 @@ function merchantRewardsPage(){
     header+
     '<div class="sec"><div class="sec-head"><h2>المكافآت</h2></div>'+
     '<div class="list" id="rwdList">'+rwdListHtml(m)+'</div></div>'+
+    '<div class="sec"><div class="sec-head"><h2>سجل النقاط</h2></div>'+
+    '<div class="list" id="ptHist">'+pointHistoryHtml(m.merchantId)+'</div></div>'+
     (S.confirmRedeem&&S.confirmRedeem.merchantId===m.merchantId?redeemConfirmSheet(m):'');
 }
 
@@ -1716,7 +1895,7 @@ function merchantDetail(){
     var list='<div class="sec"><div class="sec-head"><h2>فواتيري</h2></div><div class="list">'+
       myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
         '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
-        '<div class="row-txt"><b>'+i.d+'</b><small>'+sectorLabel(i.c)+'</small></div>'+
+        '<div class="row-txt"><b>'+i.d+'</b><small>'+sectorLabel(i.c)+'</small>'+refundBadgeHtml(i)+'</div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+
     '</div></div>';
     return '<div class="sec-head" style="margin-top:20px"><h2>'+m.name+'</h2></div>'+
@@ -1746,7 +1925,7 @@ function merchantInvoicesPage(){
   var list=myInvoices.length
     ?'<div class="list">'+myInvoices.map(function(i){var mc=CAT[i.c];return '<button class="row" data-inv="'+i.id+'">'+
         '<div class="row-ico" style="background:'+mc.c+'18">'+ic(mc.i,22,mc.c)+'</div>'+
-        '<div class="row-txt"><b>'+i.d+'</b><small>'+sectorLabel(i.c)+'</small></div>'+
+        '<div class="row-txt"><b>'+i.d+'</b><small>'+sectorLabel(i.c)+'</small>'+refundBadgeHtml(i)+'</div>'+
         '<div class="inv-amt">'+i.a.toFixed(2)+'</div></button>'}).join('')+'</div>'
     :'<div class="empty">لا توجد فواتير لدى هذا المتجر</div>';
   return '<div class="sec-head" style="margin-top:20px"><h2>فواتيري</h2></div>'+
@@ -2053,37 +2232,46 @@ function merchantAlertsPage(){
 
 function spending(){
   var total=CATS.reduce(function(s,c){return s+c.a},0);
-  var max=Math.max.apply(null,TREND.map(function(d){return d.t}));
+  var st=spendStats();
+  var max=Math.max.apply(null,st.trend.map(function(d){return d.t}));
+  var ins=[];
+  if(st.pct!==null)ins.push({t:st.pct>0?'up':st.pct<0?'down':'arrow',x:st.pct===0?'إنفاقك هذا الشهر مساوٍ للشهر الماضي':'إنفاقك هذا الشهر '+(st.pct>0?'أعلى':'أقل')+' من الشهر الماضي بنسبة '+Math.abs(st.pct)+'%'});
+  if(st.topCat)ins.push({t:'flag',x:'أكثر فئة إنفاقًا لديك هذا الشهر: '+sectorLabel(st.topCat)+' بنسبة '+st.topPct+'%'});
   return '<div class="sec-head" style="margin-top:20px"><h2>تحليل المصروفات</h2></div>'+
-  '<div class="box"><small style="font-size:12px;color:var(--muted)">إجمالي الإنفاق هذا الشهر</small>'+
+  '<div class="box"><small style="font-size:12px;color:var(--muted)">إجمالي الإنفاق (كل الفواتير)</small>'+
   '<div style="font-size:26px;font-weight:800;margin:4px 0 12px;direction:ltr;text-align:right">'+total.toLocaleString('en-US')+' ريال</div>'+
   '<div class="donut-row">'+donut(120,{b:total.toLocaleString('en-US'),s:'ريال'},true)+
   '<div class="legend">'+CATS.map(function(c){return '<div class="lg"><i style="background:'+CAT[c.n].c+'"></i><b>'+sectorLabel(c.n)+'</b><s>'+c.v+'% · '+c.a+'</s></div>'}).join('')+'</div></div></div>'+
-  '<div class="box" style="margin-top:14px"><div class="box-head"><h3>الاتجاه الشهري</h3></div>'+
-  '<div class="bars">'+TREND.map(function(d){return '<div class="bcol" title="'+d.t+' ريال"><div class="bfill" style="height:'+(d.t/max*105)+'px"></div><small>'+d.m+'</small></div>'}).join('')+'</div></div>'+
-  '<div class="box" style="margin-top:14px"><div class="box-head"><h3>'+ic('spark',15,'#F59E0B')+' ماذا يقول NOJ؟</h3></div>'+
-  INSIGHTS.map(function(i){return '<div class="ins">'+ic(i.t==='up'?'up':i.t==='down'?'down':'arrow',16,'#F59E0B')+'<span>'+i.x+'</span></div>'}).join('')+'</div>';
+  (max>0?'<div class="box" id="trendBox" style="margin-top:14px"><div class="box-head"><h3>الاتجاه الشهري</h3></div>'+
+  '<div class="bars">'+st.trend.map(function(d){return '<div class="bcol" data-trend-month="'+d.key+'" title="'+d.t+' ريال"><div class="bfill" style="height:'+(d.t/max*105)+'px"></div><small>'+d.m+'</small></div>'}).join('')+'</div></div>':'')+
+  (ins.length?'<div class="box" id="insightsBox" style="margin-top:14px"><div class="box-head"><h3>'+ic('spark',15,'#F59E0B')+' ماذا يقول NOJ؟</h3></div>'+
+  ins.map(function(i){return '<div class="ins">'+ic(i.t==='up'?'up':i.t==='down'?'down':'arrow',16,'#F59E0B')+'<span>'+i.x+'</span></div>'}).join('')+'</div>':'');
 }
 
 function alerts(){
+  if(!ALERTS.length)return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2></div>'+
+    emptyState('لا توجد تنبيهات','ستظهر هنا تنبيهات فواتيرك ونقاطك ودورك حين تتوفر.');
   return '<div class="sec-head" style="margin-top:20px"><h2>التنبيهات</h2></div>'+
   '<div class="list">'+ALERTS.map(function(a){return '<div class="row"><div class="row-ico" style="background:'+a.c+'18">'+ic(a.i,22,a.c)+'</div>'+
   '<div class="row-txt"><b>'+a.t+'</b><small>'+a.s+'</small></div></div>'}).join('')+'</div>';
 }
 
 function reports(){
-  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var st=spendStats();
   var loyMerchantCount=MERCHANT_LOYALTY.filter(function(m){return m.points>0}).length;
+  // أكثر المتاجر زيارة = عدد فواتير العميل لدى كل متجر فعلاً (لا آخر أربع فواتير)
+  var visits={};
+  INVOICES.forEach(function(inv){var v=visits[inv.m]=visits[inv.m]||{m:inv.m,n:0,t:0};v.n++;v.t+=invNet(inv)});
+  var top=Object.keys(visits).map(function(k){return visits[k]}).sort(function(a,b){return b.n-a.n||b.t-a.t}).slice(0,4);
   return '<div class="sec-head" style="margin-top:20px"><h2>التقارير</h2></div>'+
-  '<div class="box"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
-  '<div class="mrow"><span>إجمالي الإنفاق</span><span>'+total.toLocaleString('en-US')+' ريال</span></div>'+
-  '<div class="mrow"><span>عدد الفواتير</span><span>'+INVOICES.length+'</span></div>'+
-  '<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(total/(INVOICES.length||1))+' ريال</span></div>'+
-  '<div class="mrow"><span>أعلى فئة</span><span>مطعم (43%)</span></div>'+
-  '<div class="mrow"><span>متاجر لديك رصيد نقاط فيها</span><span>'+loyMerchantCount+'</span></div>'+
-  '<div class="dash"></div><div class="mrow"><span>وقت الانتظار الموفَّر</span><span>~2.5 ساعة</span></div></div>'+
-  '<div class="box" style="margin-top:14px"><div class="box-head"><h3>أكثر المتاجر زيارة</h3></div>'+
-  INVOICES.slice(0,4).map(function(i,n){return '<div class="mrow"><span>'+(n+1)+'. '+i.m+'</span><span>'+i.a.toFixed(2)+' ريال</span></div>'}).join('')+'</div>';
+  '<div class="box" id="monthSummary"><div class="box-head"><h3>ملخص الشهر</h3></div>'+
+  '<div class="mrow"><span>إجمالي الإنفاق</span><span data-rep-total>'+st.thisMonth.toLocaleString('en-US')+' ريال</span></div>'+
+  '<div class="mrow"><span>عدد الفواتير</span><span data-rep-count>'+st.thisCount+'</span></div>'+
+  (st.thisCount?'<div class="mrow"><span>متوسط الفاتورة</span><span>'+Math.round(st.thisMonth/st.thisCount)+' ريال</span></div>':'')+
+  (st.topCat?'<div class="mrow"><span>أعلى فئة</span><span data-rep-top>'+sectorLabel(st.topCat)+' ('+st.topPct+'%)</span></div>':'')+
+  '<div class="mrow"><span>متاجر لديك رصيد نقاط فيها</span><span>'+loyMerchantCount+'</span></div></div>'+
+  (top.length?'<div class="box" id="topMerchants" style="margin-top:14px"><div class="box-head"><h3>أكثر المتاجر زيارة</h3></div>'+
+  top.map(function(v,n){return '<div class="mrow"><span>'+(n+1)+'. '+v.m+'</span><span>'+v.n+(v.n===1?' زيارة':' زيارات')+'</span></div>'}).join('')+'</div>':'');
 }
 
 function more(){
@@ -2129,23 +2317,23 @@ function clearConfirmSheet(){
 }
 
 function profile(){
-  var total=CATS.reduce(function(s,c){return s+c.a},0);
+  var st=spendStats();
   var loyMerchantCount=MERCHANT_LOYALTY.filter(function(m){return m.points>0}).length;
   var opts=[{k:'notif',i:'bell',c:'#F59E0B',t:'تنبيهات الدور',s:'إشعار عند اقتراب دورك'},
             {k:'spend',i:'up',c:'#7C5CE6',t:'تنبيهات الإنفاق',s:'تنبيه عند تجاوز الميزانية'},
             {k:'offers',i:'gift',c:'#22A87A',t:'العروض والمكافآت',s:'استقبال العروض المخصصة'}];
   var links=[{i:'receipt',c:'#3B82F6',t:'وسائل الدفع',s:'إدارة البطاقات المرتبطة'},
-             {i:'store',c:'#7C5CE6',t:'المتاجر المفضلة',s:'٤ متاجر محفوظة'},
-             {i:'pin',c:'#22A87A',t:'العناوين',s:'المنزل، العمل'},
+             {i:'store',c:'#7C5CE6',t:'المتاجر المفضلة',s:'قريبًا'},
+             {i:'pin',c:'#22A87A',t:'العناوين',s:'قريبًا'},
              {i:'grid',c:'#64748B',t:'اللغة والمنطقة',s:'العربية · السعودية'}];
   return '<div class="sec-head" style="margin-top:20px"><h2>الملف الشخصي</h2></div>'+
-  '<div class="prof-hero"><div class="prof-av">'+((PROFILE.name||'ض').charAt(0))+'</div><div class="prof-id"><b>'+(PROFILE.name||'عميل NOJ')+'</b>'+
-  '<small>ahmed@noj.app</small><small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
+  '<div class="prof-hero"><div class="prof-av">'+escRes((greetingName()||'N').charAt(0))+'</div><div class="prof-id"><b>'+escRes(PROFILE.name||'عميل NOJ')+'</b>'+
+  '<small>+966 '+(A.phone?fmtPhone(A.phone):'5X XXX XXXX')+'</small>'+
   '<span class="prof-tier">'+ic('star',12,'#FBBF24',2)+' المستوى ال'+(PROFILE.tier||'برونزي')+'</span></div></div>'+
   '<div class="stats3">'+
     '<div class="st"><b>'+loyMerchantCount+'</b><small>متاجر برصيد نقاط</small></div>'+
-    '<div class="st"><b>'+INVOICES.length+'</b><small>فواتير الشهر</small></div>'+
-    '<div class="st"><b>'+total.toLocaleString('en-US')+'</b><small>إنفاق الشهر</small></div>'+
+    '<div class="st"><b data-prof-count>'+st.thisCount+'</b><small>فواتير الشهر</small></div>'+
+    '<div class="st"><b data-prof-total>'+st.thisMonth.toLocaleString('en-US')+'</b><small>إنفاق الشهر</small></div>'+
   '</div>'+
   '<div class="sec"><div class="sec-head"><h2>الإشعارات</h2></div><div class="list">'+
   opts.map(function(o){return '<div class="row"><div class="row-ico" style="background:'+o.c+'18">'+ic(o.i,22,o.c)+'</div>'+
@@ -2610,9 +2798,8 @@ function render(){
   // — تُحدَّث هنا دائماً بمعزل عن V[S.tab]() في أعلى الدالة.
   document.getElementById('consentOv').innerHTML=S.showConsent?consentSheet():'';
   bind();
-  var total=CATS.reduce(function(s,c){return s+c.a},0);
   var heroNum=document.getElementById('heroNum');
-  if(heroNum)countUp(heroNum,total,900,true);
+  if(heroNum)countUp(heroNum,parseFloat(heroNum.getAttribute('data-target'))||0,900,true);
   [].forEach.call(document.querySelectorAll('.loy-mid b[data-target]'),function(el){countUp(el,parseFloat(el.getAttribute('data-target'))||0,800,false)});
   window.scrollTo(0,0);
 }
@@ -2743,13 +2930,14 @@ function bind(){
       if(res.error) throw res.error;
       // only THIS merchant's balance changes — every other merchant's row
       // in MERCHANT_LOYALTY is untouched, so their rewards stay unaffected.
-      m.points=Number(res.data.points);
+      applyRedeemResult(m,res);
+      delete POINT_HISTORY[m.merchantId];
       render();
       toast('تم استبدال: '+r.t+' 🎉');
     }catch(e){
       console.error('NOJ redeem error:',e);
       b.disabled=false;
-      toast('تعذّر إتمام الاستبدال، حاول مرة أخرى');
+      toast(await redeemErrorMessage(m,e));
     }
   }});
 
@@ -2759,6 +2947,7 @@ function bind(){
     S.rewardsBack='loyalty';
     S.tab='merchantRewards';
     render();
+    openPointHistory(S.selMerchant);
   }});
 
   // فتح أحد أقسام صفحة المتجر (متاجري) من مربّع الشبكة — كل قسم صفحته
@@ -2774,6 +2963,7 @@ function bind(){
     else if(section==='alerts')S.tab='merchantAlerts';
     render();
     var m=USER_MERCHANTS.filter(function(x){return x.merchantId===id})[0];
+    if(section==='loyalty')openPointHistory(id);
     if(section==='queue')prefetchMerchantQueueData(m);
     if(section==='booking'&&m&&m.type==='صحة')prefetchMerchantHealthData(m);
     // المطعم والخدمات: تحديث صامت لحالة الحجوزات (قد يكون المتجر قبل طلباً)
@@ -2819,15 +3009,16 @@ function bind(){
         if(!sb) throw new Error('supabase-client-unavailable');
         var res=await sb.rpc('redeem_reward',{p_reward_id:r.id});
         if(res.error) throw res.error;
-        m.points=Number(res.data.points);
+        applyRedeemResult(m,res);
         S.confirmRedeem=null;
         render();
         toast('تم استبدال: '+r.t+' 🎉');
+        openPointHistory(m.merchantId);
       }catch(e){
         console.error('NOJ redeem error:',e);
         S.confirmRedeem=null;
         render();
-        toast('تعذّر إتمام الاستبدال، حاول مرة أخرى');
+        toast(await redeemErrorMessage(m,e));
       }
     };
   }
