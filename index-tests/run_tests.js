@@ -107,6 +107,8 @@ const appText = (page) => page.textContent('#app');
     check('2) خانتا التاريخ والوقت باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', resDirs.length === 2 && resDirs.every(Boolean));
     check('2) Safari (آيفون): dir="ltr" على خانتي التاريخ والوقت نفسيهما، وقاعدة تثبّت العنصر الداخلي للقيمة',
       (await page.$$eval('#resDate,#resTime', (els) => els.every((e) => e.getAttribute('dir') === 'ltr'))) && (await page.evaluate(() => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.selectorText && r.selectorText.indexOf('-webkit-date-and-time-value') !== -1 && r.style.direction === 'ltr' && r.style.unicodeBidi === 'normal')))));
+    const emptyShown = await page.$eval('#resDate', (e) => { const s = e.closest('.date-field').querySelector('[data-date-shown]'); return [s.textContent, s.classList.contains('empty')]; });
+    check('2) خانة التاريخ فارغة: "اختر التاريخ" بدل نص النظام', emptyShown[0] === 'اختر التاريخ' && emptyShown[1] === true);
     check('2) حدود التاريخ: من اليوم إلى 90 يوماً (بتوقيت الرياض)', (await page.getAttribute('#resDate', 'min')) === riyadhDate(0) && (await page.getAttribute('#resDate', 'max')) === riyadhDate(90));
     await page.click('#resSubmit');
     check('3) بلا تاريخ/وقت: رسالة واضحة ولا نداء للخادم', /اختر التاريخ والوقت/.test(await page.textContent('#resErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
@@ -116,6 +118,9 @@ const appText = (page) => page.textContent('#app');
     check('3) وقت مضى: رسالة الوقت ولا نداء', /بعد 15 دقيقة على الأقل/.test(await page.textContent('#resErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);
     const day = riyadhDate(3);
     await page.fill('#resDate', day);
+    check('3) التاريخ المختار يظهر نصّنا "YYYY/MM/DD" في عنصر ltr معزول (لا نص النظام المقلوب على أندرويد)',
+      (await page.$eval('#resDate', (e) => { const s = e.closest('.date-field').querySelector('[data-date-shown]'); return s.textContent === e.value.replace(/-/g, '/') && s.getAttribute('dir') === 'ltr' && getComputedStyle(e).opacity === '0'; })) &&
+      (await page.textContent('#resForm [data-date-shown]')) === day.replace(/-/g, '/'));
     await page.fill('#resTime', '20:00');
     await page.selectOption('#resParty', '4');
     await page.fill('#resNote', '  قرب النافذة <b>x</b>  ');
