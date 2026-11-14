@@ -105,6 +105,8 @@ const appText = (page) => page.textContent('#app');
     // the reversed placeholder only shows on Chrome Android — so the test checks our CSS sets it.
     const resDirs = await page.$$eval('#resDate,#resTime', (els) => els.map((e) => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.style && r.style.direction === 'ltr' && e.matches(r.selectorText)))));
     check('2) خانتا التاريخ والوقت باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', resDirs.length === 2 && resDirs.every(Boolean));
+    check('2) Safari (آيفون): dir="ltr" على خانتي التاريخ والوقت نفسيهما، وقاعدة تثبّت العنصر الداخلي للقيمة',
+      (await page.$$eval('#resDate,#resTime', (els) => els.every((e) => e.getAttribute('dir') === 'ltr'))) && (await page.evaluate(() => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.selectorText && r.selectorText.indexOf('-webkit-date-and-time-value') !== -1 && r.style.direction === 'ltr' && r.style.unicodeBidi === 'normal')))));
     check('2) حدود التاريخ: من اليوم إلى 90 يوماً (بتوقيت الرياض)', (await page.getAttribute('#resDate', 'min')) === riyadhDate(0) && (await page.getAttribute('#resDate', 'max')) === riyadhDate(90));
     await page.click('#resSubmit');
     check('3) بلا تاريخ/وقت: رسالة واضحة ولا نداء للخادم', /اختر التاريخ والوقت/.test(await page.textContent('#resErr')) && (await page.evaluate(() => window.__TEST__.getCalls('create_reservation'))).length === 0);

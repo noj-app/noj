@@ -901,6 +901,14 @@ async function loginFlow(page, phone, otp) {
     check('33ب) بطاقة "المبلغ المرتجع" (بدل "المسترد") = 110.00، والصافي 105.00', /المبلغ المرتجع/.test(cards) && !/المسترد/.test(cards) && /110\.00/.test(cards) && /105\.00/.test(cards));
     const badges = await page.$$eval('#invList .inv-row', (els) => els.map((e) => { const b = e.querySelector('[data-inv-refund]'); return b ? b.textContent : null; }));
     check('33ب) الشارة: "مُرجَعة" للكاملة، "مُرجَعة جزئياً" للجزئية، ولا شيء لغير المُرجَعة', JSON.stringify(badges) === JSON.stringify(['مُرجَعة', 'مُرجَعة جزئياً', null]));
+    const pts = await page.$$eval('#invList .inv-row', (els) => els.map((e) => {
+      const o = e.querySelector('[data-pts-orig]'), a = e.querySelector('[data-pts-after]');
+      return o ? [o.textContent, a.textContent] : null;
+    }));
+    check('33ب) نقاط الفاتورة المرتجعة: الأصلية مشطوبة ← بعد الإرجاع (كاملة 6 ← 0، جزئية 115 ← 65)، وغير المرتجعة بلا تغيير',
+      JSON.stringify(pts) === JSON.stringify([['6', '0'], ['115', '65'], null]) && /النقاط بعد الإرجاع/.test(await page.textContent('#invList')));
+    const plainPts = await page.$eval('#invList .inv-row:last-child', (e) => e.textContent);
+    check('33ب) الفاتورة بلا إرجاع: "النقاط 4" كما كانت', /النقاط\s*4/.test(plainPts) && !/بعد الإرجاع/.test(plainPts));
     const partRow = (await page.$$('#invList .inv-row'))[1];
     const partTxt = await partRow.textContent();
     check('33ب) الفاتورة الجزئية: "المبلغ المرتجع 50.00" و"الصافي 65.00"', /المبلغ المرتجع\s*50\.00/.test(partTxt) && /الصافي\s*65\.00/.test(partTxt));
@@ -1518,6 +1526,8 @@ async function loginFlow(page, phone, otp) {
     // a page rule, not getComputedStyle: desktop Chromium's UA sheet already makes date inputs ltr (bug is Android-only)
     const dirs = await page.$$eval('#invFrom,#invTo', (els) => els.map((e) => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.style && r.style.direction === 'ltr' && e.matches(r.selectorText)))));
     check('70) خانتا تاريخ الفواتير باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', dirs.length === 2 && dirs.every(Boolean));
+    check('70) Safari (آيفون): dir="ltr" على خانتي "من"/"إلى" نفسيهما، وقاعدة تثبّت العنصر الداخلي للقيمة (كان يعرض "202026/10/")',
+      (await page.$$eval('#invFrom,#invTo', (els) => els.every((e) => e.getAttribute('dir') === 'ltr'))) && (await page.evaluate(() => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.selectorText && r.selectorText.indexOf('-webkit-date-and-time-value') !== -1 && r.style.direction === 'ltr' && r.style.unicodeBidi === 'normal')))));
     await context.close();
   }
 

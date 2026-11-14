@@ -168,6 +168,9 @@
   .sec-h .btn-outline{padding:6px 12px}
   /* نفس إصلاح تطبيق نوج: خانات التاريخ والوقت LTR كي لا تنقلب "يوم/شهر/سنة" في RTL على Chrome أندرويد */
   input[type=date],input[type=time]{direction:ltr;text-align:right}
+  /* Safari (iPhone) يرسم قيمة التاريخ في عنصر داخلي يحدّد اتجاهه من النص نفسه لا من CSS الخانة، فتظهر
+     "202026/10/" بدل "2026/10/20" في صفحة RTL — dir="ltr" على الخانة نفسها + تثبيت العنصر الداخلي */
+  input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value{direction:ltr;unicode-bidi:normal;text-align:right}
   .tab-badge{display:inline-block;min-width:18px;padding:1px 6px;margin-inline-start:6px;border-radius:99px;background:var(--red);color:#fff;font-size:11px;font-weight:800;line-height:16px}
   .bk-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700}
   .bk-actions .btn-outline{font-size:12px}
@@ -1032,6 +1035,23 @@ async function loadInvoices(append){
   renderApp();
 }
 
+// نقاط الفاتورة بعد الإرجاع — للعرض فقط، invoices.points_earned لا يتغيّر. نفس معادلة الخادم في
+// intake_pos_refund/claim_unclaimed_invoices: round(points_earned × (amount − refunded) / amount)، بالهللات
+// (أعداد صحيحة) فلا انحراف عائم. مُرجَعة بالكامل ⇒ 0.
+function pointsAfterRefund(points,amount,refunded){
+  var p=Number(points||0),a=Math.round(Number(amount||0)*100),r=Math.round(Number(refunded||0)*100);
+  if(!(a>0)||r<=0)return p;
+  if(r>=a)return 0;
+  return Math.round(p*(a-r)/a);
+}
+function invPointsCellHtml(r,amount,refunded){
+  var orig=Number(r.points_earned||0);
+  if(!(refunded>0))return '<div>النقاط<b class="num">'+fmtNum(orig)+'</b></div>';
+  var after=pointsAfterRefund(orig,amount,refunded);
+  return '<div data-inv-points>النقاط بعد الإرجاع<b><s class="num" data-pts-orig style="color:var(--muted);font-weight:600">'+fmtNum(orig)+'</s> ← '+
+    '<span class="num" data-pts-after>'+fmtNum(after)+'</span></b></div>';
+}
+
 function invoiceRowHtml(r){
   var reg=r.customer_status==='registered';
   var refunded=Number(r.refunded_amount||0);
@@ -1046,7 +1066,7 @@ function invoiceRowHtml(r){
     '<div class="inv-nums">'+
       '<div>المبلغ<b>'+fmtMoneyHtml(r.amount)+'</b></div>'+
       '<div>الضريبة<b>'+fmtMoneyHtml(r.vat)+'</b></div>'+
-      '<div>النقاط<b class="num">'+fmtNum(r.points_earned)+'</b></div>'+
+      invPointsCellHtml(r,amount,refunded)+
       (refunded>0?'<div class="ref">المبلغ المرتجع<b>'+fmtMoneyHtml(refunded)+'</b></div>'+
         '<div data-inv-net>الصافي<b>'+fmtMoneyHtml(Math.max(0,amount-refunded))+'</b></div>':'')+
     '</div>'+
@@ -1080,8 +1100,8 @@ function invoicesViewHtml(){
     }).join('')+'</div>'+
     (S.preset==='custom'?
       '<div class="inv-range">'+
-        '<label class="form-f"><label>من</label><input type="date" id="invFrom" value="'+escAttr(S.from)+'"></label>'+
-        '<label class="form-f"><label>إلى</label><input type="date" id="invTo" value="'+escAttr(S.to)+'"></label>'+
+        '<label class="form-f"><label>من</label><input type="date" dir="ltr" id="invFrom" value="'+escAttr(S.from)+'"></label>'+
+        '<label class="form-f"><label>إلى</label><input type="date" dir="ltr" id="invTo" value="'+escAttr(S.to)+'"></label>'+
         '<button type="button" class="btn-outline" id="invApply">تطبيق</button>'+
       '</div>'+(S.customErr?'<div class="form-warn">'+escAttr(S.customErr)+'</div>':''):'')+
     '<label class="form-f" style="margin:0"><label>الفرع</label><select id="invBranch">'+
