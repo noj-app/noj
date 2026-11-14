@@ -247,6 +247,8 @@
   /* خانات التاريخ والوقت أرقام ورموز (يوم/شهر/سنة): اتجاه RTL الموروث من الصفحة كان يقلب العبارة
      الإرشادية على Chrome أندرويد ("موي/رهش/ةنس"). LTR مع محاذاة يمين تبقيها مقروءة وفي مكانها. */
   .res-l input[type=date],.res-l input[type=time]{direction:ltr;text-align:right}
+  /* Safari (iPhone): القيمة تُرسم في عنصر داخلي يأخذ اتجاهه من النص لا من CSS الخانة — نفس إصلاح لوحة التاجر */
+  .res-l input[type=date]::-webkit-date-and-time-value,.res-l input[type=time]::-webkit-date-and-time-value{direction:ltr;unicode-bidi:normal;text-align:right}
 
   /* صفحة مكافآت المتجر: أيقونة نوع المكافأة + دائرة نقاط + زر استبدال بعرض كامل */
   .rwd{padding:16px}
@@ -1965,8 +1967,8 @@ function healthFormHtml(m){
   return '<div class="box res-form" id="apptForm" style="margin-top:14px">'+
     '<b style="display:block;font-size:14px;margin-bottom:2px">'+escRes(f.clinicName)+'</b>'+
     (f.doctorName?'<small style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">'+escRes(f.doctorName)+'</small>':'')+
-    '<label class="res-l">التاريخ<input type="date" id="apptDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
-    '<label class="res-l">الوقت<input type="time" id="apptTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
+    '<label class="res-l">التاريخ<input type="date" dir="ltr" id="apptDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
+    '<label class="res-l">الوقت<input type="time" dir="ltr" id="apptTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
     '<label class="res-l">ملاحظة (اختياري)<textarea id="apptNote" maxlength="300" rows="2">'+escRes(f.note||'')+'</textarea></label>'+
     (f.err?'<div class="res-err" id="apptErr">'+escRes(f.err)+'</div>':'')+
     '<button class="btn" id="apptSubmit"'+(f.sending?' disabled':'')+'>'+(f.sending?'جارٍ الإرسال...':'إرسال طلب الموعد')+'</button>'+
@@ -2095,8 +2097,8 @@ function reservationFormHtml(m,kind){
   var partyOpts='';
   for(var i=1;i<=20;i++)partyOpts+='<option value="'+i+'"'+(String(f.party||2)===String(i)?' selected':'')+'>'+i+'</option>';
   return '<div class="box res-form" id="resForm" style="margin-top:14px">'+
-    '<label class="res-l">التاريخ<input type="date" id="resDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
-    '<label class="res-l">الوقت<input type="time" id="resTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
+    '<label class="res-l">التاريخ<input type="date" dir="ltr" id="resDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
+    '<label class="res-l">الوقت<input type="time" dir="ltr" id="resTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
     (kind==='table'
       ?'<label class="res-l">عدد الأشخاص<select id="resParty">'+partyOpts+'</select></label>'
       :serviceSelectHtml(m,f))+
