@@ -533,7 +533,6 @@
   .qstate{animation:fadeIn .4s ease .3s both}
   .qtop.now .qnum{animation:popIn .5s var(--ease-brand) both,floatY 2s ease-in-out .5s infinite}
   .now-alert{animation:popIn .4s var(--ease-brand) both,ringPulse 2s ease-out .4s infinite}
-  #qbtn:active svg{animation:spinOnce .5s ease}
 
   /* modal sheet */
   .ov{animation:fadeIn var(--dur-fade) ease both}
@@ -880,7 +879,7 @@ const NAV=[{id:'home',l:'الرئيسية',i:'home'},{id:'merchants',l:'متاج
 
 let PROFILE={id:null,name:'',phone:'',tier:'برونزي'};
 let QUEUE={ticket:null,label:'',merchantId:null,unitName:null};
-let S={tab:'home',q:{ahead:5,min:12,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',rewardsBack:'loyalty',showApptPicker:false,sw:{notif:true,spend:true,offers:false}};
+let S={tab:'home',q:{ahead:0,min:0,now:false},sel:null,selMerchant:null,query:'',merchQuery:'',bookQuery:'',loyQuery:'',rewardsBack:'loyalty',showApptPicker:false,sw:{notif:true,spend:true,offers:false}};
 const INITIAL_SW={notif:S.sw.notif,spend:S.sw.spend,offers:S.sw.offers};
 S.showClear=false;
 // true حتى ينجح أول جلب بيانات فعلي (تسجيل الدخول أو استعادة جلسة) —
@@ -936,12 +935,11 @@ async function loadUserData(profileId){
   var sb=await getSb();
   var results=await Promise.all([
     sb.from('invoices').select('id, amount, category, items, created_at, merchant_id, merchants(name, branch)').eq('user_id',profileId).order('created_at',{ascending:false}),
-    sb.from('queue_tickets').select('ticket_number, unit_name, position, est_minutes, merchant_id, merchants(name)').eq('user_id',profileId).eq('status','waiting').order('created_at',{ascending:false}).limit(1),
     sb.from('rewards').select('id, title, cost_points, merchant_id, merchants(name)').eq('active',true),
     sb.from('merchant_loyalty').select('merchant_id, points, tier, merchants(name, type, branch, logo_color)').eq('user_id',profileId)
   ]);
-  var invRes=results[0],ticketRes=results[1],rewardRes=results[2],loyRes=results[3];
-  if(invRes.error||ticketRes.error||rewardRes.error||loyRes.error) throw (invRes.error||ticketRes.error||rewardRes.error||loyRes.error);
+  var invRes=results[0],rewardRes=results[1],loyRes=results[2];
+  if(invRes.error||rewardRes.error||loyRes.error) throw (invRes.error||rewardRes.error||loyRes.error);
 
   INVOICES=(invRes.data||[]).map(function(row){
     var mName=row.merchants?row.merchants.name+(row.merchants.branch?' - '+row.merchants.branch:''):'متجر';
@@ -970,12 +968,8 @@ async function loadUserData(profileId){
   await Promise.all([loadPendingPoints(profileId),loadInvoiceRefunds(profileId)]);
   computeCats();
 
-  if(ticketRes.data&&ticketRes.data[0]){
-    var t=ticketRes.data[0];
-    QUEUE={ticket:t.ticket_number,label:(t.merchants?t.merchants.name:'')+(t.unit_name?' - '+t.unit_name:''),merchantId:t.merchant_id,unitName:t.unit_name};
-    S.q={ahead:t.position,min:t.est_minutes,now:t.position<=0};
-  }
-  // رقم الدور الحقيقي في طابور عيادة (إن وُجد اليوم) يحلّ محل ما سبق
+  // رقم الدور الحقيقي الوحيد: تذكرة اليوم من get_my_queue_status (طابور العيادات). أُزيلت القراءة
+  // القديمة لـqueue_tickets (position/est_minutes بلا مصدر حي — كانت تُظهر تذكرة قديمة كأنها حالية).
   await loadLiveQueue();
 
   await loadUserReservations(profileId);
@@ -1579,7 +1573,6 @@ function liveQueueCard(){
   '</div></div>';
 }
 function queue(){
-  var q=S.q;
   var bookable=USER_MERCHANTS.filter(function(m){return m.bookingEnabled});
   if(QUEUE.live){
     return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+liveQueueCard()+
@@ -1587,20 +1580,9 @@ function queue(){
         '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="bookQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.bookQuery+'"></div>'+
         '<div id="bookList">'+bookListHtml()+'</div></div>':'');
   }
+  // لا تذكرة حية: حالة فارغة صريحة — لا رقم تجريبي ولا زر محاكاة ولا "أهدأ وقت" (لا أرقام مختلقة)
   return '<div class="sec-head" style="margin-top:20px"><h2>الانتظار الذكي</h2></div>'+
-  '<div class="qcard"><div class="qtop'+(q.now?' now':'')+'"'+(q.now?' style="background:linear-gradient(135deg,#B91C1C,#E4572E)"':'')+'>'+
-    '<small>'+ic('pin',12,'#fff')+' '+(QUEUE.label||'—')+'</small>'+
-    '<div class="qnum">#'+(QUEUE.ticket!=null?QUEUE.ticket:'—')+'</div>'+
-    '<div class="qstate">'+(q.now?'حان دورك الآن — توجه للاستلام':'رقم تذكرتك')+'</div></div>'+
-  '<div class="qbody">'+
-    (q.now
-      ?'<div class="now-alert" style="display:flex;gap:10px;align-items:center;background:#FEF2F2;padding:12px;border-radius:12px;font-size:13px;font-weight:600">'+ic('check',20,'#E4572E')+' تم إشعارك — لديك 3 دقائق قبل انتقال الدور</div>'
-      :'<div class="qrow"><span>عدد الأشخاص قبلك</span><span>'+q.ahead+'</span></div>'+
-       '<div class="qrow"><span>الوقت المتوقع</span><span>~'+q.min+' دقيقة</span></div>'+
-       '<div class="track"><div class="fill" style="width:'+(100-q.ahead*18)+'%"></div></div>')+
-    '<button class="btn" id="qbtn">'+ic('refresh',16,'#fff')+' '+(q.now?'بدء محاكاة جديدة':'محاكاة تحديث الدور')+'</button>'+
-  '</div></div>'+
-  '<div class="note">بناءً على بيانات الازدحام السابقة، أهدأ وقت لزيارة هذا الفرع اليوم هو <b>3:00 - 4:30 عصرًا</b>.</div>'+
+  '<div id="queueEmpty">'+emptyState('لا يوجد لديك رقم دور حالياً','حين يُصدر لك مركز يستخدم نوج رقم دور، يظهر هنا ويتحدّث تلقائياً.')+'</div>'+
   (bookable.length?'<div class="sec"><div class="sec-head"><h2>احجز مسبقاً</h2></div>'+
     '<div class="pill-search">'+ic('search',16,'#8A93AD')+'<input id="bookQ" placeholder="ابحث بالاسم أو الفرع..." value="'+S.bookQuery+'"></div>'+
     '<div id="bookList">'+bookListHtml()+'</div></div>':'');
@@ -2163,7 +2145,7 @@ function clinicRowHtml(c,isMine){
       '<div class="qbody">'+
       '<div class="qrow"><span>عدد الأشخاص قبلك</span><span>'+S.q.ahead+'</span></div>'+
       '<div class="qrow"><span>الرقم الحالي بالعيادة</span><span>#'+(QUEUE.live&&S.q.nowServing!=null?S.q.nowServing:(c.nowServing!=null?c.nowServing:'—'))+'</span></div>'+
-      '<div class="qrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>'+
+      (c.estMinutes>0?'<div class="qrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>':'')+
       '</div></div>';
   }
   var level=c.waitingCount<=2?{l:'متاحة',c:'#22A87A'}:c.waitingCount<=6?{l:'متوسطة',c:'#F59E0B'}:{l:'مزدحمة',c:'#EF4444'};
@@ -2172,7 +2154,7 @@ function clinicRowHtml(c,isMine){
     (c.doctorName?'<p style="font-size:12px;color:var(--muted);margin-bottom:10px">'+c.doctorName+'</p>':'')+
     '<div class="mrow"><span>الرقم الحالي</span><span>#'+(c.nowServing!=null?c.nowServing:'—')+'</span></div>'+
     '<div class="mrow"><span>عدد المنتظرين</span><span>'+c.waitingCount+'</span></div>'+
-    '<div class="mrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>'+
+    (c.estMinutes>0?'<div class="mrow"><span>الوقت المتوقع</span><span>~'+c.estMinutes+' دقيقة</span></div>':'')+
   '</div>';
 }
 
@@ -2871,13 +2853,6 @@ function bind(){
       }
     };
   }
-
-  var qb=document.getElementById('qbtn');
-  if(qb)qb.onclick=function(){var q=S.q;
-    if(q.now)S.q={ahead:5,min:12,now:false};
-    else if(q.ahead<=1)S.q={ahead:0,min:0,now:true};
-    else S.q={ahead:q.ahead-1,min:Math.max(2,q.min-3),now:false};
-    render()};
 
   var qi=document.getElementById('q');
   if(qi)qi.oninput=function(e){var p=e.target.selectionStart;S.query=e.target.value;render();
