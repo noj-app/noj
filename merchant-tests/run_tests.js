@@ -1528,6 +1528,30 @@ async function loginFlow(page, phone, otp) {
     check('70) خانتا تاريخ الفواتير باتجاه ltr (لا "موي/رهش/ةنس" معكوسة على Chrome أندرويد)', dirs.length === 2 && dirs.every(Boolean));
     check('70) Safari (آيفون): dir="ltr" على خانتي "من"/"إلى" نفسيهما، وقاعدة تثبّت العنصر الداخلي للقيمة (كان يعرض "202026/10/")',
       (await page.$$eval('#invFrom,#invTo', (els) => els.every((e) => e.getAttribute('dir') === 'ltr'))) && (await page.evaluate(() => [...document.styleSheets].some((sh) => [...sh.cssRules].some((r) => r.selectorText && r.selectorText.indexOf('-webkit-date-and-time-value') !== -1 && r.style.direction === 'ltr' && r.style.unicodeBidi === 'normal')))));
+    // Chrome أندرويد يرسم نص خانة التاريخ بأداة النظام وصيغة لغة الجهاز فلا يصل إليه dir/CSS (ظهر "202026/10/"):
+    // التاريخ الظاهر نصّنا نحن في span معزول ltr، والخانة الأصلية شفافة فوقه (اللمس يفتح منتقي النظام نفسه)
+    const shown = await page.$$eval('#invFrom,#invTo', (els) => els.map((e) => {
+      const s = e.closest('.date-field').querySelector('[data-date-shown]');
+      return { text: s.textContent, dir: s.getAttribute('dir'), bidi: getComputedStyle(s).unicodeBidi, val: e.value, op: getComputedStyle(e).opacity };
+    }));
+    const today = await page.$eval('#invFrom', (e) => e.value);
+    check('70) أندرويد: التاريخ الظاهر نصّنا "YYYY/MM/DD" (= القيمة نفسها) في عنصر dir="ltr" معزول، والخانة الأصلية شفافة فوقه',
+      shown.length === 2 && shown.every((x) => x.text === x.val.replace(/-/g, '/') && /^\d{4}\/\d{2}\/\d{2}$/.test(x.text) && x.dir === 'ltr' && x.bidi === 'isolate' && x.op === '0'));
+    await page.fill('#invFrom', '2026-10-20');
+    await page.fill('#invTo', '2026-10-21');
+    check('70) تغيير التاريخ يحدّث النص الظاهر فوراً (2026/10/20 و2026/10/21)',
+      JSON.stringify(await page.$$eval('[data-date-shown]', (els) => els.map((e) => e.textContent))) === JSON.stringify(['2026/10/20', '2026/10/21']));
+    const box = await page.$eval('#invFrom', (e) => { const r = e.getBoundingClientRect(), b = e.closest('.date-field'); return [Math.round(r.width), Math.round(r.height), b.clientWidth, b.clientHeight]; });
+    check('70) الخانة الأصلية تغطي المربع كله (اللمس في أي مكان يفتح منتقي التاريخ)', box[0] === box[2] && box[1] === box[3] && box[0] > 50);
+    await page.click('#invApply');
+    await page.waitForFunction(() => window.__TEST__.getInvoiceCalls().some((c) => c.p_from === '2026-10-20'), null, { timeout: 3000 }).catch(() => {});
+    const lastCall = (await page.evaluate(() => window.__TEST__.getInvoiceCalls())).pop();
+    check('70) "تطبيق" يقرأ القيمة من الخانة الأصلية كما كان (2026-10-20..2026-10-21)', lastCall.p_from === '2026-10-20' && lastCall.p_to === '2026-10-21');
+    if (process.env.NOJ_SHOT_DIR) {
+      await page.setViewportSize({ width: 600, height: 900 });
+      await page.screenshot({ path: process.env.NOJ_SHOT_DIR + '/merchant-dates.png' });
+    }
+    void today;
     await context.close();
   }
 

@@ -243,6 +243,13 @@
   .res-form{display:flex;flex-direction:column;gap:12px}
   .res-l{display:flex;flex-direction:column;gap:6px;font-size:12.5px;font-weight:700;color:var(--muted)}
   .res-l input,.res-l select,.res-l textarea{width:100%;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);font-size:14px;color:var(--text);font-family:inherit;outline:none}
+  /* خانة التاريخ بعرض نصي خاص بنا (dateFieldHtml): الخانة الأصلية شفافة فوق النص */
+  .res-l .date-field{position:relative;display:block;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);font-size:14px;font-weight:400;min-height:44px;box-sizing:border-box}
+  .res-l .date-field:focus-within{border-color:var(--navy)}
+  .res-l .date-field .date-shown{display:block;unicode-bidi:isolate;text-align:right;color:var(--text);pointer-events:none}
+  .res-l .date-field .date-shown.empty{color:var(--muted)}
+  .res-l .date-field::after{content:'▾';position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px;pointer-events:none}
+  .res-l .date-field input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;padding:0;border:0;cursor:pointer}
   .res-err{font-size:12.5px;font-weight:700;color:#DC2626}
   /* خانات التاريخ والوقت أرقام ورموز (يوم/شهر/سنة): اتجاه RTL الموروث من الصفحة كان يقلب العبارة
      الإرشادية على Chrome أندرويد ("موي/رهش/ةنس"). LTR مع محاذاة يمين تبقيها مقروءة وفي مكانها. */
@@ -1967,7 +1974,7 @@ function healthFormHtml(m){
   return '<div class="box res-form" id="apptForm" style="margin-top:14px">'+
     '<b style="display:block;font-size:14px;margin-bottom:2px">'+escRes(f.clinicName)+'</b>'+
     (f.doctorName?'<small style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">'+escRes(f.doctorName)+'</small>':'')+
-    '<label class="res-l">التاريخ<input type="date" dir="ltr" id="apptDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
+    '<label class="res-l">التاريخ'+dateFieldHtml('apptDate',escRes(f.date||''),' min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'"')+'</label>'+
     '<label class="res-l">الوقت<input type="time" dir="ltr" id="apptTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
     '<label class="res-l">ملاحظة (اختياري)<textarea id="apptNote" maxlength="300" rows="2">'+escRes(f.note||'')+'</textarea></label>'+
     (f.err?'<div class="res-err" id="apptErr">'+escRes(f.err)+'</div>':'')+
@@ -2043,6 +2050,34 @@ function merchantBookingPage(){
 // مبنية على نظام المواعيد نفسه: نفس جدول appointments (نوع table/service)،
 // ونفس cancel_appointment() للإلغاء، والطلب الجديد عبر create_reservation().
 // الطلب يبدأ "بانتظار تأكيد المتجر" حتى يقبله التاجر من لوحته.
+
+/* خانة التاريخ: نعرض القيمة بأنفسنا (2026/10/20) في span معزول باتجاه ltr، والخانة الأصلية شفافة فوقه.
+   السبب: Chrome على أندرويد (وSafari) يرسم نص خانة التاريخ بأداة النظام وبصيغة لغة الجهاز (فيها علامات اتجاه)،
+   فلا يصل إليه dir ولا CSS الخانة — كانت تظهر "202026/10/" بدل "2026/10/20". اللمس ما زال على الخانة الأصلية نفسها
+   فيفتح منتقي التاريخ الأصلي، والقيمة تُقرأ منها كما كانت (value = YYYY-MM-DD). */
+function dateFieldText(v){return /^\d{4}-\d{2}-\d{2}$/.test(v||'')?String(v).replace(/-/g,'/'):''}
+function dateFieldHtml(id,value,extra){
+  var t=dateFieldText(value);
+  return '<span class="date-field"><span class="date-shown'+(t?'':' empty')+'" data-date-shown'+(t?' dir="ltr"':'')+'>'+(t||'اختر التاريخ')+'</span>'+
+    '<input type="date" dir="ltr" id="'+id+'" value="'+(t?String(value):'')+'"'+(extra||'')+'></span>';
+}
+function syncDateField(input){
+  var box=input&&input.closest&&input.closest('.date-field');
+  var shown=box&&box.querySelector('[data-date-shown]');
+  if(!shown)return;
+  var t=dateFieldText(input.value);
+  shown.textContent=t||'اختر التاريخ';
+  shown.classList.toggle('empty',!t);
+  if(t)shown.setAttribute('dir','ltr');else shown.removeAttribute('dir');
+}
+['input','change'].forEach(function(ev){document.addEventListener(ev,function(e){
+  if(e.target&&e.target.matches&&e.target.matches('.date-field input'))syncDateField(e.target);
+},true)});
+// نقرة على الخانة (حاسوب) تفتح المنتقي مباشرة؛ على الجوال يفتحه النظام أصلاً
+document.addEventListener('click',function(e){
+  var el=e.target;
+  if(el&&el.matches&&el.matches('.date-field input')&&el.showPicker){try{el.showPicker()}catch(_){}}
+},true);
 function escRes(v){
   return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]});
 }
@@ -2097,7 +2132,7 @@ function reservationFormHtml(m,kind){
   var partyOpts='';
   for(var i=1;i<=20;i++)partyOpts+='<option value="'+i+'"'+(String(f.party||2)===String(i)?' selected':'')+'>'+i+'</option>';
   return '<div class="box res-form" id="resForm" style="margin-top:14px">'+
-    '<label class="res-l">التاريخ<input type="date" dir="ltr" id="resDate" min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'" value="'+escRes(f.date||'')+'"></label>'+
+    '<label class="res-l">التاريخ'+dateFieldHtml('resDate',escRes(f.date||''),' min="'+riyadhDateIso(0)+'" max="'+riyadhDateIso(90)+'"')+'</label>'+
     '<label class="res-l">الوقت<input type="time" dir="ltr" id="resTime" step="900" value="'+escRes(f.time||'')+'"></label>'+
     (kind==='table'
       ?'<label class="res-l">عدد الأشخاص<select id="resParty">'+partyOpts+'</select></label>'
