@@ -155,6 +155,11 @@
   .inv-nums div{font-size:11.5px;color:var(--muted)}
   .inv-nums div b{display:block;margin-top:2px;font-size:13.5px;color:var(--text)}
   .inv-nums div.ref b{color:var(--red)}
+  .badge.ref{color:var(--red);background:rgba(239,68,68,.12)}
+  .inv-refunds{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:16px}
+  .inv-refunds>span{display:block;font-size:12px;font-weight:700;color:var(--muted)}
+  .inv-refunds b{display:block;margin-top:6px;font-size:21px;font-weight:800;color:var(--red)}
+  .inv-refunds p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.7}
   .num{direction:ltr;unicode-bidi:isolate;display:inline-block}
   b.num{text-align:right}
   .badge.warn{color:#B45309;background:rgba(245,158,11,.14)}
@@ -984,7 +989,7 @@ function invRange(preset){
 }
 function newInvState(){
   var r=invRange('today');
-  return {preset:'today',from:r.from,to:r.to,branchId:'',loading:false,loadingMore:false,err:'',customErr:'',summary:null,rows:[],hasMore:false,req:0};
+  return {preset:'today',from:r.from,to:r.to,branchId:'',loading:false,loadingMore:false,err:'',customErr:'',summary:null,rows:[],hasMore:false,req:0,refunds:null};
 }
 function fmtNum(n){return Number(n||0).toLocaleString('en-US')}
 function fmtMoneyHtml(n){
@@ -996,15 +1001,21 @@ async function loadInvoices(append){
   var S=M.inv;
   if(!S||!M.activeMerchantId)return;
   var myReq=++S.req;
-  if(append){S.loadingMore=true}else{S.loading=true;S.rows=[];S.summary=null;S.hasMore=false}
+  if(append){S.loadingMore=true}else{S.loading=true;S.rows=[];S.summary=null;S.hasMore=false;S.refunds=null}
   S.err='';
   renderApp();
   var sb=await getSb();
+  // ملخص المرتجعات ونقاطها (merchant_refunds_summary) بالتوازي، أفضل جهد: فشله (أو قبل تطبيق الملف) يُخفي
+  // بطاقته فقط ولا يمسّ الفواتير. لا يُعاد طلبه عند "تحميل المزيد" (نفس الفترة والفرع).
+  var refP=(sb&&!append)?sb.rpc('merchant_refunds_summary',{
+    p_merchant_id:M.activeMerchantId,p_from:S.from,p_to:S.to,p_branch_id:S.branchId||null
+  }).then(function(r){return r},function(){return {error:{message:'failed'}}}):null;
   var res=sb?await sb.rpc('merchant_list_invoices',{
     p_merchant_id:M.activeMerchantId,p_from:S.from,p_to:S.to,
     p_branch_id:S.branchId||null,p_include_demo:false,
     p_limit:INV_PAGE,p_offset:append?S.rows.length:0
   }):{error:{message:'no-client'}};
+  var refRes=refP?await refP:null;
   // رد متأخر لطلب سبقه طلب أحدث (تبديل فلتر سريع) أو لحالة أُهملت: يُتجاهَل.
   if(M.inv!==S||myReq!==S.req)return;
   S.loading=false;S.loadingMore=false;
@@ -1012,7 +1023,10 @@ async function loadInvoices(append){
     S.err='تعذّر تحميل الفواتير، حاول مرة أخرى.';
     renderApp();return;
   }
-  if(!append)S.summary=res.data.summary;
+  if(!append){
+    S.summary=res.data.summary;
+    S.refunds=(refRes&&!refRes.error&&refRes.data)?refRes.data:null;
+  }
   S.rows=S.rows.concat(res.data.rows||[]);
   S.hasMore=!!res.data.has_more;
   renderApp();
@@ -1021,18 +1035,39 @@ async function loadInvoices(append){
 function invoiceRowHtml(r){
   var reg=r.customer_status==='registered';
   var refunded=Number(r.refunded_amount||0);
+  var amount=Number(r.amount||0);
+  // refunded_amount من الخادم = المبلغ المرتجع الفعلي (status='refunded' بلا مبلغ = كامل الفاتورة)
+  var full=refunded>0&&refunded>=amount;
   return '<div class="inv-row">'+
     '<div class="inv-top"><b class="num">'+escAttr(r.created_at_riyadh)+'</b>'+
       '<span class="badge '+(reg?'active':'warn')+'">'+(reg?'مسجَّل':'غير مسجَّل بعد')+'</span></div>'+
     '<div class="inv-sub">'+escAttr(r.branch_name||'غير محدد')+' · '+escAttr(INV_SOURCE_LABELS[r.source]||'—')+
-      (r.status==='refunded'?' · مُرجَعة':'')+'</div>'+
+      (refunded>0?' <span class="badge ref" data-inv-refund>'+(full?'مُرجَعة':'مُرجَعة جزئياً')+'</span>':'')+'</div>'+
     '<div class="inv-nums">'+
       '<div>المبلغ<b>'+fmtMoneyHtml(r.amount)+'</b></div>'+
       '<div>الضريبة<b>'+fmtMoneyHtml(r.vat)+'</b></div>'+
       '<div>النقاط<b class="num">'+fmtNum(r.points_earned)+'</b></div>'+
-      (refunded>0?'<div class="ref">المسترد<b>'+fmtMoneyHtml(refunded)+'</b></div>':'')+
+      (refunded>0?'<div class="ref">المبلغ المرتجع<b>'+fmtMoneyHtml(refunded)+'</b></div>'+
+        '<div data-inv-net>الصافي<b>'+fmtMoneyHtml(Math.max(0,amount-refunded))+'</b></div>':'')+
     '</div>'+
   '</div>';
+}
+
+// بطاقة "نقاط غير مستردة من مرتجعات": نقاط كان يجب خصمها بإرجاع لكن العميل صرفها قبل وصوله (الرصيد لا يصبح
+// سالباً). الفترة هنا بوقت وصول الإرجاع، بخلاف بطاقات الفواتير (تاريخ الفاتورة). لا بطاقة حين لا بيانات (قبل تطبيق
+// الملف أو فشل القراءة) — لا أرقام مختلقة.
+function refundPointsCardHtml(rf){
+  if(!rf)return '';
+  var n=Number(rf.refund_count||0);
+  var parts=[];
+  parts.push(n?('من <span class="num">'+fmtNum(n)+'</span> '+(n===1?'عملية إرجاع':'عمليات إرجاع')+' وصلت في هذه الفترة (<span class="num">'+
+    Number(rf.refund_amount||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span> ر.س)'):'لم تصل أي عملية إرجاع في هذه الفترة');
+  if(Number(rf.points_deducted)>0)parts.push('خُصم من أرصدة العملاء <span class="num">'+fmtNum(rf.points_deducted)+'</span> نقطة');
+  if(Number(rf.points_cancelled)>0)parts.push('أُلغي <span class="num">'+fmtNum(rf.points_cancelled)+'</span> نقطة قبل إتاحتها');
+  return '<div class="inv-refunds" id="invRefundPoints"><span>نقاط غير مستردة من مرتجعات</span>'+
+    '<b class="num" id="invUnrecovered">'+fmtNum(rf.points_unrecovered)+'</b>'+
+    '<p>'+parts.join(' · ')+'</p>'+
+    '<p>نقاط صرفها العميل قبل وصول الإرجاع فلم يمكن خصمها (لا يصبح رصيد العميل سالباً).</p></div>';
 }
 
 function invoicesViewHtml(){
@@ -1065,9 +1100,9 @@ function invoicesViewHtml(){
     '<div class="inv-card"><span>عدد الفواتير</span><b class="num" id="invCount">'+fmtNum(sm.count)+'</b></div>'+
     '<div class="inv-card"><span>إجمالي المبيعات</span><b>'+fmtMoneyHtml(sm.sales)+'</b></div>'+
     '<div class="inv-card"><span>الضريبة</span><b>'+fmtMoneyHtml(sm.vat)+'</b></div>'+
-    '<div class="inv-card"><span>المسترد</span><b>'+fmtMoneyHtml(sm.refunded)+'</b></div>'+
+    '<div class="inv-card"><span>المبلغ المرتجع</span><b>'+fmtMoneyHtml(sm.refunded)+'</b></div>'+
     '<div class="inv-card net"><span>الصافي</span><b>'+fmtMoneyHtml(sm.net)+'</b></div>'+
-  '</div>';
+  '</div>'+refundPointsCardHtml(S.refunds);
   if(!S.rows.length){
     return html+'<div class="card"><div class="empty" id="invEmpty">لا فواتير في هذه الفترة.</div></div>';
   }

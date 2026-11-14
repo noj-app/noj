@@ -116,6 +116,7 @@ async function asServiceRole(fn) {
     'supabase-migration-health-appointments.sql',
     'supabase-migration-explicit-table-grants.sql',
     'supabase-migration-clinic-queue.sql',
+    'supabase-migration-merchant-refund-points.sql',
   ].map(f => path.join(REPO_ROOT, f));
   // a byte-level snapshot of everything the sector unification must NOT touch,
   // taken right before that migration runs (checked in section 21e)
@@ -3497,6 +3498,67 @@ async function asServiceRole(fn) {
     apply('supabase-migration-health-appointments.sql');
     check('clinic-queue migration is idempotent (and a re-run of the #112 file keeps it): no ticket, clinic or aggregate row changes',
       snap === (await all()) && (await admin(c => c.query(`select count(*)::int n from pg_trigger where tgname='trg_invoice_walk_in_queue'`))).rows[0].n === 1);
+  }
+
+  // =========================================================================
+  // 27) MERCHANT REFUNDS SUMMARY (supabase-migration-merchant-refund-points.sql,
+  //     PR4): per period (Riyadh dates, by refund arrival time) and optional
+  //     branch — count, amount, cancelled / deducted / unrecovered points.
+  //     Fresh merchants + direct pos_refunds rows so every total is exact.
+  // =========================================================================
+  {
+    const apply = (f) => execSync(`su postgres -c "psql -q -v ON_ERROR_STOP=1 -d noj_test -f '${path.join(REPO_ROOT, f)}'"`, { stdio: 'pipe' });
+    const mkMerchant = async (name) => (await admin(c => c.query(`insert into merchants (name, type, logo_color) values ($1,'بقالة','#000000') returning id`, [name]))).rows[0].id;
+    const RM = await mkMerchant('تاجر مرتجعات'), RM2 = await mkMerchant('تاجر مرتجعات آخر');
+    const RA = RM; // auto-mirrored branch
+    const RB = (await admin(c => c.query(`insert into branches (merchant_id, name) values ($1,'فرع ب') returning id`, [RM]))).rows[0].id;
+    const mkU = async (mid, role) => { const u = crypto.randomUUID(); await admin(c => c.query('insert into auth.users (id) values ($1)', [u]));
+      if (mid) await admin(c => c.query('insert into merchant_members (merchant_id, auth_user_id, role) values ($1,$2,$3)', [mid, u, role])); return u; };
+    const owner = await mkU(RM, 'owner'), staff = await mkU(RM, 'staff'), other = await mkU(RM2, 'owner'), stranger = await mkU(null);
+    let n = 0;
+    const addRefund = (branch, amount, cancelled, deducted, unrecovered, atIso) => admin(c => c.query(
+      `insert into pos_refunds (branch_id, external_ref, refund_ref, refund_amount, outcome, points_cancelled, points_deducted, points_unrecovered, result, created_at)
+       values ($1,$2,$3,$4,'x',$5,$6,$7,'{}'::jsonb,$8)`, [branch, 'R27-' + (++n), 'RR27-' + n, amount, cancelled, deducted, unrecovered, atIso]));
+    // 2026-03-10 Riyadh: 00:30 Riyadh = 2026-03-09 21:30 UTC (must count on the 10th, not the 9th)
+    await addRefund(RA, 50, 20, 0, 0, '2026-03-09T21:30:00Z');
+    await addRefund(RA, 30, 0, 10, 15, '2026-03-10T12:00:00Z');
+    await addRefund(RB, 20, 0, 5, 7, '2026-03-10T20:59:00Z');   // 23:59 Riyadh on the 10th
+    await addRefund(RB, 99, 0, 0, 100, '2026-03-10T21:00:00Z'); // 00:00 Riyadh on the 11th → outside the 10th
+    await addRefund(RM2, 70, 0, 0, 40, '2026-03-10T12:00:00Z'); // another merchant
+    const call = (uid, mid, from, to, br) => asUser(uid, async c => {
+      try { return { ok: true, r: (await c.query('select merchant_refunds_summary($1,$2,$3,$4) as r', [mid, from, to, br || null])).rows[0].r }; }
+      catch (e) { return { ok: false, msg: e.message }; }
+    });
+    const day = await call(owner, RM, '2026-03-10', '2026-03-10');
+    check('refunds summary: one Riyadh day — count 3, amount 100, cancelled 20, deducted 15, unrecovered 22 (00:30 Riyadh counts on its own day, 00:00 next day does not)',
+      day.ok && day.r.refund_count === 3 && Number(day.r.refund_amount) === 100 && day.r.points_cancelled === 20 && day.r.points_deducted === 15 && day.r.points_unrecovered === 22);
+    const br = await call(staff, RM, '2026-03-10', '2026-03-11', RB);
+    check('refunds summary: staff may read it too; branch filter keeps only that branch (2 refunds, unrecovered 107)',
+      br.ok && br.r.refund_count === 2 && br.r.points_unrecovered === 107 && Number(br.r.refund_amount) === 119);
+    const empty = await call(owner, RM, '2026-01-01', '2026-01-31');
+    check('refunds summary: an empty period returns zeros, not null',
+      empty.ok && empty.r.refund_count === 0 && Number(empty.r.refund_amount) === 0 && empty.r.points_unrecovered === 0);
+    check('refunds summary: closed payload keys (aggregates only — no invoice, customer or reference)',
+      JSON.stringify(Object.keys(day.r).sort()) === JSON.stringify(['points_cancelled', 'points_deducted', 'points_unrecovered', 'refund_amount', 'refund_count']));
+    const rej = [await call(other, RM, '2026-03-10', '2026-03-10'), await call(stranger, RM, '2026-03-10', '2026-03-10'),
+      await call(owner, RM, '2026-03-10', '2026-03-10', RM2), await call(owner, RM, '2026-03-11', '2026-03-10')];
+    check('refunds summary: another merchant\'s owner, a non-member, a foreign branch and a reversed period are all rejected',
+      rej.every((x) => !x.ok) && /التاجر/.test(rej[0].msg) && /التاجر/.test(rej[1].msg) && /الفرع/.test(rej[2].msg) && /فترة/.test(rej[3].msg));
+    const own = await call(other, RM2, '2026-03-10', '2026-03-10');
+    check('refunds summary: each merchant sees only its own refunds (other merchant: 1 refund, unrecovered 40)', own.ok && own.r.refund_count === 1 && own.r.points_unrecovered === 40);
+    const pr = await admin(c => c.query(`select has_function_privilege('anon','public.merchant_refunds_summary(uuid,date,date,uuid)','execute') a,
+      has_function_privilege('authenticated','public.merchant_refunds_summary(uuid,date,date,uuid)','execute') u,
+      has_table_privilege('authenticated','public.pos_refunds','select') t`));
+    check('refunds summary: executable by authenticated, NOT by anon; pos_refunds itself stays unreadable by clients', pr.rows[0].a === false && pr.rows[0].u === true && pr.rows[0].t === false);
+    // real data path: a deducted refund written by intake_pos_refund() shows up with the same numbers it returned to pos-intake
+    const real = await admin(c => c.query(`select coalesce(sum(points_unrecovered),0)::int u, count(*)::int n from pos_refunds where branch_id = '20000000-0000-0000-0000-000000000002'`));
+    const ownerG = await mkU('20000000-0000-0000-0000-000000000002', 'staff');
+    const all = await call(ownerG, '20000000-0000-0000-0000-000000000002', '2000-01-01', '2100-01-01');
+    check('refunds summary: matches the pos_refunds rows intake_pos_refund() wrote in section 21c (same count and unrecovered total)',
+      all.ok && all.r.refund_count === real.rows[0].n && all.r.points_unrecovered === real.rows[0].u && real.rows[0].n > 0);
+    const snap = JSON.stringify((await admin(c => c.query('select * from pos_refunds order by id'))).rows);
+    apply('supabase-migration-merchant-refund-points.sql');
+    check('refund-points migration is idempotent (re-run changes no row)', snap === JSON.stringify((await admin(c => c.query('select * from pos_refunds order by id'))).rows));
   }
 
   // =========================================================================
